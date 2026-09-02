@@ -661,7 +661,10 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         // Probe cache keys carry the identity anchor: a workbench book's
         // anchor is admin-mutable, and a swapped anchor must never replay
         // the prior child's cached renders.
-        identityKeyed: true,
+        // ce-9: an admin per-spread re-render of a CUSTOMER book sends
+        // identityKeyed:false so the fresh render lands on the customer's
+        // un-salted cache key (and the next /generate-book replays it).
+        identityKeyed: body.identityKeyed !== false,
         seed: Number.isInteger(body.seed) ? body.seed : null,
         probeNonce: body.probeNonce || null,
         costTracker,
@@ -706,6 +709,11 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         // callback has one stable shape; per-spread findings ride
         // qa.advisories.
         worldQa: art.worldQa || null,
+        // ce-9: contact-sheet gate verdict, the bible the probe rendered
+        // against, and any spreads whose BLOCKING defects survived.
+        contactQa: art.contactQa || null,
+        bookBible: art.bookBible || null,
+        unresolved: art.unresolved || [],
         aspect: art.aspect,
         costs: costTracker.getSummary(),
       };
@@ -724,11 +732,93 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         advisories: [],
         // Same stable shape as the success payload: the gate never ran here.
         worldQa: null,
+        contactQa: null,
+        bookBible: null,
+        unresolved: [],
         costs: costTracker.getSummary(),
       };
     }
     await postWithRetry(callbackUrl, payload);
   })();
+});
+
+// POST /v13/prepare-identity — build (or fetch) the Book Bible's IDENTITY
+// KIT for one anchor: the character model sheet + the outfit spec derived
+// from it (ce-9, plan §7.2). Synchronous like /v13/generate-cover-image —
+// the app calls it when the parent approves a cover so the sheet is ready
+// before /generate-book (which builds it lazily if absent; GCS election
+// makes both paths converge on one sheet). Returns the callback-shaped
+// bookBible summary (signed URLs, hashes, spec text, advisories).
+app.post('/v13/prepare-identity', authenticate, async (req, res) => {
+  const body = req.body || {};
+  const { bookId } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  const isHttp = u => typeof u === 'string' && /^https?:\/\//i.test(u);
+  const anchorUrl = isHttp(body.approvedCoverUrl) ? body.approvedCoverUrl : null;
+  const childPhotoUrl = Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls.find(isHttp) || null : null;
+  if (!anchorUrl && !childPhotoUrl) {
+    return res.status(400).json({ success: false, error: 'no approvedCoverUrl and no childPhotoUrls — an identity kit needs an anchor', failureCode: 'missing_identity_reference' });
+  }
+  const rawProfile = body.profile && typeof body.profile === 'object' ? body.profile : {};
+  const rawName = rawProfile.name;
+  if (rawName !== undefined && rawName !== null && (typeof rawName !== 'string' || /[\u0000-\u001f\u007f]/.test(rawName))) {
+    return res.status(400).json({ success: false, error: 'profile.name must be a plain string (no control characters)' });
+  }
+  const profile = {
+    name: typeof rawName === 'string' ? rawName.normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, 60) : null,
+    age: Number.isInteger(rawProfile.age) && rawProfile.age >= 1 && rawProfile.age <= 10 ? rawProfile.age : null,
+  };
+  if (body.characterDescription !== undefined && body.characterDescription !== null
+    && (typeof body.characterDescription !== 'string' || /[\u0000-\u001f\u007f]/.test(body.characterDescription))) {
+    return res.status(400).json({ success: false, error: 'characterDescription must be a plain string (no control characters)' });
+  }
+  const characterDescription = typeof body.characterDescription === 'string' ? body.characterDescription.trim().slice(0, 400) || null : null;
+  const costTracker = new CostTracker();
+  const log = (level, msg) => console.log(`[prepareIdentity:${bookId}] ${msg}`);
+  try {
+    const { prepareIdentity } = require('./services/catalogEngine/illustrator/bible');
+    const bookBible = await prepareIdentity({
+      bookId,
+      anchorUrl: anchorUrl || childPhotoUrl,
+      childPhotoUrl: anchorUrl ? childPhotoUrl : null,
+      profile, characterDescription, costTracker, log,
+    });
+    return res.json({ success: true, bookId, bookBible, costs: costTracker.getSummary() });
+  } catch (err) {
+    console.error(`[prepareIdentity:${bookId}] failed:`, err.message);
+    const status = err.failureCode === 'identity_kit_failed' ? 422 : (err.failureCode === 'missing_identity_reference' ? 400 : 500);
+    return res.status(status).json({
+      success: false, bookId, error: err.message,
+      failureCode: err.failureCode || null,
+      ...(Array.isArray(err.advisories) && err.advisories.length > 0 ? { advisories: err.advisories } : {}),
+      costs: costTracker.getSummary(),
+    });
+  }
+});
+
+// POST /v13/pick-candidate — promote one scored candidate render (from a
+// consistency_unresolved failure payload) to its spread's canonical cache
+// key with an admin-vouched QA marker, so the next /generate-book dispatch
+// (without forceRerender) replays it into the PDFs (ce-9, plan §5.5).
+app.post('/v13/pick-candidate', authenticate, async (req, res) => {
+  const body = req.body || {};
+  const { bookId, storageKey } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (typeof storageKey !== 'string' || storageKey.length > 512) {
+    return res.status(400).json({ success: false, error: 'storageKey (a candidate render key of this book) is required' });
+  }
+  try {
+    const { pickCandidate } = require('./services/catalogEngine/illustrator/candidates');
+    const r = await pickCandidate({ bookId, candidateKey: storageKey, log: (level, msg) => console.log(`[pickCandidate:${bookId}] ${msg}`) });
+    return res.json({ success: true, bookId, spread: r.spread, storageKey: r.storageKey, renderHash: r.renderHash });
+  } catch (err) {
+    console.error(`[pickCandidate:${bookId}] failed:`, err.message);
+    return res.status(err.statusCode || 500).json({ success: false, bookId, error: err.message });
+  }
 });
 
 // POST /v13/generate-cover-image — admin probe-anchor cover for the
@@ -954,6 +1044,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
         // and why, attempt by attempt — same shape as the probe callback's
         // failures[].
         ...(err.renderFailures?.length ? { renderFailures: err.renderFailures } : {}),
+        // ce-9 graded ship policy (consistency_unresolved): the spreads whose
+        // BLOCKING defects survived candidates + repairs, each with its scored
+        // candidate renders (signed URLs + storage keys) for the admin's
+        // pick-candidate / re-render-spread decision, plus the bible.
+        ...(err.unresolved?.length ? { unresolved: err.unresolved } : {}),
+        ...(err.qaAdvisories?.length ? { qaAdvisories: err.qaAdvisories } : {}),
+        ...(err.bookBible ? { bookBible: err.bookBible } : {}),
         logs: bookContext.logs,
       };
       if (callbackUrl) await postWithRetry(callbackUrl, failure);

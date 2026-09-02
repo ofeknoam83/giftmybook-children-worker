@@ -69,12 +69,23 @@ Do NOT describe the child's face, hair, body, pose, or the background. "outerwea
 
 Answer STRICT JSON only:
 {
-  "top": {"desc": "<color, pattern/graphic, style, sleeve length>", "visibility": "seen"|"inferred"},
-  "bottom": {"desc": "<color, style/cut, where the hem reaches>", "visibility": "seen"|"inferred"},
-  "footwear": {"desc": "<shoe type and color, socks if visible>", "visibility": "seen"|"inferred"},
-  "outerwear": {"desc": "<color, style>", "visibility": "seen"|"inferred"} | null,
+  "top": {"desc": "<color, pattern/graphic, style, sleeve length>", "visibility": "seen"|"inferred", "colourHex": ["#rrggbb"]},
+  "bottom": {"desc": "<color, style/cut, where the hem reaches>", "visibility": "seen"|"inferred", "colourHex": ["#rrggbb"]},
+  "footwear": {"desc": "<shoe type and color, socks if visible>", "visibility": "seen"|"inferred", "colourHex": ["#rrggbb"]},
+  "outerwear": {"desc": "<color, style>", "visibility": "seen"|"inferred", "colourHex": ["#rrggbb"]} | null,
   "accessories": [{"desc": "<item and color>", "visibility": "seen"|"inferred"}]
 }`;
+
+/**
+ * ce-9: the same extraction from a CHARACTER MODEL SHEET (front / three-
+ * quarter / back, full body) — every slot is visible, so nothing may be
+ * inferred; an "inferred" required slot is a derivation failure the caller
+ * falls back from (to the cover-derived lock, with an advisory).
+ */
+const OUTFIT_PROMPT_SHEET = OUTFIT_PROMPT
+  .replace('from its approved character reference image', 'from its CHARACTER MODEL SHEET — the child shown full-body from the front, three-quarter and back in the complete book outfit')
+  .replace('If a slot is NOT visible in the image (for example the legs are cropped out), you MUST still fill it: elect ONE plausible completion consistent with the visible clothing and mark it "inferred". Never leave a required slot empty and never write "not visible" — the lock needs one fixed complete outfit.',
+    'Every garment is visible on the sheet (legs and shoes included): describe exactly what the sheet shows and mark every slot "seen". Give each garment\'s dominant colour(s) as 1-3 hex values.');
 
 /** @param {string} key @returns {boolean} still inside the failure cooldown */
 function inFailureCooldown(key) {
@@ -122,6 +133,12 @@ function anchorHash(anchorUrl) {
  * structured spec (they simply stop being read; a v2 spec re-derives). */
 function outfitLockPath(hash) {
   return `catalog-assets/outfit-locks/v2/${hash}.json`;
+}
+
+/** ce-9: sheet-derived specs live under v3/, keyed by the SHEET's content
+ * hash — never by the anchor (whose v2 lock may still exist beside it). */
+function outfitLockPathV3(sheetHash) {
+  return `catalog-assets/outfit-locks/v3/${sheetHash}.json`;
 }
 
 /**
@@ -173,7 +190,13 @@ function cleanSlot(slot) {
   // hash), so an off-enum value normalizes to 'seen' instead of rejecting
   // an otherwise-usable garment description.
   const visibility = slot?.visibility === 'inferred' ? 'inferred' : 'seen';
-  return { desc, visibility };
+  // ce-9: optional machine-readable colours (metrics.js compares the
+  // render's garment regions against them). Validated hex only, max 3.
+  const colourHex = (Array.isArray(slot?.colourHex) ? slot.colourHex : [])
+    .filter(h => typeof h === 'string' && /^#[0-9a-f]{6}$/i.test(h))
+    .map(h => h.toLowerCase())
+    .slice(0, 3);
+  return colourHex.length > 0 ? { desc, visibility, colourHex } : { desc, visibility };
 }
 
 /** A required slot must actually carry the color/garment/length detail. */
@@ -236,7 +259,7 @@ function renderOutfitSpec(json) {
  * @returns {Promise<{spec: object, outfit: string}>} sanitized structured
  *   spec + the rendered sentence that gets pinned on renders
  */
-async function deriveOutfit(refPhoto) {
+async function deriveOutfit(refPhoto, source = 'anchor') {
   const apiKey = getNextApiKey();
   const resp = await fetchWithTimeout(
     `${GEMINI_API}/${OUTFIT_MODEL()}:generateContent?key=${apiKey}`,
@@ -247,7 +270,7 @@ async function deriveOutfit(refPhoto) {
         contents: [{
           role: 'user',
           parts: [
-            { text: OUTFIT_PROMPT },
+            { text: source === 'sheet' ? OUTFIT_PROMPT_SHEET : OUTFIT_PROMPT },
             { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
           ],
         }],
@@ -262,6 +285,12 @@ async function deriveOutfit(refPhoto) {
   const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
   const rendered = renderOutfitSpec(json);
   if (!rendered) throw new Error('outfit vision returned no usable spec');
+  if (source === 'sheet') {
+    // A sheet shows every garment: an inferred required slot means the
+    // model did not read the sheet — refuse rather than pin a guess.
+    const inferred = ['top', 'bottom', 'footwear'].filter(k => rendered.spec[k]?.visibility === 'inferred');
+    if (inferred.length > 0) throw new Error(`sheet-derived spec has inferred slot(s): ${inferred.join(', ')}`);
+  }
   return rendered;
 }
 
@@ -276,24 +305,29 @@ async function deriveOutfit(refPhoto) {
  * @returns {Promise<{outfit: string, hash: string}|null>} null when
  *   disabled or on any failure — the caller renders without the lock.
  */
-async function getOutfitLock({ anchorUrl, refPhoto, log = () => {} }) {
+async function getOutfitLock({ anchorUrl, refPhoto, source = 'anchor', sourceHash = null, log = () => {} }) {
   try {
     if (!flags.outfitLockEnabled()) return null;
     if (!anchorUrl || !refPhoto?.base64) return null;
-    const key = anchorHash(anchorUrl);
+    // ce-9: a SHEET-derived spec is keyed by the sheet's content hash
+    // (v3 path) — the anchor may stay the same while its elected sheet
+    // changes with STYLE_VERSION, and the two specs must never be confused.
+    const fromSheet = source === 'sheet' && typeof sourceHash === 'string' && sourceHash;
+    const key = fromSheet ? `sheet-${sourceHash}` : anchorHash(anchorUrl);
     const hit = cacheGet(key);
     if (hit) return hit;
     if (inFailureCooldown(key)) return null;
     if (_inFlight.has(key)) return _inFlight.get(key);
 
     const resolve = (async () => {
-      const path = outfitLockPath(key);
+      const path = fromSheet ? outfitLockPathV3(sourceHash) : outfitLockPath(key);
       try {
         const cached = await downloadBuffer(path).catch(() => null);
         if (cached) {
-          const stored = cleanOutfit(JSON.parse(cached.toString('utf8'))?.outfit);
+          const blob = JSON.parse(cached.toString('utf8'));
+          const stored = cleanOutfit(blob?.outfit);
           if (stored) {
-            const spec = { outfit: stored, hash: fnv1a(stored).toString(36) };
+            const spec = { outfit: stored, hash: fnv1a(stored).toString(36), ...(fromSheet ? { source: 'sheet' } : {}), ...(blob?.spec && typeof blob.spec === 'object' ? { spec: blob.spec } : {}) };
             cacheSet(key, spec);
             return spec;
           }
@@ -303,25 +337,28 @@ async function getOutfitLock({ anchorUrl, refPhoto, log = () => {} }) {
           return null;
         }
         log('info', `outfit lock for anchor ${key} not cached — deriving (${path})`);
-        const derived = await deriveOutfit(refPhoto);
+        const derived = await deriveOutfit(refPhoto, fromSheet ? 'sheet' : 'anchor');
         // Create-if-absent elects ONE winning spec per anchor; losers adopt
         // the winner so every instance pins the same words (and the same
         // cache-key hash) — a forked description would fork the render key.
         // The structured slots ride the blob for diagnostics; the rendered
         // sentence is what gets pinned (and hashed).
         let elected = derived.outfit;
-        const body = Buffer.from(JSON.stringify({ spec: derived.spec, outfit: derived.outfit, derivedAt: new Date().toISOString() }));
+        let electedSpec = derived.spec;
+        const body = Buffer.from(JSON.stringify({ spec: derived.spec, outfit: derived.outfit, source: fromSheet ? 'sheet' : 'anchor', derivedAt: new Date().toISOString() }));
         const { created } = await uploadBufferIfAbsent(body, path, 'application/json');
         if (!created) {
           const winner = await downloadBuffer(path);
-          const stored = cleanOutfit(JSON.parse(winner.toString('utf8'))?.outfit);
+          const winnerBlob = JSON.parse(winner.toString('utf8'));
+          const stored = cleanOutfit(winnerBlob?.outfit);
           if (!stored) {
             recordFailure(key);
             return null;
           }
           elected = stored;
+          electedSpec = winnerBlob?.spec && typeof winnerBlob.spec === 'object' ? winnerBlob.spec : null;
         }
-        const spec = { outfit: elected, hash: fnv1a(elected).toString(36) };
+        const spec = { outfit: elected, hash: fnv1a(elected).toString(36), ...(fromSheet ? { source: 'sheet' } : {}), ...(electedSpec ? { spec: electedSpec } : {}) };
         cacheSet(key, spec);
         return spec;
       } catch (err) {
@@ -340,4 +377,4 @@ async function getOutfitLock({ anchorUrl, refPhoto, log = () => {} }) {
   }
 }
 
-module.exports = { getOutfitLock, outfitLockPath, anchorHash, cleanOutfit, renderOutfitSpec };
+module.exports = { getOutfitLock, outfitLockPath, outfitLockPathV3, anchorHash, cleanOutfit, renderOutfitSpec, OUTFIT_PROMPT_SHEET };

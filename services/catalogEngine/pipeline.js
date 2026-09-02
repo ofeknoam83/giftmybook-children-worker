@@ -238,23 +238,43 @@ async function runBookPipeline(params) {
     renderKeys: art.entries.map(e => e.spreadIllustrationStorageKey),
   });
 
-  // ── Upsell covers (baked into the interior; non-blocking, 4-min cap) ─────
-  let upsellWithBuffers = [];
+  // ── The approved cover's bytes: the printed front cover AND the upsell
+  // reference (downloaded once; a failed download degrades each consumer
+  // separately, never the book).
+  let approvedCoverBuffer = null;
   if (approvedCoverUrl) {
     try {
-      onProgress('assembly', 0.85, 'Generating next-story covers...');
       const coverAbort = new AbortController();
       const coverTimer = setTimeout(() => coverAbort.abort(), 30000);
       const coverResp = await fetch(approvedCoverUrl, { signal: coverAbort.signal }).finally(() => clearTimeout(coverTimer));
       if (!coverResp.ok) throw new Error(`cover fetch HTTP ${coverResp.status}`);
-      const frontCoverBuffer = Buffer.from(await coverResp.arrayBuffer());
+      approvedCoverBuffer = Buffer.from(await coverResp.arrayBuffer());
+    } catch (coverErr) {
+      log('warn', `approved cover could not be downloaded (${coverErr.message}) — the wrap cover falls back to a re-render anchored on its URL and the upsell spread is skipped`);
+      qaAdvisories.push({ stage: 'cover', spread: 'cover', note: `approved cover download failed (${coverErr.message}); the printed cover was re-rendered from the anchor instead of using the approved pixels` });
+    }
+  }
+
+  // ── Upsell covers (baked into the interior; non-blocking, 4-min cap) ─────
+  let upsellWithBuffers = [];
+  if (approvedCoverBuffer) {
+    try {
+      onProgress('assembly', 0.85, 'Generating next-story covers...');
+      const frontCoverBuffer = approvedCoverBuffer;
       const gender = profile.pronouns.subject === 'he' ? 'male' : profile.pronouns.subject === 'she' ? 'female' : 'neutral';
       const upsellPromise = generateUpsellCovers(
         bookId,
         { name: profile.name, childName: profile.name, age: profile.age, childAge: profile.age, gender, childGender: gender },
         frontCoverBuffer,
         bookTitle,
-        { costTracker, characterDescription: characterDescription || null, theme: getBook(story.request.book_id).themeId },
+        {
+          costTracker, characterDescription: characterDescription || null, theme: getBook(story.request.book_id).themeId,
+          // ce-9: the upsell spread prints INSIDE the same book — its four
+          // renders wear the book's locked outfit and anchor on the character
+          // model sheet, not on a 256px cover thumbnail alone.
+          characterOutfit: art.bible?.outfit?.outfit || null,
+          characterSheet: art.bible?.sheet ? { base64: art.bible.sheet.base64, mimeType: art.bible.sheet.mimeType || 'image/png' } : null,
+        },
       ).catch(e => { log('warn', `Upsell covers failed (non-blocking): ${e.message}`); return []; });
       const raced = await Promise.race([upsellPromise, new Promise(r => setTimeout(() => r(null), 4 * 60 * 1000))]);
       const upsellCovers = raced === null ? [] : raced;
@@ -309,6 +329,15 @@ async function runBookPipeline(params) {
       costTracker, bookId, pageCount, synopsis,
       heartfeltNote, bookFrom, bindingType,
       coverSourceUrl: approvedCoverUrl || '',
+      // ce-9: the PRINTED front cover is the parent-approved cover's own
+      // pixels (harmonized only when the source is not provably 3D). Before
+      // ce-9 the wrap rendered a fresh, title-less, un-anchored cover here —
+      // generateFrontCoverImage received no photo bytes, so the physical
+      // cover showed a different child than the one the parent approved.
+      ...(approvedCoverBuffer ? { preGeneratedCoverBuffer: approvedCoverBuffer } : {}),
+      // Fallback (download failed): at least anchor the re-render on the
+      // approved cover URL instead of rendering an undescribed child.
+      ...(!approvedCoverBuffer && approvedCoverUrl ? { childPhotoUrl: approvedCoverUrl } : {}),
     });
     if (coverData?.coverPdfBuffer) {
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
@@ -374,9 +403,18 @@ async function runBookPipeline(params) {
     // one stable shape. Per-spread world findings already ride qaAdvisories
     // (stage 'worldQa').
     worldQa: art.worldQa || null,
+    // ce-9: the contact-sheet gate verdict (same stable-shape rule) and the
+    // Book Bible summary (character sheet / outfit spec / prop sheets /
+    // hashes) the renders were pinned to — the app persists it as
+    // storyContent.bookBible and the bench shows it.
+    contactQa: art.contactQa || null,
+    bookBible: art.bookBible || null,
     storyContent,
     upsellCovers: upsellWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
-    qaAdvisories: qaAdvisories.slice(0, 40),
+    // ce-9: blocking-class findings first, then the rest, capped at 80 (a
+    // 12-spread book with candidates, set gates and layout notes can exceed
+    // the old 40 — the drift findings must never be the ones dropped).
+    qaAdvisories: [...qaAdvisories.filter(a => /BLOCKING|consistency|identity|outfit|prop /i.test(String(a.note))), ...qaAdvisories.filter(a => !/BLOCKING|consistency|identity|outfit|prop /i.test(String(a.note)))].slice(0, 80),
     warnings,
   };
 }

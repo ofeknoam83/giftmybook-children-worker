@@ -1383,6 +1383,14 @@ function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyl
   if (identity.characterAnchor) {
     parts.push(`PHYSICAL IDENTITY LOCK: ${identity.characterAnchor}`);
   }
+  // ce-9: the upsell spread prints inside the same book — the child wears
+  // the book's locked outfit (the sheet, when attached, is the pixel truth).
+  if (identity.characterSheet) {
+    parts.push(`CHARACTER MODEL SHEET: the FIRST attached image is ${childName}'s model sheet (front, three-quarter, back) — it is the identity AND outfit ground truth; the second image is the approved cover (colours). Use both ONLY for who the child is and what they wear; never copy their pose, composition, or the sheet's studio background.`);
+  }
+  if (identity.characterOutfit) {
+    parts.push(`OUTFIT (locked for the whole book, identical to every interior illustration — every garment, colour and length; nothing added, nothing removed): ${String(identity.characterOutfit).replace(/[\u0000-\u001F\u007F]+/g, ' ').slice(0, 700)}`);
+  }
 
   parts.push(`Book cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom.\n\nWARDROBE RULE: ${childName}'s clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos, no national flags. Plain fabric or generic letter-free emblems only.\n\nART STYLE: ${styleBlock}`);
 
@@ -1418,6 +1426,17 @@ async function generateUpsellCoverImage(title, childName, childAge, childGender,
   const model = 'gemini-3.1-flash-image';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
+  // ce-9: the character model sheet (when the book has one) rides FIRST as
+  // the identity + outfit reference; the cover thumbnail follows for colours.
+  const refParts = identity.characterSheet && identity.characterSheet.base64
+    ? [
+      { text: 'REFERENCE IMAGE 1 — CHARACTER MODEL SHEET (identity and the complete outfit)' },
+      { inline_data: { mimeType: identity.characterSheet.mimeType || 'image/png', data: identity.characterSheet.base64 } },
+      { text: 'REFERENCE IMAGE 2 — APPROVED COVER (colours and materials; never its composition or title)' },
+      { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
+    ]
+    : [{ inline_data: { mimeType: 'image/jpeg', data: refBase64 } }];
+
   // Use fetchWithTimeout (same as illustrationGenerator) — 3 min per cover
   const resp = await fetchWithTimeout(url, {
     method: 'POST',
@@ -1425,7 +1444,7 @@ async function generateUpsellCoverImage(title, childName, childAge, childGender,
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
         { text: prompt },
-        { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
+        ...refParts,
       ]}],
       generationConfig: {
         responseModalities: ['TEXT', 'IMAGE'],
@@ -1491,6 +1510,10 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
     characterAnchor: opts.characterAnchor || null,
     theme: opts.theme || null,
     momDescription: opts.momDescription || null,
+    // ce-9: the book's locked outfit + character model sheet (kill-switch
+    // CATALOG_UPSELL_OUTFIT_LOCK=0 lets the upsell covers dress freely again).
+    characterOutfit: process.env.CATALOG_UPSELL_OUTFIT_LOCK === '0' ? null : (opts.characterOutfit || null),
+    characterSheet: process.env.CATALOG_UPSELL_OUTFIT_LOCK === '0' ? null : (opts.characterSheet || null),
   };
 
   console.log(`[coverGenerator] Generating upsell covers for ${childName} (age=${childAge}, gender=${childGender})...`);

@@ -1,6 +1,16 @@
 # Illustration consistency — the Book Bible, the reference pack, and the selection gate (plan, ce-9)
 
-> **Status: proposed** (2026-09-02). Nothing here is implemented. This plan
+> **Status: implemented on this branch as `ce-9`** (2026-09-02) — Phases 1-4
+> of §10 are code: `illustrator/bible/{index,characterSheet,propSheet}.js`,
+> `emotionPlan.js`, `metrics.js`, `contactSheet.js`, `select.js`,
+> `candidates.js`, `spreadQa.js` v2, the renderer's reference pack + bible
+> blocks, the orchestrator's candidates / repair / contact-sheet gate /
+> ship policy, `/v13/prepare-identity` + `/v13/pick-candidate`, and the
+> app-side wiring (see the standalone repo). Phase 0 (bench probe of the
+> reference-image limit, embedding-backend spike, threshold calibration) and
+> the §10.6 validation recipe remain OPERATIONAL follow-ups — the metrics
+> ship opt-in until calibrated. See "§12 What the implementation also
+> changed" for the audit findings that landed beyond this plan. The plan
 > supersedes the per-symptom approach of ce-4…ce-8 for the traits it covers;
 > it keeps every established principle (fixed inputs, no chaining, closed
 > vocabularies, bounded budgets, cache-key folds, kill-switches, the beat is
@@ -638,6 +648,58 @@ allows", which lets the sheet reproduce rather than complete the lower body.
 5. **Sheet source.** Default: cover (+ photo when supplied). If policy later
    allows stronger photo likeness in the cover, the sheet inherits it
    automatically.
+
+## 12. What the implementation also changed (audit findings beyond the plan)
+
+The adversarially verified audit that preceded implementation (4 trait-pair
+auditors, 4 skeptics, 1 completeness critic — 9 agents, every gap checked
+against code) surfaced drift sources this plan had not named. ce-9 closes
+these too:
+
+- **The printed front cover was not the approved cover.** `runBookPipeline`
+  called `generateCover` with neither `preGeneratedCoverBuffer` nor photo
+  bytes; `generateFrontCoverImage` therefore rendered a fresh, title-less,
+  un-anchored child for the physical cover. ce-9 downloads the approved
+  cover once and prints its own pixels (`preGeneratedCoverBuffer`; the
+  harmonize step still applies when the source is not provably 3D).
+- **The upsell spread printed four un-gated child renders in invented
+  outfits inside the same book.** ce-9 passes the locked outfit spec and
+  attaches the character sheet as REFERENCE 1 to every upsell render
+  (`CATALOG_UPSELL_OUTFIT_LOCK=0` opts out).
+- **The safety-fallback ladder silently discarded the scene.** The
+  `sanitized` rung regex-stripped words like *bare/love/kiss* from the
+  outfit spec and story text; the `generic-safe` rung dropped the action,
+  props and continuity lines, and its acceptance was console-only. ce-9
+  sanitizes the SCENE only, re-attaches the bible blocks on the last rung,
+  sends `GEMINI_IMAGE_SAFETY_SETTINGS` (defined in config.js, never sent),
+  and puts a stage `render` advisory on any non-`original` acceptance.
+- **The world-law card contradicted the outfit lock on whole themes**
+  (under_the_sea: "fabrics float, nothing stays dry" vs "never add
+  swimwear, never remove shoes"; space: "suits and helmets" vs "never
+  helmets"), and the bath/water exemption matched zero catalog beats. In
+  bible mode the legacy "FORBIDDEN OUTFIT CHANGES" block no longer renders;
+  the outfit is whatever the approved cover — already a theme-appropriate
+  wardrobe — shows, reproduced by the sheet.
+- **Two themes' companions are human adults the renderer forbade twice**
+  (Farmer Bea, Builder Sam — 38 books) via the NO FAMILY MEMBERS and
+  BACKGROUND rules. The COMPANION block now names the fictional guide as
+  explicitly allowed; the no-other-humans rule applies to everyone else.
+- **The QA marker carried no checker version and a 40-item advisory cap
+  dropped findings silently.** Markers record `qaVersion` + the verdict and
+  an `unresolved` flag; advisories are capped at 80 with blocking-class
+  notes first.
+- **Bench and customer prompts differed beyond the anchor**: the
+  `characterAnchor`-only blocks never fired for customers because the app
+  sent `null`. The app now falls back to the persisted `childAppearance`.
+- **Selection inside one render call was OCR-only.** The renderer accepted
+  the first attempt (or the first whose painted text matched); outfit and
+  identity never influenced which sample shipped. Candidate selection now
+  scores every sample against the bible.
+
+Still open (operational, not code): the customer anchor is a 7-day signed
+URL persisted verbatim (the app should persist the GCS path and re-sign on
+dispatch), and the metric thresholds/embedding backend need the Phase 0
+bench calibration before `CATALOG_IDENTITY_METRICS=1` is switched on.
 
 ## Appendix — evidence index
 

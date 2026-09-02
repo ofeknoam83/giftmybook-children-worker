@@ -6,6 +6,16 @@
  * keying, and the full-book path still failing loudly on a missing buffer.
  */
 
+// ce-9: these suites pin the pre-bible render path (one candidate rendered
+// straight to the shipped key; no character/prop sheets, no emotion plan).
+// The Book Bible has its own suites (characterSheet, propSheet, emotionPlan,
+// metrics, contactSheet, bibleIndex); here it is switched off so the legacy
+// cache/replay/repair contracts stay observable on their own.
+process.env.CATALOG_CHARACTER_SHEET = '0';
+process.env.CATALOG_PROP_SHEETS = '0';
+process.env.CATALOG_EMOTION_PLAN = '0';
+process.env.CATALOG_RENDER_CANDIDATES = '1';
+
 jest.mock('../../../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn(),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'b64', mimeType: 'image/jpeg' }),
@@ -484,6 +494,7 @@ describe('bench final book: identityKeyed + seed replay the approved probe rende
 });
 
 describe('outfit lock arms the renderer and rides the cache key', () => {
+  let lockedKey = null;
   // v2 (ce-8): the derivation answers a STRUCTURED per-slot spec; the lock
   // pins the rendered sentence built from it.
   const outfitJson = () => ({
@@ -514,7 +525,7 @@ describe('outfit lock arms the renderer and rides the cache key', () => {
     fetchWithTimeout.mockRejectedValue(new Error('offline test'));
   });
 
-  test('the derived spec reaches every render as characterOutfit and folds -o into the key', async () => {
+  test('the derived spec reaches every render as characterOutfit and folds into the -b bible key', async () => {
     fetchWithTimeout.mockImplementation(async (url, opts) => {
       const body = JSON.parse(opts.body);
       const prompt = body.contents[0].parts[0].text || '';
@@ -525,7 +536,10 @@ describe('outfit lock arms the renderer and rides the cache key', () => {
     const { results, outfitLockUsed, advisories } = await renderStorySpreads(baseParams({
       childPhotoUrl: 'https://photos.example/outfit-child-A.png?sig=1',
     }));
-    expect(results[0].storageKey).toContain('-o');
+    // ce-9: the outfit spec's hash rides the ONE bible fold (-b{bibleHash})
+    // — a locked and a lock-less run never share a key (see the next test).
+    expect(results[0].storageKey).toMatch(/-b[0-9a-z]+/);
+    lockedKey = results[0].storageKey;
     for (const call of generateIllustration.mock.calls) {
       expect(call[3].characterOutfit).toBe(RENDERED_SPEC);
     }
@@ -544,7 +558,9 @@ describe('outfit lock arms the renderer and rides the cache key', () => {
       childPhotoUrl: 'https://photos.example/outfit-child-B.png?sig=1',
     }));
     expect(results[0].buffer).not.toBeNull();
-    expect(results[0].storageKey).not.toContain('-o');
+    // Lock-less renders fold a DIFFERENT bible hash than the locked run above.
+    expect(results[0].storageKey).toMatch(/-b[0-9a-z]+/);
+    if (lockedKey) expect(results[0].storageKey.replace(/spread-\d+\..*$/, '')).not.toBe(lockedKey.replace(/spread-\d+\..*$/, ''));
     expect(generateIllustration.mock.calls[0][3].characterOutfit).toBeUndefined();
     // Never silent: a lock-less run with the switch ON says so on the callback.
     expect(outfitLockUsed).toBe('none');
@@ -560,7 +576,7 @@ describe('outfit lock arms the renderer and rides the cache key', () => {
       spreadNos: [1], spreads: [1],
       childPhotoUrl: 'https://photos.example/outfit-child-C.png?sig=1',
     }));
-    expect(results[0].storageKey).not.toContain('-o');
+    expect(results[0].storageKey).toMatch(/-b[0-9a-z]+/);
     // Disabled-by-kill-switch is an operator choice, not an advisory.
     expect(outfitLockUsed).toBe('none');
     expect(advisories).toEqual([]);
@@ -569,8 +585,10 @@ describe('outfit lock arms the renderer and rides the cache key', () => {
 
 describe('QA marker integrity (renderHash)', () => {
   const { fnv1a } = require('../../../services/catalogEngine/selection');
+  const { QA_VERSION } = require('../../../services/catalogEngine/versions');
+  // ce-9: a marker vouches only under the CURRENT checker version.
   const markerFor = (bytes, advisories = []) => Buffer.from(JSON.stringify({
-    advisories, tuningTag: 'none', renderHash: fnv1a(bytes.toString('base64')).toString(36),
+    advisories, tuningTag: 'none', renderHash: fnv1a(bytes.toString('base64')).toString(36), qaVersion: QA_VERSION,
   }));
 
   test('a marker whose renderHash matches the cached bytes replays without rendering or re-checking', async () => {

@@ -70,7 +70,26 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // pinned specs while the world gate judges composition_duplicate. Scene
 // prompts and prompt assembly changed for every book — ce-7 renders must
 // never replay as ce-8.
-const STYLE_VERSION = 'ce-8';
+// ce-9: the Book Bible + selection gate — every render anchors on a per-
+// anchor CHARACTER MODEL SHEET (bible/characterSheet.js; the outfit spec now
+// derives from the sheet, every slot seen) plus per-prop / companion
+// reference sheets (bible/propSheet.js) attached as a labeled REFERENCE PACK,
+// the prompt is restructured into single CHARACTER / PROPS / COMPANION /
+// EMOTION blocks (buildCharacterPrompt bible mode), spreads render N
+// candidates scored by the structured QA verdict v2 (spreadQa.js, the sheets
+// attached to the check) and the better one is selected, and blocking
+// residual defects fail the book `consistency_unresolved` instead of
+// shipping. Prompt assembly, reference parts, and scene prompts all changed
+// — ce-8 renders must never replay as ce-9.
+const STYLE_VERSION = 'ce-9';
+
+/**
+ * Spread-QA verdict version — written into every render's `.qa.json`
+ * marker. A replay whose marker predates the current version re-checks the
+ * cached render instead of trusting a verdict the older checker produced
+ * (ce-9: shipped drift stops being permanent).
+ */
+const QA_VERSION = 'qa-2';
 
 module.exports = {
   WRITER_ENGINE_VERSION,
@@ -80,4 +99,5 @@ module.exports = {
   SELECTOR_VERSION,
   PROMPT_TEMPLATE_VERSION,
   STYLE_VERSION,
+  QA_VERSION,
 };
