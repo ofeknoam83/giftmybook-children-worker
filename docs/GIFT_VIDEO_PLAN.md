@@ -1,6 +1,8 @@
 # Gift Video — the 10-second animated story film (plan, gv-1)
 
-> **Status:** plan only — nothing on this branch ships code. **Revision 2 (2026-09-02):** the
+> **Status:** plan only — nothing on this branch ships code. **Revision 3 (2026-09-02):**
+> Replicate is the default host for Kling 3.0 — the existing `REPLICATE_API_TOKEN`, no new
+> credential (owner decision). **Revision 2 (2026-09-02):** the
 > product is a FULLY ANIMATED film — every frame is generated motion; there is no stills / Ken
 > Burns mode and no silent degrade to one. Revision 1's stills reel was rejected by the owner.
 > Google's documentation hosts and every video vendor's docs were unreachable from the planning
@@ -70,7 +72,7 @@ difference decides the default provider:
 
 | model | animates an illustrated child? | identity references | clip length | notes |
 |---|---|---|---|---|
-| **Kling 3.0** (Kuaishou; official API, also hosted by fal.ai / Replicate / Segmind) | No published restriction on non-sexual depictions of minors; general moderation only — **verify empirically in Phase 0** | **Elements**: up to 3 elements, up to 3 reference images each, referenced in the prompt (`@Element1`); image-to-video only on 3.0 | 3–15 s, start frame + optional end frame, multi-shot up to 5 segments in one clip | `negative_prompt`, `cfg_scale`, 720p/1080p, native audio optional (off is cheaper) |
+| **Kling 3.0** (Kuaishou; on Replicate as `kwaivgi/kling-v3-video` — the account we already hold — and on fal.ai / Segmind; official API too) | No published restriction on non-sexual depictions of minors; general moderation only — **verify empirically in Phase 0** | **Elements**: up to 3 elements, up to 3 reference images each, referenced in the prompt (`@Element1`); image-to-video only on 3.0 | 3–15 s, start frame + optional end frame, multi-shot up to 5 segments in one clip | `negative_prompt`, `cfg_scale`, 720p/1080p, native audio optional (off is cheaper) |
 | **Runway Gen-4 Turbo** (official API) | Semantic moderation; child-safety policy targets sexualization / romantic context; no allowlisting possible — **verify** | none (single start image) | 5 or 10 s, 720p 24 fps | $0.05/s; cheapest credible option, weakest identity control |
 | **Google Veo 3.1 / 3.1 Fast** (Gemini API / Vertex AI) | Only with `personGeneration: allow_all`, which is **allowlist-only** (per-project requests on the Google AI forum name Vertex AI + `us-central1`); the Gemini API in EU/UK/CH/MENA locations allows `allow_adult` only, and the worker runs in `europe-west1` | up to 3 reference images (`referenceType: asset`), first + last frame | 4 / 6 / 8 s (8 s with references), extension +7 s at 720p | ≈ $0.15/s Fast … $0.40/s; **the allowlist request is filed in Phase 0 regardless** |
 | OpenAI Sora 2 API | **No** — input reference images containing a human face (real or drawn) are rejected outright | — | — | excluded |
@@ -79,7 +81,11 @@ difference decides the default provider:
 Decision: **Kling 3.0 is the default provider** — it is the only one that takes the identity
 kit as an explicit reference (Elements = the character sheet's three views, the companion sheet,
 the carried-prop sheet), it supports the exact clip lengths the plan needs (3 s) and an end
-frame, and it carries no minors allowlist. **Veo is the second provider**, enabled per project
+frame, and it carries no minors allowlist. It is reached through **Replicate with the
+existing `REPLICATE_API_TOKEN`** — no new credential; the token only needs promoting to a
+worker env var (§5.3). fal.ai is the alternative host, at about half the per-second price
+(§8), if Replicate's Kling 3.0 endpoint turns out not to expose Elements (open decision 1).
+**Veo is the second provider**, enabled per project
 once Google grants `allow_all` on Vertex AI (a `us-central1` Vertex endpoint is the region the
 allowlist requests cite; using it is a Vertex deployment choice the business confirms against
 its Google Cloud terms — the plan does not proxy anything through a region to dodge a policy).
@@ -101,10 +107,11 @@ model painted in (models love signage). The ffmpeg graph never draws text.
 
 ### 2.3 Cost and time are dominated by the clips, and the clips are non-deterministic
 
-Four segments × N candidates × 3 s ≈ 24 generated seconds per film at N = 2 — about $2 at
-Kling 3.0 Standard 1080p (≈ $0.084/s audio-off on fal.ai; the official API bills 6–8 credits
-per second — **verify**), $2.7 at Pro, $1.20 at Runway Turbo, $3.60 at Veo Fast — plus repairs
-(§4.5) and ≈ $0.15 of verification. Identity drifts over a clip's duration (the model
+Four segments × N candidates × 3 s ≈ 24 generated seconds per film at N = 2 — about $4 on
+Replicate's Kling 3.0 endpoint (`kwaivgi/kling-v3-video`, ≈ $0.168/s audio-off — **verify**;
+fal.ai lists Kling 3.0 Standard at ≈ $0.084/s, so the existing-account choice costs roughly
+twice per film), $1.20 at Runway Turbo, $3.60 at Veo Fast — plus repairs (§4.5) and ≈ $0.15
+of verification. Identity drifts over a clip's duration (the model
 interpolates away from the start frame), so clips are SHORT (3 s), motion is explicitly
 "subtle", references are attached, and verification samples the worst frame, not the first.
 Wall clock is 2–5 minutes per clip at the vendor; with eight clips in flight a film takes
@@ -166,7 +173,10 @@ L360-393) for a book, `renders[].storageKey` (`server.js` L674-690) for a round 
   `REPLICATE_API_TOKEN` into worker calls (`cloudrun.js` L300) and drives the Replicate
   predictions API itself (`adminFunctions.js` L2003, L2039); `costTracker.js` L17-18 still
   carries `replicate-faceid` / `replicate-flux` rates. fal.ai is tracked as a call type in the
-  app but has no live code. Neither Kling's official API nor Runway is wired anywhere.
+  app but has no live code. Neither Kling's official API nor Runway is wired anywhere. The
+  worker's Cloud Run revision does NOT carry the Replicate token as an env var (`deploy.yml`
+  L85 lists Gemini / OpenAI / DeepSeek only) — §5.3 promotes it; until then the body-injected
+  copy is the fallback the adapter accepts.
 - **Storage:** `uploadBuffer` (30-day signed URL), `uploadBufferIfAbsent` (election,
   `gcsStorage.js` L39-50), `downloadBuffer`, `getSignedUrl(source, ms)`, `saveJson` /
   `loadJson`. Vendors take start frames and references BY URL — a 1-hour signed URL of the
@@ -292,12 +302,14 @@ ce-9 rule). `filtered` (a vendor moderation refusal) is recorded per candidate w
 vendor's reason and counts as a failed candidate; `CATALOG_VIDEO_PROVIDER_FALLBACK` (default
 none) names a second provider tried ONLY for a `filtered` candidate, through the same brief and
 the same verification. Every poll tick touches the book context (§5.2) and the 30 s heartbeat
-reports "animating (k/n)". Adapters: `fal.js` (queue API: submit → `request_id`, status and
-result endpoints, `Authorization: Key`), `replicate.js` (`POST /v1/models/{owner}/{name}/predictions`,
-`GET /v1/predictions/{id}` — the account the app already holds), `kling.js` (official API:
-JWT from access key + secret, `POST /v1/videos/image2video`, task polling), `veo.js` (Vertex
-`predictLongRunning` + `fetchPredictOperation`, ADC on Cloud Run), `runway.js`
-(`/v1/image_to_video`, task polling). Exact request fields are **verify-at-build** items; the
+reports "animating (k/n)". Adapters: `replicate.js` (DEFAULT — `POST /v1/models/kwaivgi/kling-v3-video/predictions`,
+`GET /v1/predictions/{id}`, `Authorization: Bearer` with the token the app already holds;
+Replicate also hosts Veo, Hailuo and Wan under the same call shape, so a model swap is a
+config change), `fal.js` (queue API: submit → `request_id`, status and result endpoints,
+`Authorization: Key` — the alternative host, new key), `veo.js` (Vertex `predictLongRunning`
++ `fetchPredictOperation`, ADC on Cloud Run), `runway.js` (`/v1/image_to_video`, task polling
+— bake-off control, new key). No adapter for Kling's official API: it needs two new
+credentials for no capability the hosts lack. Exact request fields are **verify-at-build** items; the
 loop, the cache and the verifier do not depend on them. Phase 0 decides which adapters ship
 first (open decision 1).
 
@@ -380,7 +392,7 @@ advisories.
 | `plan.js` | `buildFilmPlan`, duration table, motion table, enums |
 | `brief.js` | `buildClipBrief` (pure), `renderRepairNote`, `briefHash` |
 | `stills.js` | key regex, start-frame resolution, embedded re-render, text gate |
-| `providers/{fal,replicate,kling,veo,runway}.js` + `providers/index.js` | the adapter interface (§4.4), `providerFor(flags)` |
+| `providers/{replicate,fal,veo,runway}.js` + `providers/index.js` | the adapter interface (§4.4), `providerFor(flags)`; `replicate` ships first |
 | `generate.js` | candidates, polling, deadlines, clip cache, filtered handling, fallback provider |
 | `verify.js` | frame sampling, `checkSpreadRenderV2` orchestration, transcription, the video judge, scoring |
 | `ffmpeg.js` | `buildStitchCommand` (pure), `extractFrames`, `runFfmpeg`, `probeOutput` |
@@ -400,7 +412,7 @@ Request (identity fields are `/v13/render-spreads`'s, so the app reuses `buildWo
   "profile": { "name": "…", "age": 4 },
   "approvedCoverUrl": "https://…", "childPhotoUrls": ["…"], "characterDescription": "…",
   "textLayout": "half", "illustrationTuning": {…}, "identityKeyed": true, "seed": 7, "probeNonce": "…",
-  "provider": "fal", "model": "fal-ai/kling-video/v3/standard/image-to-video",
+  "provider": "replicate", "model": "kwaivgi/kling-v3-video",
   "aspect": "16:9", "music": "none", "forceNew": false
 }
 ```
@@ -409,7 +421,7 @@ Validation before the 202, in the `/v13/render-spreads` order (`server.js` L564-
 `BOOK_ID_RE`; `callbackUrl`; `renders` 1–12 entries, unique spreads, every key passing the
 §4.3 regex for THIS `bookId`; `story` → `resolveStory` (`pipeline.js` L43-131) → `getBookForTag`
 (`missing_book_definition`); `normalizeProfile`; `validateArtTuningInput`; `provider` / `model`
-∈ the configured allowlist (`videoProviders()`, default `[fal]`; omitted → the default);
+∈ the configured allowlist (`videoProviders()`, default `[replicate]`; omitted → the default);
 `aspect` ∈ `16:9|9:16`; `music`; **anchor required always** (`missing_identity_reference`) —
 the character sheet is the identity reference of every clip, so `prepareIdentity` must have
 run or `buildBookBible` runs first, and `identity_kit_failed` is inherited; `seed` integer.
@@ -423,7 +435,7 @@ Callback — one stable shape, every key present on failure:
 ```json
 {
   "success": true, "bookId": "…", "dispatchId": "gv_…", "engine": "catalog-v13", "videoVersion": "gv-1",
-  "provider": "fal", "model": "fal-ai/kling-video/v3/standard/image-to-video",
+  "provider": "replicate", "model": "kwaivgi/kling-v3-video",
   "video": { "url": "…", "storageKey": "…/video.mp4", "posterUrl": "…", "posterKey": "…", "hash": "…",
              "durationSeconds": 10, "width": 1920, "height": 1080, "fps": 30, "bytes": 0, "music": "none", "cached": false },
   "plan": [{ "index": 0, "kind": "cover", "spread": null, "seconds": 2.4, "motion": "push-in",
@@ -458,21 +470,25 @@ marker, returns `{success, bookId, segment, storageKey, clipHash}`.
 - `versions.js`: `VIDEO_VERSION = 'gv-1'` with the bump-comment convention.
 - `flags.js` (zero-arg): `giftVideoEnabled()` (`CATALOG_GIFT_VIDEO`, kill — the endpoint
   answers 503 `gift_video_disabled`), `videoProviders()` (`CATALOG_VIDEO_PROVIDERS`, default
-  `fal`), `videoModel()` (`CATALOG_VIDEO_MODEL`, default the Kling 3.0 Standard image-to-video
-  id on the chosen host), `videoProviderFallback()` (`CATALOG_VIDEO_PROVIDER_FALLBACK`, default
+  `replicate`), `videoModel()` (`CATALOG_VIDEO_MODEL`, default `kwaivgi/kling-v3-video`), `videoProviderFallback()` (`CATALOG_VIDEO_PROVIDER_FALLBACK`, default
   none), `videoPersonGeneration()` (`CATALOG_VIDEO_PERSON_GENERATION`, Veo only, default
   `allow_all` — Veo is not selectable until the allowlist exists, so the default is the value the
   allowlist grants), `videoClipCandidates()` (2, 1–3), `videoClipMaxRepairs()` (2, 0–4),
   `videoClipTimeoutSeconds()` (480), `videoMaxClipSeconds()` (`CATALOG_VIDEO_MAX_CLIP_SECONDS`,
   default 60 — the per-film spend cap counting every candidate and repair; reaching it fails the
   film `video_unresolved` rather than starting another pass), `videoShipOnExhaustion()` (opt-in),
-  `videoMusic()` (`none`), `FFMPEG_PATH`. Credentials: `FAL_KEY`, `REPLICATE_API_TOKEN`,
-  `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`, `RUNWAYML_API_SECRET`, Vertex via ADC — only the
-  configured providers' keys are required at boot (`/healthz` reports which). All on
+  `videoMusic()` (`none`), `FFMPEG_PATH`. Credentials: **no new key on the default path** —
+  `REPLICATE_API_TOKEN` already exists in the app's environment and is promoted to the worker
+  revision (a GitHub secret + one entry on `deploy.yml`'s `--update-env-vars` line; the adapter
+  also accepts the copy the app injects into request bodies, `cloudrun.js` L300, so the feature
+  works before that deploy). Optional, only when their provider is configured: `FAL_KEY`,
+  `RUNWAYML_API_SECRET`; Veo uses ADC, no key. Only the configured providers' credentials are
+  required at boot (`/healthz` reports which). All on
   `deploy.yml`'s `--update-env-vars`.
 - `costTracker.js`: `addVideoSeconds(model, seconds)` with `perSecond` rates per model id
-  (Kling 3.0 Standard ≈ 0.084, Pro ≈ 0.112, Runway Gen-4 Turbo 0.05, Veo 3.1 Fast ≈ 0.15,
-  Veo 3.1 ≈ 0.40 — **verify**; billed for every generated candidate, filtered ones too where
+  (`kwaivgi/kling-v3-video` on Replicate ≈ 0.168 audio-off / 0.252 with audio, Kling 3.0
+  Standard on fal.ai ≈ 0.084, Runway Gen-4 Turbo 0.05, Veo 3.1 Fast ≈ 0.15, Veo 3.1 ≈ 0.40 —
+  **verify**; billed for every generated candidate, filtered ones too where
   the vendor bills them); frames and the video judge through `addTextUsage` like the OCR
   verify (`illustrationGenerator.js` L412).
 
@@ -513,20 +529,23 @@ terms; the plan does not proxy calls through a region to dodge a policy.
   `CATALOG_VIDEO_PROVIDER_FALLBACK`, `CATALOG_VIDEO_PERSON_GENERATION`,
   `CATALOG_VIDEO_CLIP_CANDIDATES` (2, 1–3), `CATALOG_VIDEO_CLIP_MAX_REPAIRS` (2, 0–4),
   `CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS` (480), `CATALOG_VIDEO_MAX_CLIP_SECONDS` (60),
-  `CATALOG_VIDEO_SHIP_ON_EXHAUSTION` (opt-in), `CATALOG_VIDEO_MUSIC`, `FFMPEG_PATH`, and the
-  provider credentials.
+  `CATALOG_VIDEO_SHIP_ON_EXHAUSTION` (opt-in), `CATALOG_VIDEO_MUSIC`, `FFMPEG_PATH`, and, on
+  the default path, no new credential — `REPLICATE_API_TOKEN` promoted to the worker revision;
+  `FAL_KEY` / `RUNWAYML_API_SECRET` only if those providers are configured.
 - **Cost per film** (4 segments, 3 s clips, N = 2, no repairs; rates **verify**):
 
-  | item | Kling 3.0 Std 1080p (fal) | Kling 3.0 Pro | Runway Gen-4 Turbo | Veo 3.1 Fast |
+  | item | Kling 3.0 on Replicate (DEFAULT, existing token) | Kling 3.0 Std on fal.ai (new key) | Runway Gen-4 Turbo (new key) | Veo 3.1 Fast (allowlist) |
   |---|---|---|---|---|
-  | clips (24 s; Veo 32 s at 4 s minimum) | ≈ $2.02 | ≈ $2.69 | ≈ $1.20 | ≈ $4.80 |
-  | one repair pass on one segment (+6 s) | +$0.50 | +$0.67 | +$0.30 | +$1.20 |
+  | clips (24 s; Veo 32 s at 4 s minimum) | ≈ $4.03 | ≈ $2.02 | ≈ $1.20 | ≈ $4.80 |
+  | one repair pass on one segment (+6 s) | +$1.01 | +$0.50 | +$0.30 | +$1.20 |
   | text gate + frames + video judge (≈ 50 Gemini calls) | ≈ $0.15 | ≈ $0.15 | ≈ $0.15 | ≈ $0.15 |
   | embedded re-render (only `embedded` books; `costTracker.js` L5-31) | ≈ $0.15 | ≈ $0.15 | ≈ $0.15 | ≈ $0.15 |
   | stitch | ≈ $0.01 | ≈ $0.01 | ≈ $0.01 | ≈ $0.01 |
-  | **typical** | **≈ $2.3–3.5** | **≈ $3–4.5** | **≈ $1.5–2.5** | **≈ $5–7.5** |
+  | **typical** | **≈ $4.3–5.5** | **≈ $2.3–3.5** | **≈ $1.5–2.5** | **≈ $5–7.5** |
 
-  `CATALOG_VIDEO_MAX_CLIP_SECONDS` (60) bounds the worst case at ≈ $5 on Kling Standard.
+  `CATALOG_VIDEO_MAX_CLIP_SECONDS` (60) bounds the worst case at ≈ $10 on the default path
+  (≈ $5 on fal.ai). The existing-account choice costs about $2 more per film than fal.ai at
+  N = 2; revisit when volume makes that matter (open decision 1).
 - **Time:** 5–8 minutes per film (vendor latency 2–5 min per clip, eight candidates in flight,
   verification ≈ 30 s, repairs add one vendor round each, stitch seconds). Concurrency 1 per
   instance; `min-instances=1` already covers post-202 work; the registered book context keeps
@@ -553,8 +572,10 @@ terms; the plan does not proxy calls through a region to dodge a policy.
 0. **Bake-off spike (2 days, no product change).** Add `ffmpeg` to the Dockerfile and build.
    Take three real finished books (one per `caption` / `half` / `embedded`, different age
    bands) and, by hand, run each provider on the same four start frames with the same brief:
-   Kling 3.0 Standard and Pro (via fal.ai, and via the official API if keys exist), Runway
-   Gen-4 Turbo, and Veo 3.1 Fast only if the allowlist has landed. Run every clip through the
+   Kling 3.0 via Replicate (`kwaivgi/kling-v3-video`, the existing token — confirm the
+   endpoint exposes Elements; if not, fal.ai's Kling 3.0 Standard on a trial key, which also
+   gives the price comparison), Runway Gen-4 Turbo only if a key is worth creating for the
+   control, and Veo 3.1 Fast only if the allowlist has landed. Run every clip through the
    §4.5 verifier and a human review. Record per provider: refusal / filtered rate on child
    frames, worst-frame identity score, outfit hold, text leakage, `frozen` rate, latency, cost.
    **File the Veo `allow_all` allowlist request on day 1** regardless. Output:
@@ -595,12 +616,14 @@ terms; the plan does not proxy calls through a region to dodge a policy.
 
 ## 11. Open decisions (defaults chosen — flag if you disagree)
 
-1. **Provider host for Kling 3.0: fal.ai, Replicate, or the official API?** Default fal.ai —
-   its Kling 3.0 endpoints expose Elements, end frame, `negative_prompt` and `cfg_scale` with a
-   queue + webhook API and per-second billing; Replicate is the account we already hold and the
-   adapter is nearly identical, so it ships as the second host; the official API adds JWT
-   signing for no capability we need. The bake-off confirms which host exposes Elements
-   reliably.
+1. **Provider host for Kling 3.0: Replicate or fal.ai?** Default **Replicate** — decided by
+   the owner (2026-09-02): use the credentials we already hold, no new key. The cost of that
+   choice is price: Replicate lists `kwaivgi/kling-v3-video` at ≈ $0.168/s audio-off against
+   fal.ai's ≈ $0.084/s for Kling 3.0 Standard (**verify** both), roughly $2 more per film at
+   N = 2. fal.ai stays as the alternative adapter behind `CATALOG_VIDEO_PROVIDERS` for two
+   reasons only: if Replicate's endpoint does not expose Elements (the bake-off checks), or if
+   volume makes the price delta matter. The official Kling API is dropped: two new credentials
+   for no capability the hosts lack.
 2. **Music?** Default `none` (silent AAC track) until a licensed instrumental bed is committed
    under `data/video/music/` with its license file; never the model's native audio.
 3. **Open on the animated cover?** Yes when the anchor is an approved cover; never on a photo.
@@ -628,6 +651,9 @@ terms; the plan does not proxy calls through a region to dodge a policy.
   optional native audio; fal.ai per-second pricing (Standard ≈ $0.084 audio-off, Pro ≈ $0.112,
   Turbo 1080p ≈ $0.14, 4K ≈ $0.42), official API 6–8 credits/s audio-off — hosted-API pages
   (fal.ai, Segmind, Kie, PiAPI) as summarized by search, 2026-09 — **verify**.
+- Replicate: `kwaivgi/kling-v3-video` at ≈ $0.168/s without audio, ≈ $0.252/s with audio;
+  the app's existing token and predictions-API usage (`cloudrun.js` L300, `adminFunctions.js`
+  L2003-2039) — Replicate model page as summarized by search, 2026-09 — **verify**.
 - Runway Gen-4 Turbo: image-to-video only, 5 or 10 s, 720p 24 fps, 5 credits/s ($0.05/s);
   moderation is semantic, cannot be allowlisted, child-safety policy — Runway API docs and
   usage policy as summarized by search — **verify**.
