@@ -267,12 +267,14 @@ describe('buildEmotionPlan — keyword mapping', () => {
 });
 
 describe('renderEmotionLine / renderEmotionQaExpectation', () => {
-  test('renders the closed template from the entry — intensity, emotion, and the fixed cue only', () => {
+  test('renders the closed template from the entry — intensity, emotion, the fixed cue, and the fixed anti-generic-smile suffix only', () => {
+    // ce-10: the fixed suffix that makes the planned emotion the face's spec.
+    const SUFFIX = 'The child\'s face and body language must clearly read as exactly this emotion — never a generic default smile that ignores the story moment.';
     const line = renderEmotionLine({ emotion: 'curiosity', intensity: 'clear', source: 'table' });
-    expect(line).toBe(`EMOTION (this spread): clear curiosity — ${EMOTION_CUES.curiosity}.`);
+    expect(line).toBe(`EMOTION (this spread): clear curiosity — ${EMOTION_CUES.curiosity}. ${SUFFIX}`);
     for (const e of EMOTIONS) {
       for (const i of INTENSITIES) {
-        expect(renderEmotionLine({ emotion: e, intensity: i })).toBe(`EMOTION (this spread): ${i} ${e} — ${EMOTION_CUES[e]}.`);
+        expect(renderEmotionLine({ emotion: e, intensity: i })).toBe(`EMOTION (this spread): ${i} ${e} — ${EMOTION_CUES[e]}. ${SUFFIX}`);
       }
     }
     expect(renderEmotionQaExpectation({ emotion: 'joy', intensity: 'big' })).toContain(`big joy (${EMOTION_QA_DESCRIPTIONS.joy})`);

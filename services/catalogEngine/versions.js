@@ -81,15 +81,28 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // residual defects fail the book `consistency_unresolved` instead of
 // shipping. Prompt assembly, reference parts, and scene prompts all changed
 // — ce-8 renders must never replay as ce-9.
-const STYLE_VERSION = 'ce-9';
+// ce-10: bench-feedback generalization — face visibility (no full back
+// views: the shot plan's 'seen from behind' staging gained a face-visible
+// turn, every composition directive carries a fixed FACE line), prop
+// discipline (scene prompts + bible PROPS block close the personal-object
+// set: no invented toys/gadgets/trinkets), carried-prop subordination
+// (muted, never attention-grabbing), an anti-generic-smile suffix on the
+// pinned EMOTION line, and hard-left-margin phrasing on the embedded
+// TEXT_RULES alignment spec. All are prompt-text changes — ce-9 renders
+// must never replay as ce-10.
+const STYLE_VERSION = 'ce-10';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
  * marker. A replay whose marker predates the current version re-checks the
  * cached render instead of trusting a verdict the older checker produced
  * (ce-9: shipped drift stops being permanent).
+ * qa-3 (ce-10): the v2 verdict gains the face-visibility and undeclared-
+ * personal-object soft fields (both advisory-class), and the outfit
+ * mismatch definition now names a missing/added/different garment
+ * pattern, print, or graphic.
  */
-const QA_VERSION = 'qa-2';
+const QA_VERSION = 'qa-3';
 
 module.exports = {
   WRITER_ENGINE_VERSION,

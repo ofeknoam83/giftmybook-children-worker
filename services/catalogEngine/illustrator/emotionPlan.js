@@ -378,7 +378,12 @@ function mergeClassifierPlan(tablePlan, classified, ageBand) {
  */
 function renderEmotionLine(entry) {
   if (!entry || !EMOTIONS.includes(entry.emotion) || !INTENSITIES.includes(entry.intensity)) return '';
-  return `EMOTION (this spread): ${entry.intensity} ${entry.emotion} — ${EMOTION_CUES[entry.emotion]}.`;
+  // ce-10: the image model's default is a cheerful smile regardless of the
+  // moment — the fixed suffix makes the planned emotion the face's spec,
+  // not a suggestion (for joyful spreads the smile IS the plan, so the line
+  // stays correct there too).
+  return `EMOTION (this spread): ${entry.intensity} ${entry.emotion} — ${EMOTION_CUES[entry.emotion]}. `
+    + 'The child\'s face and body language must clearly read as exactly this emotion — never a generic default smile that ignores the story moment.';
 }
 
 /**

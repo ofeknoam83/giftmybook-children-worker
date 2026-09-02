@@ -349,6 +349,28 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   locked outfit and the character sheet as REFERENCE 1
   (`CATALOG_UPSELL_OUTFIT_LOCK=0` frees them). `qaAdvisories` is capped at
   80 with blocking-class notes first.
+  **Bench-feedback generalization (`ce-10`, 2026-09-02)** folds the Art
+  Bench judges' recurring findings into fixed engine rules: (1) FACE
+  VISIBILITY — the shot plan's staging vocabulary no longer contains a full
+  back view (`seen from behind` gained a face-visible head turn), every
+  composition directive pins a fixed FACE line (front/three-quarter/profile,
+  never fully from behind), and QA v2 reports `face_fully_hidden` (advisory
+  `face hidden: …` + its own repair note); (2) PROP DISCIPLINE — the
+  personal-object set is CLOSED: scene prompts and the bible PROPS block
+  forbid invented toys/gadgets/trinkets beyond declared props + the beat's
+  own needs, QA v2 reports `undeclared_object` (advisory `undeclared
+  personal object in the scene` + repair note); (3) carried comfort objects
+  are VISUALLY SUBDUED (muted, never attention-grabbing — the face and
+  action stay the focus); (4) the outfit-mismatch definition (v1+v2) now
+  names a missing/added/different garment pattern, print, or graphic (the
+  spec always captured them; QA never checked them); (5) the pinned EMOTION
+  line ends with an anti-generic-smile sentence; (6) embedded typography
+  alignment (TEXT_RULES + QA + repair notes) demands every line start at
+  the EXACT same horizontal position; (7) the world gate's WORLD dimension
+  and `materials_physics` repair pin ONE biome/vegetation family per book.
+  Both new QA fields are soft and advisory-class — they shade candidate
+  selection and steer repairs, never fail a book. STYLE_VERSION `ce-10`,
+  QA_VERSION `qa-3`.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 

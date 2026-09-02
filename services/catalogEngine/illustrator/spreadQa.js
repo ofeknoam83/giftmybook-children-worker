@@ -67,8 +67,9 @@ and right sides, or text sitting on a blank/solid/lightened band or strip
 
 The painted text must also look professionally TYPESET: every line straight,
 level, and horizontal; all lines left-aligned to one shared straight left
-margin; even line spacing throughout. Tilted, arched, or wavy lines, a
-drifting left edge, or visibly uneven line gaps are an alignment defect.
+margin — every line beginning at the EXACT same horizontal position; even
+line spacing throughout. Tilted, arched, or wavy lines, a drifting left
+edge, or visibly uneven line gaps are an alignment defect.
 The whole block must use ONE single font family, ONE size, and ONE fill
 color — mixed typefaces, mixed sizes/weights, or mixed colors within the
 text are a typography defect.
@@ -107,10 +108,11 @@ Check it garment by garment, but judge ONLY the garments and body regions
 actually VISIBLE in this framing: a close-up, partial view, or composition
 that crops a garment out of the frame is NOT a missing item — never flag a
 garment you cannot see. Flag a mismatch ONLY on a CLEAR break among the
-visible garments: a different garment, a different color family, an added
-item, a garment clearly absent from a body region that IS in view, or a
-visibly different pant/sleeve length than specified. Scene lighting shifts
-and minor fold/shading differences pass.`);
+visible garments: a different garment, a different color family, a missing,
+added, or different pattern/print/graphic on a garment the spec describes
+one for, an added item, a garment clearly absent from a body region that IS
+in view, or a visibly different pant/sleeve length than specified. Scene
+lighting shifts and minor fold/shading differences pass.`);
     fields.push('"outfit_mismatch": true|false, // a VISIBLE garment clearly breaks the locked outfit spec above (garments cropped out of frame never count)');
   }
 
@@ -299,9 +301,11 @@ typography (the same font, size, and color family across the set).`
 All spreads belong to the SAME fixed book. Judge ONLY whether they read as
 one consistent book on these dimensions:
 1. WORLD — the same palette family and lighting character, the same era and
-technology level, the same materials and environment logic, and the same
-physical or magical laws applied to every interaction between characters,
-objects, and the environment.
+technology level, the same materials and environment logic (ONE consistent
+biome and vegetation/terrain family for the whole book — a rainforest book
+never drifts to pine woods, desert, or beach), and the same physical or
+magical laws applied to every interaction between characters, objects, and
+the environment.
 2. CHARACTER RENDERING — the ONE child hero reads as the SAME rendering of
 the SAME child on every spread: the same apparent age, the same face and
 body proportions, the same stylization level, the same outfit, and the same
@@ -324,8 +328,10 @@ pose, or time of day that the story moment explains — those are supposed to
 differ (and under COMPOSITION VARIETY they are exactly what should differ).
 Flag a spread only when it clearly BREAKS the set: a different
 palette/lighting family, an era or technology that contradicts the others,
-materials or physics behaving differently, magic appearing/behaving unlike
-the rest of the book, the child rendered as a visibly different age, with
+a biome or vegetation/terrain family that contradicts the world the other
+spreads establish, materials or physics behaving differently, magic
+appearing/behaving unlike the rest of the book, the child rendered as a
+visibly different age, with
 different proportions or stylization, or in a different outfit or hair than
 the other spreads, a near-duplicate composition of another spread${textBreak}.
 
@@ -442,7 +448,7 @@ async function checkWorldConsistency(entries, opts = {}) {
 const WORLD_REPAIR_INSTRUCTIONS = {
   palette_lighting: 'Match the book\'s established palette family and lighting character exactly — the same hues, warmth, and light quality as the other spreads.',
   era_technology: 'Match the book\'s established era and technology level exactly — no objects, materials, or structures from a different period than the other spreads.',
-  materials_physics: 'Match the book\'s established materials and physical laws exactly — surfaces, weights, and every interaction behave as they do on the other spreads.',
+  materials_physics: 'Match the book\'s established materials, environment, and physical laws exactly — the same biome and vegetation/terrain family, and surfaces, weights, and every interaction behaving as they do on the other spreads.',
   magic_behavior: 'Match the book\'s established magical behavior exactly — magic appears and behaves only as it does on the other spreads.',
   character_rendering: 'Render the child EXACTLY as the reference character and the book\'s other spreads: the same apparent age, the same face and body proportions, the same stylization level, the same outfit, and the same hair.',
   composition_duplicate: 'This render duplicates another spread\'s composition. Re-compose with a clearly different camera distance, camera angle, and child pose — the same scene and action, a visibly different picture.',
@@ -568,7 +574,7 @@ function repairNote(defects, expectedText = null, opts = {}) {
       notes.push('Paint the story text directly OVER the artwork on a calm area of the scene — NO blank, solid, or lightened band/strip/panel behind it; the illustration must fill the entire canvas edge to edge. Fix ONLY the text placement; keep the scene otherwise identical.');
     }
     if (d.includes('lines misaligned')) {
-      notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin, with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');
+      notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin — every line beginning at the EXACT same horizontal position — with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');
     }
     if (d.includes('mixes fonts')) {
       notes.push('Render ALL the text in ONE single font family, ONE size, ONE weight, and ONE fill color — the book\'s fixed plain serif spec — with zero per-line or per-word variation. Fix ONLY the text; keep the scene otherwise identical.');
@@ -633,7 +639,7 @@ function buildSpreadQaPromptV2(o) {
   const layoutIntro = o.expectedText
     ? `You are checking one interior illustration of a children's picture book (the RENDER, the first image). The book's ONE child hero must appear exactly once; the story text below MUST be painted into the artwork, crisp and readable; the medium must be premium 3D CGI (a modern animated feature film still), never flat 2D, watercolor, or a photograph.
 
-The text must be ONE block on ONE side of the image (left or right), painted directly over the artwork — never split across both sides, never on a blank/solid/lightened band. It must look professionally TYPESET: straight, level lines, left-aligned to one shared margin, even spacing, ONE font, ONE size, ONE colour.
+The text must be ONE block on ONE side of the image (left or right), painted directly over the artwork — never split across both sides, never on a blank/solid/lightened band. It must look professionally TYPESET: straight, level lines, left-aligned to one shared margin (every line beginning at the EXACT same horizontal position), even spacing, ONE font, ONE size, ONE colour.
 
 STORY TEXT THAT MUST APPEAR IN THE IMAGE:
 "${o.expectedText}"`
@@ -672,7 +678,7 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
     const against = o.sheet ? `the CHARACTER MODEL SHEET (image ${o.sheetRef}) and ` : '';
     sections.push(`OUTFIT: the child's outfit is LOCKED for the whole book. Check it garment by garment against ${against}this spec (quoted as data):
 "${o.outfitSpec}"
-For EACH slot answer "match" (the visible garment matches), "mismatch" (a different garment, a different colour family, a visibly different length/cut, an added item, or a garment clearly absent from a body region that IS in view), or "not_visible" (the framing crops that body region — never guess). Lighting shifts and fold/shading differences are a match.`);
+For EACH slot answer "match" (the visible garment matches), "mismatch" (a different garment, a different colour family, a missing, added, or different pattern/print/graphic on a garment the spec describes one for, a visibly different length/cut, an added item, or a garment clearly absent from a body region that IS in view), or "not_visible" (the framing crops that body region — never guess). Lighting shifts and fold/shading differences are a match.`);
     fields.push('"outfit": {"top": "match|mismatch|not_visible", "bottom": "match|mismatch|not_visible", "footwear": "match|mismatch|not_visible", "outerwear": "match|mismatch|not_visible", "accessories": "match|mismatch|not_visible"},');
     required.push('outfit');
   }
@@ -694,6 +700,11 @@ For each prop report presence ("present"|"absent") and look ("match" when it loo
     fields.push(`"props": [${props.map(p => `{"name": "${p.name}", "presence": "present|absent", "look": "match|wrong_look|n/a", "duplicated": true|false, "as_text": true|false, "bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null}`).join(', ')}],`);
     required.push('props');
   }
+  // ce-10: the closed-set side of the props contract — the render must not
+  // INVENT personal objects either (bench-observed drift: stray toys and
+  // trinkets nobody declared). Advisory-class soft field.
+  sections.push(`PROP DISCIPLINE: the child's personal objects are LIMITED to ${props.length > 0 ? 'the declared props listed above' : 'NONE (no props are declared for this spread)'} plus anything the story moment itself requires. Flag any OTHER prominent personal object (a toy, gadget, or trinket) in the child's hands or right beside them; natural environment and scenery objects never count.`);
+  fields.push('"undeclared_object": true|false, // a prominent personal object near the child that is neither a declared prop nor required by the story moment');
   if (o.companion) {
     let ref = '';
     if (o.companion.sheet) {
@@ -718,6 +729,11 @@ For each prop report presence ("present"|"absent") and look ("match" when it loo
     sections.push(`COMPOSITION: this spread was ASSIGNED ${SHOT_TYPE_QA_DESCRIPTIONS[o.shotType]}. Flag a mismatch ONLY when the RENDER clearly reads as a different shot type — borderline framing passes.`);
     fields.push('"shot_type_mismatch": true|false,'); // advisory-class: soft
   }
+  // ce-10: a full back view hides the identity the sheet check needs and the
+  // emotion the reader needs — the prompts forbid it, QA reports it (soft,
+  // advisory-class: a lone hidden face shades selection, never fails a book).
+  sections.push('FACE VISIBILITY: the child\'s face should be at least partly visible (front, three-quarter, or profile view). Report whether the child is rendered fully from behind with NO part of the face visible.');
+  fields.push('"face_fully_hidden": true|false, // the child is seen fully from behind — no part of the face is visible');
   sections.push('CHILD BOUNDING BOX: give the child hero\'s bounding box in the RENDER as fractions of the image width/height (x, y of the top-left corner; w, h), or null when the child is absent.');
   fields.push('"child_bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null,');
   sections.push('CLEANLINESS: count limbs (exactly two arms, two hands with five fingers, two legs), check hands/fingers, faces (no doubled or melted features), and look for any stray lettering, signage, logos, or pseudo-alphabet/alien script painted anywhere.');
@@ -971,6 +987,9 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       else if (typeof json.emotion_reads_as === 'string' && o.emotionVocabulary.includes(json.emotion_reads_as) && json.emotion_reads_as !== o.emotion.emotion) defects.push(`emotion mismatch: reads as ${json.emotion_reads_as} instead of ${o.emotion.emotion}`);
     }
     if (o.shotType && json.shot_type_mismatch) defects.push(`composition break: does not read as the assigned ${o.shotType} shot`);
+    // ce-10 soft fields: an omitted answer is unclaimed, never a defect.
+    if (json.face_fully_hidden === true && !json.child_absent) defects.push('face hidden: the child is rendered fully from behind');
+    if (json.undeclared_object === true) defects.push('undeclared personal object in the scene');
     if (json.extra_limbs === true) defects.push('anatomy defect: extra or missing limbs');
     if (json.hand_defects === true) defects.push('anatomy defect: hands or fingers');
     if (json.face_artifacts === true) defects.push('anatomy defect: face artifacts');
@@ -1048,6 +1067,12 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   }
   if (opts.emotion && defects.some(d => d.startsWith('emotion'))) {
     notes.push(`EMOTION REPAIR: the child's face and body language must clearly read as ${qaData(opts.emotion.intensity, 10)} ${qaData(opts.emotion.emotion, 20)}${opts.emotion.cue ? ` — ${qaData(opts.emotion.cue, 160)}` : ''}; never a blank or generic smile. Keep the scene otherwise identical.`);
+  }
+  if (defects.some(d => d.startsWith('face hidden'))) {
+    notes.push('FACE REPAIR: turn the child so their face is clearly visible — a front, three-quarter, or profile view, never fully from behind. Keep the scene, action, and assigned composition otherwise identical.');
+  }
+  if (defects.some(d => d.startsWith('undeclared personal object'))) {
+    notes.push('PROP DISCIPLINE REPAIR: remove every personal object (toy, gadget, trinket) that is not a declared prop of this book or required by the story moment — the child carries ONLY what the scene names. Keep the scene otherwise identical.');
   }
   if (defects.some(d => d.startsWith('anatomy defect'))) {
     notes.push('ANATOMY REPAIR: the child has EXACTLY two arms and two hands with five clearly separated fingers each, two legs, one face with correctly placed features — no extra, missing, floating or duplicated limbs, no fused fingers. Keep the scene otherwise identical.');

@@ -135,7 +135,8 @@ describe('worldRepairNote', () => {
   test('maps each closed defect class to its fixed instruction', () => {
     expect(worldRepairNote('palette_lighting')).toContain('palette family and lighting character');
     expect(worldRepairNote('era_technology')).toContain('era and technology level');
-    expect(worldRepairNote('materials_physics')).toContain('materials and physical laws');
+    expect(worldRepairNote('materials_physics')).toContain('materials, environment, and physical laws');
+    expect(worldRepairNote('materials_physics')).toContain('biome and vegetation/terrain family');
     expect(worldRepairNote('magic_behavior')).toContain('magical behavior');
     expect(worldRepairNote('character_rendering')).toContain('same apparent age');
     expect(worldRepairNote('character_rendering')).toContain('reference character');
