@@ -245,8 +245,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   judged against the cover, elected per anchor path in GCS
   (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
   `.json`). REQUIRED by default: a book that cannot build one fails
-  `identity_kit_failed` (never a silent cover-only render;
-  `CATALOG_SHEET_REQUIRED=0` degrades to an advisory). (2) The **outfit
+  `identity_kit_failed` (never a silent cover-only render; a set the judge
+  could not verify is never elected either — an elected sheet is pinned
+  per anchor for good; `CATALOG_SHEET_REQUIRED=0` degrades to an advisory). (2) The **outfit
   spec v3** derives FROM the sheet (`outfitLock.js` `source: 'sheet'`,
   `catalog-assets/outfit-locks/v3/{sheetHash}.json`, per-slot `colourHex`,
   an `inferred` slot is a derivation failure → cover-derived fallback with
@@ -315,7 +316,10 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   crops beside the model sheet (and prop crops beside their sheets) in one
   image per call so garments are legible, flags `character_rendering` /
   `prop_rendering`, and re-renders flagged FRESH spreads once
-  (`CATALOG_CONTACT_MAX_RERENDERS`, default 3). **Ship policy:** advisory
+  (`CATALOG_CONTACT_MAX_RERENDERS`, default 3); prop tiles are the
+  structured verdict's per-prop bbox crops (`propBoxes`, kept on the
+  marker), the whole spread only as a named fallback, and a prop repair
+  cites the prop sheet's index in the re-render's own pack. **Ship policy:** advisory
   residuals ship with advisories; BLOCKING residuals fail the book
   `consistency_unresolved` with `unresolved: [{spread, defects,
   candidates:[{storageKey, url, score}]}]` + `bookBible` on the failure

@@ -236,7 +236,7 @@ test('one candidate failing to generate does not sink the election; cost counts 
   expect(sheet.advisories).toEqual([{ stage: 'characterSheet', note: expect.stringMatching(/^candidate 1 generation failed: Gemini sheet render HTTP 503/) }]);
 });
 
-test('an unverifiable candidate never passes silently, but when EVERY candidate is unverifiable the first ships UNCHECKED', async () => {
+test('an unverifiable candidate never passes silently, and when EVERY candidate is unverifiable NO sheet is elected (identity_kit_failed)', async () => {
   // Mixed: one judged-rejected, two unverifiable ⇒ total failure.
   installTransport([
     () => ({ ok: false, status: 500, text: async () => 'boom' }),
@@ -253,7 +253,10 @@ test('an unverifiable candidate never passes silently, but when EVERY candidate 
   ]);
   expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
 
-  // All unverifiable (judge down) ⇒ first candidate ships with the UNCHECKED advisory, likeness null.
+  // All unverifiable (judge down) ⇒ nothing passed the required QA ⇒ total
+  // failure: an elected sheet is pinned per anchor for good, so a sheet
+  // nothing verified is never elected blind (CATALOG_SHEET_REQUIRED=0 turns
+  // this into a sheet-less render with an advisory, never a pinned guess).
   fetchWithTimeout.mockReset();
   uploadBufferIfAbsent.mockReset().mockResolvedValue({ created: true });
   installTransport([
@@ -261,17 +264,16 @@ test('an unverifiable candidate never passes silently, but when EVERY candidate 
     { readable_text: 'no', figure_count: 3 }, // malformed: wrong types
     () => Promise.reject(new Error('socket hangup')),
   ]);
-  const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF });
-  expect(sheet.base64).toBe(CANDIDATE_PNGS[0].toString('base64'));
-  expect(sheet.likeness).toBeNull();
-  expect(sheet.advisories.map(a => a.note)).toEqual([
+  let blind;
+  await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF }).catch((err) => { blind = err; });
+  expect(blind.failureCode).toBe('identity_kit_failed');
+  expect(blind.advisories.map(a => a.note)).toEqual([
     'candidate 1 unverifiable: sheet QA HTTP 500',
     'candidate 2 unverifiable: sheet QA returned a malformed verdict',
     'candidate 3 unverifiable: sheet QA errored: socket hangup',
-    'sheet shipped UNCHECKED: the judge was unavailable for every candidate (sheet QA HTTP 500)',
+    'no sheet elected: the judge was unavailable for every candidate (sheet QA HTTP 500)',
   ]);
-  expect(uploadBufferIfAbsent).toHaveBeenCalledWith(CANDIDATE_PNGS[0], expect.any(String), 'image/png');
-  expect(JSON.parse(uploadBuffer.mock.calls[0][0].toString('utf8'))).toMatchObject({ likeness: null, candidates: 3 });
+  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
 });
 
 test('CATALOG_CHARACTER_SHEET=0 returns null with no IO — the only null result', async () => {

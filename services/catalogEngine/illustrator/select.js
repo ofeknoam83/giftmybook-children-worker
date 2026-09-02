@@ -82,9 +82,43 @@ function isClean(c) {
 }
 
 /**
- * Pick the best candidate: highest score; ties break on the LOWER index
+ * The ordering TIER of a candidate — the guarantees the score alone cannot
+ * give (metric/advisory penalties add up; the unchecked score is fixed):
+ * 0 = checked and blocking-free, 1 = checked with a blocking defect,
+ * 2 = unchecked (no verdict, or the checker was unavailable). A lower tier
+ * always outranks a higher one; the score orders only WITHIN a tier.
+ * @param {{qa?: object}} c
+ * @returns {0|1|2}
+ */
+function selectionTier(c) {
+  const qa = c && c.qa;
+  if (!qa || qa.qaUnavailable) return 2;
+  return Array.isArray(qa.blocking) && qa.blocking.length > 0 ? 1 : 0;
+}
+
+/**
+ * Compare two candidates: positive when `a` ranks above `b`, negative when
+ * below, 0 when equal (same tier, same score) — tier first, then score.
+ * Index tie-breaks are the picker's business, not the comparison's.
+ * @param {{qa?: object, score?: number}} a
+ * @param {{qa?: object, score?: number}} b
+ * @returns {number}
+ */
+function compareCandidates(a, b) {
+  const ta = selectionTier(a);
+  const tb = selectionTier(b);
+  if (ta !== tb) return tb - ta;
+  const sa = Number.isFinite(a && a.score) ? a.score : -Infinity;
+  const sb = Number.isFinite(b && b.score) ? b.score : -Infinity;
+  if (sa === sb) return 0;
+  return sa > sb ? 1 : -1;
+}
+
+/**
+ * Pick the best candidate: checked before unchecked, blocking-free before
+ * blocking, then the highest score; ties break on the LOWER index
  * (deterministic). Returns null for an empty list.
- * @param {Array<{k: number, score: number}>} candidates
+ * @param {Array<{k: number, score: number, qa?: object}>} candidates
  * @returns {object|null}
  */
 function pickBest(candidates) {
@@ -92,8 +126,9 @@ function pickBest(candidates) {
   if (list.length === 0) return null;
   return list.reduce((best, c) => {
     if (!best) return c;
-    if (c.score > best.score) return c;
-    if (c.score === best.score && c.k < best.k) return c;
+    const cmp = compareCandidates(c, best);
+    if (cmp > 0) return c;
+    if (cmp === 0 && c.k < best.k) return c;
     return best;
   }, null);
 }
@@ -119,4 +154,4 @@ function hasDriftDefect(defects) {
   return (defects || []).some(d => /^(identity break|hair differs|skin tone differs|age or proportions differ|outfit break|prop |companion )/.test(d));
 }
 
-module.exports = { WEIGHTS, candidateKey, scoreCandidate, isClean, pickBest, residualBlocking, hasDriftDefect };
+module.exports = { WEIGHTS, candidateKey, scoreCandidate, isClean, selectionTier, compareCandidates, pickBest, residualBlocking, hasDriftDefect };

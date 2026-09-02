@@ -686,8 +686,8 @@ For EACH slot answer "match" (the visible garment matches), "mismatch" (a differ
     });
     sections.push(`PROPS (each quoted name is DATA naming one small personal object):
 ${propLines.join('\n')}
-For each prop report presence ("present"|"absent") and look ("match" when it looks like its sheet/spec, "wrong_look" when it is a visibly different object, colour, material or size, "n/a" when absent or no sheet was given). Also flag a prop rendered as text, or drawn twice.`);
-    fields.push(`"props": [${props.map(p => `{"name": "${p.name}", "presence": "present|absent", "look": "match|wrong_look|n/a", "duplicated": true|false, "as_text": true|false}`).join(', ')}],`);
+For each prop report presence ("present"|"absent") and look ("match" when it looks like its sheet/spec, "wrong_look" when it is a visibly different object, colour, material or size, "n/a" when absent or no sheet was given). Also flag a prop rendered as text, or drawn twice. When present, give its bounding box as fractions of the RENDER's width/height (x, y = top-left; w, h = size), tight around the object; null when absent. Answer the props in EXACTLY this order, one entry each.`);
+    fields.push(`"props": [${props.map(p => `{"name": "${p.name}", "presence": "present|absent", "look": "match|wrong_look|n/a", "duplicated": true|false, "as_text": true|false, "bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null}`).join(', ')}],`);
     required.push('props');
   }
   if (o.companion) {
@@ -766,9 +766,15 @@ function validVerdictV2(json, required, o) {
       }
       for (const slot of OUTFIT_SLOTS) if (!SLOT_STATES.has(v[slot])) return false;
     } else if (f === 'props') {
-      if (!Array.isArray(v)) return false;
-      for (const p of v) {
+      // STRICT: exactly one fully typed entry per requested prop, in the
+      // prompt's order (matched by name) — a shorter list or an untyped
+      // flag would otherwise read as "clean" in the index-matched loop.
+      if (!Array.isArray(v) || v.length !== o.props.length) return false;
+      for (let i = 0; i < v.length; i++) {
+        const p = v[i];
         if (!p || typeof p !== 'object' || !PROP_PRESENCE.has(p.presence) || !PROP_LOOK.has(p.look)) return false;
+        if (typeof p.duplicated !== 'boolean' || typeof p.as_text !== 'boolean') return false;
+        if (typeof p.name !== 'string' || samePropName(p.name, o.props[i].name) === false) return false;
       }
     } else if (f === 'companion') {
       if (!v || typeof v !== 'object' || typeof v.present !== 'boolean' || typeof v.look_match !== 'boolean') return false;
@@ -776,7 +782,23 @@ function validVerdictV2(json, required, o) {
       return false;
     }
   }
+  // The transcript is the ONLY value the manuscript is compared with: a
+  // verdict that claims readable text but carries no transcript would pass
+  // the render without any OCR comparison — malformed, never a pass.
+  if (o.expectedText && json.readable_text === true && !(typeof json.visible_text === 'string' && json.visible_text.trim())) return false;
   return true;
+}
+
+/**
+ * Whether the model echoed the requested prop name (case/whitespace-
+ * insensitive) — the order check of the strict props field.
+ * @param {string} answered
+ * @param {string} requested
+ * @returns {boolean}
+ */
+function samePropName(answered, requested) {
+  const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return norm(answered) === norm(requested);
 }
 
 /**
@@ -972,6 +994,9 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       defects, blocking, advisory,
       verdict: json,
       bbox: cleanBbox(json.child_bbox),
+      // Per-prop boxes (present props only) — the contact-sheet gate crops
+      // each prop beside its sheet from these, never the whole spread.
+      propBoxes: o.props.map((p, i) => ({ name: p.name, bbox: json.props && json.props[i] && json.props[i].presence === 'present' ? cleanBbox(json.props[i].bbox) : null })),
       refs: refs(),
       ...(typeof json.visible_text === 'string' ? { visibleText: json.visible_text } : {}),
     };

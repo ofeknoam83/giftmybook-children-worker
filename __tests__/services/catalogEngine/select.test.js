@@ -4,7 +4,7 @@
  * must rank below any checked one; ties are deterministic.
  */
 
-const { WEIGHTS, candidateKey, scoreCandidate, isClean, pickBest, residualBlocking, hasDriftDefect } = require('../../../services/catalogEngine/illustrator/select');
+const { WEIGHTS, candidateKey, scoreCandidate, isClean, selectionTier, compareCandidates, pickBest, residualBlocking, hasDriftDefect } = require('../../../services/catalogEngine/illustrator/select');
 
 const qa = (blocking = [], advisory = [], extra = {}) => ({ pass: blocking.length + advisory.length === 0, defects: [...blocking, ...advisory], blocking, advisory, ...extra });
 
@@ -44,14 +44,32 @@ test('metrics move the score: identity similarity up, colour/bbox misses down', 
   expect(scoreCandidate(bad)).toBe(WEIGHTS.base + WEIGHTS.identity * (0.2 - 0.5) + WEIGHTS.colourSlotFail + WEIGHTS.safeZoneFail + WEIGHTS.offCenterFail);
 });
 
-test('pickBest takes the highest score and breaks ties on the lower index', () => {
-  const a = { k: 1, score: 90 };
-  const b = { k: 2, score: 100 };
-  const c = { k: 3, score: 100 };
+test('pickBest takes the highest score within a tier and breaks ties on the lower index', () => {
+  const a = { k: 1, score: 90, qa: qa() };
+  const b = { k: 2, score: 100, qa: qa() };
+  const c = { k: 3, score: 100, qa: qa() };
   expect(pickBest([a, b, c])).toBe(b);
   expect(pickBest([c, b])).toBe(b);
   expect(pickBest([])).toBeNull();
   expect(pickBest([null, a])).toBe(a);
+});
+
+test('pickBest ranks by TIER first — checked over unchecked, blocking-free over blocking — never by score alone', () => {
+  // Seven advisories sink a CLEAN candidate to 30, below a blocking candidate
+  // that metrics lifted and below the fixed unchecked score of 40.
+  const cleanButPenalized = { k: 3, score: 30, qa: qa([], ['a', 'b', 'c', 'd', 'e', 'f', 'g']) };
+  const blockingLifted = { k: 2, score: 60, qa: qa(['duplicated child hero']) };
+  const unchecked = { k: 1, score: 40, qa: { pass: true, defects: [], blocking: [], advisory: [], qaUnavailable: 'HTTP 500' } };
+  expect(selectionTier(cleanButPenalized)).toBe(0);
+  expect(selectionTier(blockingLifted)).toBe(1);
+  expect(selectionTier(unchecked)).toBe(2);
+  expect(selectionTier({ k: 9, score: 100 })).toBe(2); // no verdict at all = unchecked
+  expect(pickBest([unchecked, blockingLifted, cleanButPenalized])).toBe(cleanButPenalized);
+  expect(pickBest([unchecked, blockingLifted])).toBe(blockingLifted);
+  expect(compareCandidates(cleanButPenalized, blockingLifted)).toBeGreaterThan(0);
+  expect(compareCandidates(unchecked, blockingLifted)).toBeLessThan(0);
+  expect(compareCandidates(blockingLifted, { k: 5, score: 61, qa: qa(['child hero missing from the scene']) })).toBeLessThan(0);
+  expect(compareCandidates({ k: 1, score: 10, qa: qa() }, { k: 2, score: 10, qa: qa() })).toBe(0);
 });
 
 test('residualBlocking and hasDriftDefect read the closed defect vocabulary', () => {

@@ -41,9 +41,10 @@ const { checkSpreadRenderV2, repairNoteV2, checkWorldConsistency, worldRepairNot
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
 const { buildShotPlan, renderShotDirective } = require('./shotPlan');
 const { buildBookBible, buildReferencePack, buildPromptBible, summarizeBible, propSheetFor } = require('./bible');
-const { candidateKey, scoreCandidate, isClean, pickBest, residualBlocking, hasDriftDefect } = require('./select');
+const { candidateKey, scoreCandidate, isClean, pickBest, compareCandidates, residualBlocking, hasDriftDefect } = require('./select');
 const metrics = require('./metrics');
-const { checkCharacterContactSheet, checkPropContactSheet, CONTACT_REPAIR_INSTRUCTIONS } = require('./contactSheet');
+const { checkCharacterContactSheet, checkPropContactSheet, contactRepairNote } = require('./contactSheet');
+const { normalizePropValue } = require('./bible/propSheet');
 const { EMOTIONS, EMOTION_CUES } = require('./emotionPlan');
 const { renderWorldCardBlock } = require('../worldCards');
 const { STYLE_VERSION, QA_VERSION } = require('../versions');
@@ -202,11 +203,6 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
     : '';
   const sceneWithLayout = halfHint ? `${sceneWithShot}${halfHint}` : sceneWithShot;
-  // worldNote: a set-level gate's corrective suffix on its one targeted
-  // re-render (always with forceRerender, so the cache never conflates a
-  // gate-repaired render with a base one at a stale key).
-  const sceneWithWorldNote = worldNote ? `${sceneWithLayout}\n${worldNote}` : sceneWithLayout;
-  const baseScene = tuningBlock ? `${sceneWithWorldNote}\n${tuningBlock}` : sceneWithWorldNote;
   // BATH/WATER MODE spreads deliberately change the child's coverage — the
   // pinned outfit spec must not be enforced against them (the renderer's own
   // heuristic decides, so QA and prompt agree on which spreads those are).
@@ -230,6 +226,14 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     spread, declaredProps, carriedProps, companionOnSpread, characterDescription: characterDescription || null,
   });
   const outfitSpecText = bible.outfit ? bible.outfit.outfit : null;
+  // worldNote: a set-level gate's corrective suffix on its one targeted
+  // re-render (always with forceRerender, so the cache never conflates a
+  // gate-repaired render with a base one at a stale key). A gate that must
+  // cite one of THIS render's reference images passes a function of the
+  // pack's indices (the prop contact gate names the prop sheet to match).
+  const worldNoteText = typeof worldNote === 'function' ? worldNote(refs) : (worldNote || null);
+  const sceneWithWorldNote = worldNoteText ? `${sceneWithLayout}\n${worldNoteText}` : sceneWithLayout;
+  const baseScene = tuningBlock ? `${sceneWithWorldNote}\n${tuningBlock}` : sceneWithWorldNote;
   const sheetImage = bible.sheet ? { base64: bible.sheet.base64, mimeType: bible.sheet.mimeType || 'image/png' } : null;
 
   // Per-attempt diagnostics sink (filled by generateIllustration): when the
@@ -276,7 +280,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // directive is closed-vocabulary template text (shotPlan.js), the note
     // maps a closed enum, the tuning is admin-approved and sanitized
     // (tuning.js).
-    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), shotDirective, worldNote, tuningBlock].filter(Boolean).join('\n') || null,
+    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), shotDirective, worldNoteText, tuningBlock].filter(Boolean).join('\n') || null,
     // Workbench probes may pin a seed for tighter A/B; applying it stays
     // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
     // retry-without on seed-rejecting models). The seed also rides the
@@ -351,6 +355,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           candidateFiles: [],
           qa: marker.qa || null,
           bbox: marker.qa?.bbox || null,
+          propBoxes: Array.isArray(marker.qa?.propBoxes) ? marker.qa.propBoxes : [],
         };
       } catch (markerErr) {
         // No marker (crash between upload and check), a marker for other
@@ -481,7 +486,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         repairAborted = true;
         break;
       }
-      if (repairedBest.score >= best.score) {
+      // Tier first (checked > unchecked, blocking-free > blocking), score
+      // within the tier — a repair that cleared the blocking defect is
+      // adopted even when advisories/metrics leave its score lower.
+      if (compareCandidates(repairedBest, best) >= 0) {
         best = repairedBest;
         fresh = true;
       }
@@ -538,7 +546,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           advisories, tuningTag,
           renderHash: renderContentHash(buffer),
           qaVersion: QA_VERSION,
-          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, score: best.score } : null,
+          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], score: best.score } : null,
           // An unresolved marker never vouches: the next replay re-checks
           // (an admin may have raised budgets or picked a candidate) —
           // unless the opt-in ship policy shipped it, which the marker
@@ -566,6 +574,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     candidateFiles: candidateLog.filter(c => c.key && c.key !== storageKey && c.score != null).map(c => ({ storageKey: c.key, score: c.score, pass: c.pass })),
     qa: best.qa || null,
     bbox: best.qa ? best.qa.bbox || null : null,
+    propBoxes: best.qa && Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [],
     crop: best.metrics ? best.metrics.crop || null : null,
   };
 }
@@ -708,6 +717,22 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
 }
 
 /**
+ * The reference index of a prop's sheet in one render's pack, matched on
+ * the NORMALIZED value (the pack is keyed by the spread's own wording, the
+ * bible by the sheet's value). Null when the pack carries no such sheet.
+ * @param {{props?: Object<string, number>}|null} refs
+ * @param {string} value
+ * @returns {number|null}
+ */
+function propReferenceIndex(refs, value) {
+  const want = normalizePropValue(value);
+  for (const key of Object.keys(refs && refs.props ? refs.props : {})) {
+    if (normalizePropValue(key) === want) return refs.props[key];
+  }
+  return null;
+}
+
+/**
  * ce-9 contact-sheet gate: the child crops of every rendered spread beside
  * the CHARACTER MODEL SHEET in one image (garments legible — the world
  * gate's 1024px thumbnails were not), plus one props contact sheet per
@@ -717,7 +742,7 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
  * world gate.
  * @returns {Promise<{pass: boolean, checked: number, flagged?: Array, rerendered?: number[], unavailable?: string}|null>}
  */
-async function runContactSheetGate({ results, bible, rerender, onProgress = () => {}, log }) {
+async function runContactSheetGate({ results, bible, evidence = [], rerender, onProgress = () => {}, log }) {
   if (!flags.contactQaEnabled() || !bible || !bible.sheet) return null;
   const rendered = results.filter(r => r.buffer);
   if (rendered.length < 2) return null;
@@ -725,12 +750,14 @@ async function runContactSheetGate({ results, bible, rerender, onProgress = () =
   try {
     onProgress(1, `Checking character + prop consistency across ${rendered.length} spreads...`);
     const flagged = [];
-    // Child tiles: the QA bbox crop when we have one, else the whole spread.
+    // Child tiles: the QA bbox crop when we have one, else the whole spread
+    // — named as such (`cropped: false`), so the judge never reads scene or
+    // world differences in a full image as character drift.
     const childTiles = [];
     for (const r of rendered) {
       let tile = r.crop || null;
       if (!tile && r.bbox) tile = await metrics.cropBbox(r.buffer, r.bbox).catch(() => null);
-      childTiles.push({ spread: r.spread, buffer: tile || r.buffer });
+      childTiles.push({ spread: r.spread, buffer: tile || r.buffer, cropped: !!tile });
     }
     const sheetBuffer = Buffer.from(bible.sheet.base64, 'base64');
     const charVerdict = await checkCharacterContactSheet({
@@ -745,18 +772,28 @@ async function runContactSheetGate({ results, bible, rerender, onProgress = () =
     if (charVerdict && !charVerdict.qaUnavailable) flagged.push(...charVerdict.flagged.map(f => ({ ...f, defect: 'character_rendering' })));
 
     // Props: one contact sheet per prop sheet, over the spreads where the
-    // prop is expected (declared or carried).
+    // prop is expected (declared or carried) — matched on the NORMALIZED
+    // value (the story's wording vs the sheet's value).
     for (const p of (bible.props || []).filter(x => x && x.sheet)) {
+      const wantProp = normalizePropValue(p.value);
       const spreads = new Set();
-      for (const ev of bible.story?.personalization_evidence || []) {
-        if (ev.visual_required === true && inertPropValue(ev.source_value) === p.value) {
+      for (const ev of Array.isArray(evidence) ? evidence : []) {
+        if (ev && ev.visual_required === true && normalizePropValue(inertPropValue(ev.source_value)) === wantProp) {
           spreads.add(ev.spread);
           if (flags.propContinuityEnabled() && ev.moment_type === 'object_presence' && ev.source_field === 'object') {
             for (const r of rendered) if (r.spread > ev.spread) spreads.add(r.spread);
           }
         }
       }
-      const tiles = rendered.filter(r => spreads.has(r.spread)).map(r => ({ spread: r.spread, buffer: r.buffer, cropped: false }));
+      // Prop tiles: the prop's own crop from the structured verdict's
+      // per-prop bbox (a small recurring object is only legible beside its
+      // sheet when cropped); the whole spread only as a named fallback.
+      const tiles = [];
+      for (const r of rendered.filter(x => spreads.has(x.spread))) {
+        const box = (r.propBoxes || []).find(b => b && b.bbox && normalizePropValue(b.name) === wantProp);
+        const crop = box ? await metrics.cropBbox(r.buffer, box.bbox, { pad: 0.08 }).catch(() => null) : null;
+        tiles.push({ spread: r.spread, buffer: crop || r.buffer, cropped: !!crop });
+      }
       if (tiles.length < 2) continue;
       const v = await checkPropContactSheet({
         tiles,
@@ -766,7 +803,9 @@ async function runContactSheetGate({ results, bible, rerender, onProgress = () =
       if (v && v.qaUnavailable) unavailable = unavailable || v.qaUnavailable;
       if (v && !v.qaUnavailable) {
         for (const f of v.flagged) {
-          if (!flagged.some(x => x.spread === f.spread)) flagged.push({ ...f, defect: 'prop_rendering' });
+          // The prop's identity rides the finding so its repair can cite
+          // the exact prop sheet in the re-render's reference pack.
+          if (!flagged.some(x => x.spread === f.spread)) flagged.push({ ...f, defect: 'prop_rendering', prop: p.value });
         }
       }
     }
@@ -793,8 +832,11 @@ async function runContactSheetGate({ results, bible, rerender, onProgress = () =
     }
     const rerendered = await applySetRepairs({
       results, flagged, budget: CONTACT_QA_MAX_RERENDERS(), stage: 'contactQa', rerender,
+      // A prop repair is resolved against the RE-RENDER's own reference
+      // pack: the note names the prop and cites its sheet's index there
+      // (the pinned instruction, never model text).
       noteFor: f => (f.defect === 'prop_rendering'
-        ? `SET CONSISTENCY REPAIR — compared with the book's other spreads, this render broke prop consistency. ${CONTACT_REPAIR_INSTRUCTIONS.prop_rendering} Re-render the SAME scene and action; fix ONLY the prop.`
+        ? (refs) => `SET CONSISTENCY REPAIR — compared with the book's other spreads, this render broke prop consistency for "${inertPropValue(f.prop) || 'the prop'}". ${contactRepairNote('prop_rendering', { referenceIndex: propReferenceIndex(refs, f.prop) })} Re-render the SAME scene and action; fix ONLY the prop.`
         : worldRepairNote('character_rendering')),
       onProgress, log,
     });
@@ -1020,7 +1062,7 @@ async function renderStorySpreads(params) {
   });
   // ce-9 contact-sheet gate: character crops vs the model sheet, prop crops
   // vs their sheets.
-  const contactQa = await runContactSheetGate({ results, bible, rerender, onProgress, log });
+  const contactQa = await runContactSheetGate({ results, bible, evidence: story.personalization_evidence || [], rerender, onProgress, log });
 
   // Book-level advisories (the bible's own + the ce-8 lock-less warning).
   const advisories = [...bible.advisories];

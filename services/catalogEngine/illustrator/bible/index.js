@@ -214,8 +214,10 @@ async function buildBookBible(p) {
     characterSheet: sheet ? { key: sheet.storageKey, hash: sheet.hash, likeness: sheet.likeness ?? null, candidates: sheet.candidates ?? null } : null,
     // The anchor-derived lock never sets `source`; only a sheet-derived one does.
     outfitSpec: outfit ? { text: outfit.outfit, hash: outfit.hash, source: outfit.source || 'anchor' } : null,
-    props: props.filter(x => x && x.sheet).map(x => ({ value: x.value, key: x.sheet.storageKey, hash: x.sheet.hash, specText: x.sheet.specText || null })),
-    companion: companion ? { name: companion.key, key: companion.storageKey, hash: companion.hash, specText: companion.specText || null } : null,
+    // Each sheet's pixels AND its independently elected spec both shape
+    // the prompt + QA, so both hashes are part of the identity below.
+    props: props.filter(x => x && x.sheet).map(x => ({ value: x.value, key: x.sheet.storageKey, hash: x.sheet.hash, specHash: x.sheet.specHash || null, specText: x.sheet.specText || null })),
+    companion: companion ? { name: companion.key, key: companion.storageKey, hash: companion.hash, specHash: companion.specHash || null, specText: companion.specText || null } : null,
     worldPlate: worldPlate ? { hash: worldPlate.hash } : null,
     emotionPlanHash: emotion ? emotion.hash : null,
   };
@@ -223,7 +225,7 @@ async function buildBookBible(p) {
     s: manifest.styleVersion, a: manifest.anchorHash,
     c: manifest.characterSheet && manifest.characterSheet.hash,
     o: manifest.outfitSpec && manifest.outfitSpec.hash,
-    p: manifest.props.map(x => x.hash), k: manifest.companion && manifest.companion.hash,
+    p: manifest.props.map(x => [x.hash, x.specHash]), k: manifest.companion && [manifest.companion.hash, manifest.companion.specHash],
     w: manifest.worldPlate && manifest.worldPlate.hash, e: manifest.emotionPlanHash,
   })).toString(36);
 
@@ -252,7 +254,11 @@ async function buildBookBible(p) {
  */
 function buildReferencePack(bible, ctx) {
   const pack = [];
-  const refs = { characterSheetRef: null, coverRef: null, props: {}, companionRef: null, worldPlateRef: null };
+  // Prop values are PROFILE data: a child's comfort object may be named
+  // `__proto__` or `constructor`, so the per-value index is a prototype-
+  // less map and membership is an own-property check — an inherited key
+  // must never make a sheet look "already attached".
+  const refs = { characterSheetRef: null, coverRef: null, props: Object.create(null), companionRef: null, worldPlateRef: null };
   const push = (entry) => { pack.push(entry); return pack.length; };
   if (bible.sheet) {
     refs.characterSheetRef = push({ kind: 'characterSheet', label: 'CHARACTER MODEL SHEET (identity AND the complete outfit of the ONE child in this book — front, three-quarter, back): draw this exact child in this exact outfit. Use it ONLY for who the child is and what they wear; never copy a pose, expression or the plain studio background.', base64: bible.sheet.base64, mimeType: bible.sheet.mimeType || 'image/png' });
@@ -268,7 +274,7 @@ function buildReferencePack(bible, ctx) {
   const byValue = new Map((bible.props || []).filter(x => x && x.sheet).map(x => [normalizePropValue(x.value), x.sheet]));
   for (const v of ctx.propValues || []) {
     const sheet = byValue.get(normalizePropValue(v));
-    if (!sheet || refs.props[v]) continue;
+    if (!sheet || Object.prototype.hasOwnProperty.call(refs.props, v)) continue;
     refs.props[v] = push({ kind: 'prop', label: `PROP SHEET for "${v}" (this exact object — same object, colours, material and size whenever it appears; the background is not part of the scene).`, base64: sheet.base64, mimeType: sheet.mimeType || 'image/png' });
   }
   if (ctx.companionOnSpread && bible.companion) {

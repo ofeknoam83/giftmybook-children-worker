@@ -54,6 +54,7 @@ jest.mock('../../../services/catalogEngine/illustrator/metrics', () => ({
 jest.mock('../../../services/catalogEngine/illustrator/contactSheet', () => ({
   checkCharacterContactSheet: jest.fn().mockResolvedValue({ pass: true, flagged: [], checked: 2 }),
   checkPropContactSheet: jest.fn().mockResolvedValue({ pass: true, flagged: [], checked: 2 }),
+  contactRepairNote: jest.fn((defect, o) => `REPAIR ${defect} ref=${o && o.referenceIndex}`),
   CONTACT_REPAIR_INSTRUCTIONS: { prop_rendering: 'Draw the prop EXACTLY as its reference sheet.' },
 }));
 
@@ -64,6 +65,7 @@ const { getBibleProps } = require('../../../services/catalogEngine/illustrator/b
 const { getOutfitLock } = require('../../../services/catalogEngine/illustrator/outfitLock');
 const { getEmotionPlan } = require('../../../services/catalogEngine/illustrator/emotionPlan');
 const { checkSpreadRenderV2 } = require('../../../services/catalogEngine/illustrator/spreadQa');
+const { checkCharacterContactSheet, checkPropContactSheet } = require('../../../services/catalogEngine/illustrator/contactSheet');
 const { renderStorySpreads, illustrateStory } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
 const { QA_VERSION } = require('../../../services/catalogEngine/versions');
@@ -249,6 +251,52 @@ test('prop and companion sheets ride the pack only on the spreads that carry the
   expect(qa5.props).toEqual([{ name: 'Teddy Bear', specText: 'a small honey-brown plush bear', sheet: { base64: PROP_SHEET.base64, mimeType: 'image/png' }, expected: 'carried' }]);
   const qa3 = checkSpreadRenderV2.mock.calls.find(c => c[1].label.includes(':s3:'))[1];
   expect(qa3.props[0]).toMatchObject({ name: 'Teddy Bear', expected: 'required' });
+});
+
+test('the bible hash folds each prop sheet\'s SPEC hash beside its pixels; a prop named __proto__ still gets its sheet', async () => {
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  const evidence = [{ spread: 3, moment_type: 'object_presence', source_field: 'object', source_value: 'teddy bear', visual_required: true }];
+  getBibleProps.mockResolvedValue({ props: [{ value: 'teddy bear', sheet: { ...PROP_SHEET, specHash: 'specA' } }], companion: null, advisories: [] });
+  const a = await renderStorySpreads(baseParams({ spreadNos: [3], spreads: [3], evidence }));
+  getBibleProps.mockResolvedValue({ props: [{ value: 'teddy bear', sheet: { ...PROP_SHEET, specHash: 'specB' } }], companion: null, advisories: [] });
+  const b = await renderStorySpreads(baseParams({ spreadNos: [3], spreads: [3], evidence }));
+  expect(a.storyHash).toMatch(/-b[0-9a-z]+$/);
+  expect(a.storyHash).not.toBe(b.storyHash); // same pixels, re-derived spec ⇒ never a replay under the old spec
+  expect(a.bookBible.bibleHash).not.toBe(b.bookBible.bibleHash);
+
+  // Prop values are profile data — an inherited-key name is still a prop.
+  const hostile = [{ spread: 3, moment_type: 'object_presence', source_field: 'object', source_value: '__proto__', visual_required: true }];
+  getBibleProps.mockResolvedValue({ props: [{ value: '__proto__', sheet: { ...PROP_SHEET, key: '__proto__' } }], companion: null, advisories: [] });
+  generateIllustration.mockClear();
+  await renderStorySpreads(baseParams({ spreadNos: [3], spreads: [3], evidence: hostile }));
+  const opts = generateIllustration.mock.calls[0][3];
+  expect(opts.referencePack.map(r => r.kind)).toEqual(['characterSheet', 'cover', 'prop']);
+  expect(opts.bible.props[0]).toMatchObject({ name: '__proto__', ref: 3 });
+});
+
+test('the contact gate tiles the child and each prop from their QA crops (a spread without a box is a named FULL tile) and a prop repair cites the prop sheet', async () => {
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_CONTACT_MAX_RERENDERS = '3';
+  getBibleProps.mockResolvedValue({ props: [{ value: 'teddy bear', sheet: PROP_SHEET }], companion: null, advisories: [] });
+  const evidence = [{ spread: 3, moment_type: 'object_presence', source_field: 'object', source_value: 'Teddy Bear', visual_required: true }];
+  const boxed = cleanQa({ propBoxes: [{ name: 'Teddy Bear', bbox: { x: 0.1, y: 0.6, w: 0.15, h: 0.2 } }] });
+  checkSpreadRenderV2.mockImplementation(async (buf, { label }) => (label.includes(':s5:') ? cleanQa({ bbox: null, propBoxes: [{ name: 'Teddy Bear', bbox: null }] }) : boxed));
+  checkPropContactSheet.mockResolvedValueOnce({ pass: false, flagged: [{ spread: 5, note: 'a different bear' }], checked: 2 });
+  const { results, contactQa } = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], evidence }));
+  expect(results.map(r => r.spread)).toEqual([1, 3, 5]);
+  // Child tiles: crops where the verdict gave a box, the whole spread named FULL where it did not.
+  const childTiles = checkCharacterContactSheet.mock.calls[0][0].tiles;
+  expect(childTiles.map(t => [t.spread, t.cropped])).toEqual([[1, true], [3, true], [5, false]]);
+  // Prop tiles: the prop's own crop on spread 3 (declared) and the FULL spread on 5 (carried, no box).
+  const propCall = checkPropContactSheet.mock.calls[0][0];
+  expect(propCall.propSheet.name).toBe('teddy bear');
+  expect(propCall.tiles.map(t => [t.spread, t.cropped, t.buffer.toString()])).toEqual([[3, true, 'crop'], [5, false, `png:${results[2].storageKey}`]]);
+  // The flagged spread re-rendered once with the prop-sheet-citing repair note (REFERENCE 3: sheet, cover, prop).
+  expect(contactQa).toMatchObject({ pass: false, rerendered: [5] });
+  const repair = generateIllustration.mock.calls.at(-1);
+  expect(repair[3].spreadIndex).toBe(4);
+  expect(repair[0]).toContain('broke prop consistency for "teddy bear". REPAIR prop_rendering ref=3');
+  expect(repair[0]).not.toContain('REFERENCE <n>');
 });
 
 test('N=1: a repair that scores WORSE renders beside the key and never overwrites the better base render', async () => {

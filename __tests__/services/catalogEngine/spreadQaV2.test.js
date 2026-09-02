@@ -165,6 +165,53 @@ test('a CARRIED prop that is not visible is ADVISORY; a declared (required) prop
   expect(prompt).toContain('"teddy bear"');
 });
 
+test('the props field is STRICT: a shorter list, an untyped flag, or a reordered name is malformed, never clean; boxes ride out', async () => {
+  const opts = fullOpts();
+  opts.props = [
+    { name: 'teddy bear', specText: null, sheet: PROP, expected: 'required' },
+    { name: 'blue blanket', specText: null, sheet: null, expected: 'carried' },
+  ];
+  const good = [
+    { name: 'teddy bear', presence: 'present', look: 'match', duplicated: false, as_text: false, bbox: { x: 0.1, y: 0.5, w: 0.1, h: 0.15 } },
+    { name: 'Blue  Blanket', presence: 'absent', look: 'n/a', duplicated: false, as_text: false, bbox: null },
+  ];
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ props: good })));
+  const ok = await checkSpreadRenderV2(IMG, opts);
+  expect(ok.qaUnavailable).toBeUndefined();
+  expect(ok.propBoxes).toEqual([{ name: 'teddy bear', bbox: { x: 0.1, y: 0.5, w: 0.1, h: 0.15 } }, { name: 'blue blanket', bbox: null }]);
+  const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts.find(p => p.text).text;
+  expect(prompt).toContain('"bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null}');
+  for (const bad of [
+    good.slice(0, 1), // shorter than requested
+    [good[0], { ...good[1], duplicated: 'no' }], // untyped flag
+    [good[0], { ...good[1], as_text: undefined }], // missing flag
+    [good[1], good[0]], // reordered
+    [good[0], { ...good[1], name: 'red blanket' }], // wrong prop
+  ]) {
+    fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ props: bad })));
+    const r = await checkSpreadRenderV2(IMG, opts);
+    expect(r.qaUnavailable).toMatch(/malformed/);
+    expect(r.blocking).toEqual([]);
+  }
+});
+
+test('with embedded text expected, a readable_text:true verdict without a transcript is malformed; a transcript is compared', async () => {
+  const opts = { ...fullOpts(), expectedText: 'The cow says moo.' };
+  const textFields = { text_split_both_sides: false, text_on_band: false, text_lines_misaligned: false, text_style_inconsistent: false };
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, visible_text: '', ...textFields })));
+  expect((await checkSpreadRenderV2(IMG, opts)).qaUnavailable).toMatch(/malformed/);
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, ...textFields })));
+  expect((await checkSpreadRenderV2(IMG, opts)).qaUnavailable).toMatch(/malformed/);
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, visible_text: 'The cow says moo.', ...textFields })));
+  const r3 = await checkSpreadRenderV2(IMG, opts);
+  expect(r3.qaUnavailable).toBeUndefined();
+  expect(r3.pass).toBe(true);
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: false, visible_text: '', ...textFields })));
+  const r4 = await checkSpreadRenderV2(IMG, opts);
+  expect(r4.qaUnavailable).toBeUndefined();
+  expect(r4.defects).toContain('embedded story text missing from the image');
+});
+
 test('bath/water spreads skip the outfit check; an absent child suppresses identity/outfit/action findings', async () => {
   fetchWithTimeout.mockResolvedValue(answer(cleanVerdict({ child_absent: true, outfit: { top: 'mismatch', bottom: 'mismatch', footwear: 'mismatch', outerwear: 'mismatch', accessories: 'mismatch' }, same_child: false, depicts_beat: false })));
   const r = await checkSpreadRenderV2(IMG, { ...fullOpts(), bathWater: true });

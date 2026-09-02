@@ -399,10 +399,14 @@ async function produceCandidate(index, prompt, refPhoto, childPhoto, costTracker
 /**
  * Elect the winning candidate from the judged set: the PASSING candidate
  * with the highest likeness (ties ⇒ lowest index, deterministic). When no
- * candidate passes: if EVERY generated candidate is unverifiable (judge
- * infrastructure down) the first generated one ships UNCHECKED with an
- * advisory (mirroring the world plate); otherwise the set is a total
- * failure and the returned `error` carries every candidate's verdict.
+ * candidate passes the set is a total failure and the returned `error`
+ * carries every candidate's verdict — INCLUDING the case where the judge
+ * was unavailable for every candidate: an elected sheet is pinned per
+ * anchor for good (this book and every later book on the anchor), so a
+ * sheet nothing verified is never elected blind (unlike the fail-open
+ * world plate, which is not an identity ground truth).
+ * `CATALOG_SHEET_REQUIRED=0` turns that failure into a sheet-less render
+ * with an advisory — never into a pinned guess.
  * @param {Array<object>} results from produceCandidate, in index order
  * @param {(level: string, msg: string) => void} log
  * @returns {{winner: object|null, likeness: number|null, advisories: Array<{stage: string, note: string}>, error?: Error}}
@@ -431,10 +435,8 @@ function electCandidate(results, log) {
   }
   const generated = results.filter(r => r.buffer);
   if (generated.length > 0 && generated.every(r => r.unverifiable)) {
-    const first = generated[0];
-    log('warn', `character sheet: every candidate was unverifiable — candidate ${first.index + 1} shipped UNCHECKED`);
-    advisories.push(advisory(`sheet shipped UNCHECKED: the judge was unavailable for every candidate (${first.unverifiable})`));
-    return { winner: first, likeness: null, advisories };
+    log('warn', 'character sheet: every candidate was unverifiable — no sheet elected (a sheet nothing verified is never pinned)');
+    advisories.push(advisory(`no sheet elected: the judge was unavailable for every candidate (${generated[0].unverifiable})`));
   }
   const summary = advisories.map(a => a.note).join(' | ');
   return {
