@@ -1,6 +1,17 @@
 # Gift Video — the 10-second animated story film (plan, gv-1)
 
-> **Status:** plan only — nothing on this branch ships code. **Revision 3 (2026-09-02):**
+> **Status:** WORKER IMPLEMENTED on this branch (2026-09-02): `services/catalogEngine/video/`
+> (`plan.js`, `brief.js`, `stills.js`, `providers/{index,models,replicate}.js`, `generate.js`,
+> `verify.js`, `ffmpeg.js`, `clips.js`, `index.js`), `POST /v13/generate-video` +
+> `POST /v13/pick-clip` in `server.js`, `VIDEO_VERSION` + the gv-1 flags + per-second cost
+> rates, `ffmpeg` in the Dockerfile, `REPLICATE_API_TOKEN` on the deploy env, and the test
+> suites under `__tests__/services/catalogEngine/video/` + `__tests__/serverGiftVideo.test.js`
+> (the stitch graph is exercised against a real ffmpeg when `FFMPEG_PATH` is set). Not yet
+> built: the fal.ai / Vertex Veo / Runway adapters (§4.4 — Replicate is the only adapter;
+> the registry refuses the others), Phase 4 delivery, and the Phase 0 bake-off itself (the
+> Replicate model's exact input schema is a verify-at-build item: `CATALOG_VIDEO_MODEL_INPUT_JSON`
+> patches fields on the revision). The app side is tracked in the companion doc.
+> **Revision 3 (2026-09-02):**
 > Replicate is the default host for Kling 3.0 — the existing `REPLICATE_API_TOKEN`, no new
 > credential (owner decision). **Revision 2 (2026-09-02):** the
 > product is a FULLY ANIMATED film — every frame is generated motion; there is no stills / Ken

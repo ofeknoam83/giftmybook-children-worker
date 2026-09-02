@@ -397,6 +397,17 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_IDENTITY_METRICS=1` — (ce-9, OPT-IN) embedding identity score +
   set outliers (`CATALOG_EMBEDDING_BACKEND`, default `vertex`).
 - `CATALOG_UPSELL_OUTFIT_LOCK=0` — (ce-9) upsell covers dress freely again.
+- `CATALOG_GIFT_VIDEO=0` — (gv-1) disable `/v13/generate-video` and
+  `/v13/pick-clip` (503). `CATALOG_VIDEO_PROVIDERS` (default `replicate`),
+  `CATALOG_VIDEO_MODEL` (default `kwaivgi/kling-v3-video`),
+  `CATALOG_VIDEO_ELEMENTS=0` (no identity-kit reference elements),
+  `CATALOG_VIDEO_MODEL_INPUT_JSON` (per-revision input field overrides),
+  `CATALOG_VIDEO_CLIP_CANDIDATES` (2, 1-3), `CATALOG_VIDEO_CLIP_MAX_REPAIRS`
+  (2, 0-4), `CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS` (480),
+  `CATALOG_VIDEO_MAX_CLIP_SECONDS` (60 — the per-film generation budget),
+  `CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1` (OPT-IN), `CATALOG_VIDEO_MUSIC`
+  (`none`), `FFMPEG_PATH`. Bump `VIDEO_VERSION` (versions.js, `gv-1`) on
+  any change to the film plan, the brief template or the stitch graph.
 - Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 2, clamped 1-3),
   `CATALOG_DRIFT_MAX_REPAIRS` (default 2, clamped 0-4),
   `CATALOG_CONTACT_MAX_RERENDERS` (default 3), `CATALOG_SHEET_CANDIDATES`
@@ -487,6 +498,61 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   failure payload) → promotes it to the spread's canonical key with an
   admin-vouched marker; a re-dispatch of `/generate-book` (no
   `forceRerender`) then replays it into the PDFs.
+- `POST /v13/generate-video` — (gv-1, `docs/GIFT_VIDEO_PLAN.md`) the **gift
+  video**: `{bookId, renders:[{spread, storageKey}], story:{request,response},
+  profile, approvedCoverUrl|childPhotoUrls, characterDescription?, textLayout,
+  illustrationTuning?, identityKeyed?, seed?, probeNonce?, provider?, model?,
+  aspect?, music?, forceNew?, dispatchId?, callbackUrl, progressCallbackUrl?}`
+  → 202 `{videoVersion, provider, model, accepted:{spreads}}`; callback
+  `{video:{url, storageKey, posterUrl, posterKey, hash, durationSeconds,
+  width, height, fps, bytes, music, cached}, plan:[{index, kind, spread,
+  seconds, motion, startFrame:{storageKey, renderHash, rerendered}, clip:
+  {storageKey, hash, score, candidates, repairs}}], textGate, bookBible,
+  unresolved, advisories, warnings, costs, failureCode, error}` — every key
+  present on failure. A 10-second, text-free, FULLY ANIMATED film of a
+  finished book: the approved cover coming alive + the opening spread + the
+  emotional peak + the resolution (`video/plan.js` — deterministic from the
+  beats, the emotion plan and the shot plan; a fixed duration table sums to
+  exactly 10.000 s after 0.4 s crossfades; a photo anchor never opens the
+  film). `renders[]` are the EXACT canonical render keys the app holds
+  (candidate keys are rejected; an `embedded` key is never animated — the
+  spread is re-rendered text-free through `renderStorySpreads` under the
+  `half` layout, its `wide-plain` key); every start frame passes a vision
+  text gate (`video/stills.js`; painted text on a spread fails
+  `video_text_visible`, on the cover drops the opener with an advisory).
+  Each segment is one image-to-video clip from a provider adapter
+  (`video/providers/` — Replicate's `kwaivgi/kling-v3-video` by default on
+  the existing `REPLICATE_API_TOKEN`; the app's body-injected copy is the
+  fallback; `CATALOG_VIDEO_MODEL_INPUT_JSON` fixes input fields without a
+  deploy), briefed from pinned data only (`video/brief.js`: the beat's
+  action, the shot-plan camera move, the emotion cue, lock + negative
+  lines, the identity kit as `@Element` references — cover + character
+  sheet, companion sheet, prop sheets), N candidates per segment
+  (`CATALOG_VIDEO_CLIP_CANDIDATES`, default 2) each VERIFIED
+  (`video/verify.js`: five sampled frames through `checkSpreadRenderV2`
+  against the sheet — worst frame governs — plus ONE video-level judge for
+  morphing / identity drift / outfit change / new character / text /
+  speech / frozen; `select.js` scoring), best promoted to
+  `children-jobs/{bookId}/gift-video/{VIDEO_VERSION}/clips/s{i}-{clipHash}.mp4`
+  (+ `.qa.json`; candidates keep their own `.cK` / `.rPcK` bytes), a bounded
+  repair loop (`CATALOG_VIDEO_CLIP_MAX_REPAIRS`, default 2) while BLOCKING
+  defects remain, then `video/ffmpeg.js` stitches (blur-fill, xfade, white
+  fades, silent AAC or a bundled music bed) at exactly 10 s and uploads
+  `{planHash}/video.mp4 + poster.jpg + video.json`. Fail-closed:
+  `video_unresolved` carries `unresolved:[{segment, spread, defects,
+  candidates:[{storageKey, url, score}]}]` — no stills fallback
+  (`CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1` is the opt-in); other codes:
+  `video_no_sources`, `video_source_missing`, `video_text_visible`,
+  `video_provider_unavailable`, `video_provider_input_rejected`,
+  `video_encode_failed`, plus the inherited identity/story codes. The run
+  registers a `video:{bookId}` book context so the idle watchdog never
+  kills a job that polls a vendor for minutes. Kill-switch
+  `CATALOG_GIFT_VIDEO=0` (503).
+- `POST /v13/pick-clip` — (gv-1) `{bookId, storageKey}` (a
+  `…/clips/s{i}-{hash}.cK.mp4` candidate from a `video_unresolved` payload)
+  → promotes it to the segment's canonical clip key with an admin-vouched
+  marker; a re-dispatch of `/v13/generate-video` (no `forceNew`) replays it
+  and only re-stitches.
 - `/generate-book` completion callbacks now also carry `bookBible`,
   `contactQa`; failure callbacks may carry `failureCode:
   'consistency_unresolved'` + `unresolved[]` + `qaAdvisories` + `bookBible`,
@@ -554,6 +620,9 @@ elected per anchor/theme under `catalog-assets/`.
 - `GEMINI_API_KEY` (+ `GEMINI_API_KEY_1..10` pool, `GOOGLE_AI_STUDIO_KEY`) —
   renders + vision QA + coloring/comics
 - `DEEPSEEK_API_KEY` — no longer required (legacy pipelines deleted)
+- `REPLICATE_API_TOKEN` — the gift video's default provider host (Kling 3.0 on
+  Replicate); optional at boot — the app also injects its copy into every
+  worker request body, which the adapter accepts as the fallback
 - Catalog flags above
 
 ## Conventions

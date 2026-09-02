@@ -130,6 +130,17 @@ async function getSignedUrl(source, expiresInMs = 3600_000) {
 }
 
 /**
+ * Whether a GCS object exists (no download).
+ * @param {string} source - GCS object path or gs:// URI
+ * @returns {Promise<boolean>}
+ */
+async function objectExists(source) {
+  const path = source.startsWith('gs://') ? source.replace(`gs://${bucketName}/`, '') : source;
+  const [exists] = await getBucket().file(path).exists();
+  return !!exists;
+}
+
+/**
  * Delete all objects under a prefix.
  * @param {string} prefix
  */
@@ -163,6 +174,7 @@ module.exports = {
   uploadFromUrl,
   downloadBuffer,
   getSignedUrl,
+  objectExists,
   deletePrefix,
   saveJson,
   loadJson,

@@ -80,6 +80,29 @@
  *  - CATALOG_DRIFT_MAX_REPAIRS=N  — (ce-9) extra corrective passes reserved
  *                                   for drift-class defects (0-4, default 2).
  *
+ *  - CATALOG_GIFT_VIDEO=0          — (gv-1) disable the gift-video endpoints
+ *                                   (`/v13/generate-video` answers 503).
+ *  - CATALOG_VIDEO_PROVIDERS=a,b   — (gv-1) the providers an admin may select
+ *                                   (default `replicate`; the first is the
+ *                                   default when a request names none).
+ *  - CATALOG_VIDEO_MODEL=id        — (gv-1) default model id for the default
+ *                                   provider (default `kwaivgi/kling-v3-video`).
+ *  - CATALOG_VIDEO_ELEMENTS=0      — (gv-1) stop attaching the identity kit as
+ *                                   the video model's reference elements
+ *                                   (start frame + prompt only).
+ *  - CATALOG_VIDEO_CLIP_CANDIDATES=N — (gv-1) candidate clips per segment (1-3, default 2).
+ *  - CATALOG_VIDEO_CLIP_MAX_REPAIRS=N — (gv-1) repair passes per segment while a
+ *                                   BLOCKING defect remains (0-4, default 2).
+ *  - CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS=N — (gv-1) per-clip vendor deadline (60-1800, default 480).
+ *  - CATALOG_VIDEO_MAX_CLIP_SECONDS=N — (gv-1) generated seconds allowed per film,
+ *                                   candidates and repairs included (0-600, default 60).
+ *  - CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1 — (gv-1, OPT-IN) stitch a segment whose
+ *                                   BLOCKING defects survived every candidate
+ *                                   and repair (advisory) instead of failing
+ *                                   the film `video_unresolved`.
+ *  - CATALOG_VIDEO_MUSIC=name      — (gv-1) music bed under data/video/music/
+ *                                   (default `none`: a silent audio track).
+ *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
  */
@@ -125,4 +148,16 @@ module.exports = {
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 2, 1, 3),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 2, 0, 4),
+  // gv-1 — the gift video (docs/GIFT_VIDEO_PLAN.md §5.3)
+  giftVideoEnabled: () => !envOff('CATALOG_GIFT_VIDEO'),
+  videoProviders: () => String(process.env.CATALOG_VIDEO_PROVIDERS || 'replicate')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+  videoModel: () => String(process.env.CATALOG_VIDEO_MODEL || 'kwaivgi/kling-v3-video').trim(),
+  videoElementsEnabled: () => !envOff('CATALOG_VIDEO_ELEMENTS'),
+  videoClipCandidates: () => envInt('CATALOG_VIDEO_CLIP_CANDIDATES', 2, 1, 3),
+  videoClipMaxRepairs: () => envInt('CATALOG_VIDEO_CLIP_MAX_REPAIRS', 2, 0, 4),
+  videoClipTimeoutSeconds: () => envInt('CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS', 480, 60, 1800),
+  videoMaxClipSeconds: () => envInt('CATALOG_VIDEO_MAX_CLIP_SECONDS', 60, 0, 600),
+  videoShipOnExhaustion: () => envOn('CATALOG_VIDEO_SHIP_ON_EXHAUSTION'),
+  videoMusic: () => String(process.env.CATALOG_VIDEO_MUSIC || 'none').trim() || 'none',
 };

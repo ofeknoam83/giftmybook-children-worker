@@ -23,6 +23,12 @@ const RATES = {
   // rate pending published pro-tier image pricing — confirm before invoicing
   // (previously this id fell through to the silent unknown-model default).
   'gemini-3-pro-image-preview': { perImage: 0.05 },
+  // Video models (per generated second, audio OFF) — gift video (gv-1).
+  // Third-party price summaries as of 2026-09; verify against the hosts'
+  // pricing pages before invoicing (docs/GIFT_VIDEO_PLAN.md §8).
+  'kwaivgi/kling-v3-video': { perSecond: 0.168 },
+  'veo-3.1-fast-generate-preview': { perSecond: 0.15 },
+  'veo-3.1-generate-preview': { perSecond: 0.40 },
 };
 
 // Unknown models bill at a plausible default, which silently hides a missing
@@ -43,6 +49,7 @@ class CostTracker {
   constructor() {
     this.textUsage = {};   // model → { inputTokens, outputTokens }
     this.imageUsage = {};  // model → count
+    this.videoUsage = {};  // model → generated seconds
   }
 
   addTextUsage(model, inputTokens, outputTokens) {
@@ -55,6 +62,17 @@ class CostTracker {
 
   addImageGeneration(model, count = 1) {
     this.imageUsage[model] = (this.imageUsage[model] || 0) + count;
+  }
+
+  /**
+   * Record generated video seconds for a model (gift video, gv-1).
+   * @param {string} model provider model id
+   * @param {number} seconds seconds of video the vendor generated (billed)
+   */
+  addVideoSeconds(model, seconds) {
+    const s = Number(seconds);
+    if (!Number.isFinite(s) || s <= 0) return;
+    this.videoUsage[model] = (this.videoUsage[model] || 0) + s;
   }
 
   getSummary() {
@@ -86,6 +104,17 @@ class CostTracker {
       };
     }
 
+    // Video costs (per generated second)
+    for (const [model, seconds] of Object.entries(this.videoUsage)) {
+      const rate = rateFor(model, { perSecond: 0.20 }, 'video');
+      const cost = seconds * rate.perSecond;
+      totalCost += cost;
+      breakdown[model] = {
+        videoSeconds: Math.round(seconds * 100) / 100,
+        cost: Math.round(cost * 10000) / 10000,
+      };
+    }
+
     return {
       totalCost: Math.round(totalCost * 10000) / 10000,
       breakdown,
@@ -95,6 +124,7 @@ class CostTracker {
   reset() {
     this.textUsage = {};
     this.imageUsage = {};
+    this.videoUsage = {};
   }
 
   // Re-hydrate from a previously saved summary (used to resume costs across retries)
@@ -106,6 +136,9 @@ class CostTracker {
       }
       if (data.imageCount != null) {
         this.addImageGeneration(model, data.imageCount);
+      }
+      if (data.videoSeconds != null) {
+        this.addVideoSeconds(model, data.videoSeconds);
       }
     }
   }

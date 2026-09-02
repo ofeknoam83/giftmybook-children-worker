@@ -1,6 +1,6 @@
 FROM node:20-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libvips-dev fonts-liberation imagemagick \
+    libvips-dev fonts-liberation imagemagick ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package*.json ./
