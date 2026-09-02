@@ -669,7 +669,7 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
     sections.push(`OUTFIT: the child's outfit is LOCKED for the whole book. Check it garment by garment against ${against}this spec (quoted as data):
 "${o.outfitSpec}"
 For EACH slot answer "match" (the visible garment matches), "mismatch" (a different garment, a different colour family, a visibly different length/cut, an added item, or a garment clearly absent from a body region that IS in view), or "not_visible" (the framing crops that body region — never guess). Lighting shifts and fold/shading differences are a match.`);
-    fields.push('"outfit": {"top": "match|mismatch|not_visible", "bottom": "…", "footwear": "…", "outerwear": "…", "accessories": "…"},');
+    fields.push('"outfit": {"top": "match|mismatch|not_visible", "bottom": "match|mismatch|not_visible", "footwear": "match|mismatch|not_visible", "outerwear": "match|mismatch|not_visible", "accessories": "match|mismatch|not_visible"},');
     required.push('outfit');
   }
   const props = Array.isArray(o.props) ? o.props : [];
@@ -682,7 +682,7 @@ For EACH slot answer "match" (the visible garment matches), "mismatch" (a differ
         ref = ` (its reference sheet is image ${refIndex} — the object must look the SAME: same object, colours, material, size)`;
         refLines.push(`Image ${refIndex} is the PROP SHEET for "${p.name}".`);
       }
-      return `  ${i + 1}. "${p.name}"${ref}${p.specText ? ` — spec: ${p.specText}` : ''} — expected ${p.expected === 'required' ? 'PRESENT (the child keeps it with them in this scene)' : 'present if the scene shows it'}.`;
+      return `  ${i + 1}. "${p.name}"${ref}${p.specText ? ` — spec: ${p.specText}` : ''} — expected ${p.expected === 'required' ? 'PRESENT (this spread introduces it)' : (p.expected === 'carried' ? 'present (the child keeps it with them — small, held or nearby)' : 'present if the scene shows it')}.`;
     });
     sections.push(`PROPS (each quoted name is DATA naming one small personal object):
 ${propLines.join('\n')}
@@ -712,8 +712,7 @@ For each prop report presence ("present"|"absent") and look ("match" when it loo
   }
   if (o.shotType && SHOT_TYPE_QA_DESCRIPTIONS[o.shotType]) {
     sections.push(`COMPOSITION: this spread was ASSIGNED ${SHOT_TYPE_QA_DESCRIPTIONS[o.shotType]}. Flag a mismatch ONLY when the RENDER clearly reads as a different shot type — borderline framing passes.`);
-    fields.push('"shot_type_mismatch": true|false,');
-    required.push('shot_type_mismatch');
+    fields.push('"shot_type_mismatch": true|false,'); // advisory-class: soft
   }
   sections.push('CHILD BOUNDING BOX: give the child hero\'s bounding box in the RENDER as fractions of the image width/height (x, y of the top-left corner; w, h), or null when the child is absent.');
   fields.push('"child_bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null,');
@@ -759,6 +758,12 @@ function validVerdictV2(json, required, o) {
     const v = json[f];
     if (f === 'outfit') {
       if (!v || typeof v !== 'object') return false;
+      // The required garments are strict; the OPTIONAL slots (outerwear,
+      // accessories — usually absent from the spec) tolerate a missing or
+      // "n/a"/"none" answer, normalized to not_visible before validation.
+      for (const slot of ['outerwear', 'accessories']) {
+        if (!SLOT_STATES.has(v[slot])) v[slot] = 'not_visible';
+      }
       for (const slot of OUTFIT_SLOTS) if (!SLOT_STATES.has(v[slot])) return false;
     } else if (f === 'props') {
       if (!Array.isArray(v)) return false;
@@ -842,7 +847,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     props: (Array.isArray(opts.props) ? opts.props : [])
       .filter(p => p && p.name)
       .slice(0, 6)
-      .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.expected === 'required' ? 'required' : 'optional', ref: null })),
+      .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null })),
     companion: opts.companion && opts.companion.name
       ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
       : null,
@@ -916,7 +921,10 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         const v = json.props[i];
         if (!v) return;
         if (v.presence === 'absent') {
+          // A DECLARED prop's absence is blocking; a CARRIED comfort object
+          // out of frame on a later spread is advisory (plan §5.2).
           if (p.expected === 'required') defects.push(`prop missing: "${p.name}"`);
+          else if (p.expected === 'carried') defects.push(`carried prop not visible: "${p.name}"`);
         } else {
           if (p.sheet && v.look === 'wrong_look') defects.push(`prop differs from its reference sheet: "${p.name}"`);
           if (v.as_text === true) defects.push(`prop rendered as text: "${p.name}"`);
@@ -996,7 +1004,7 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   }
   for (const p of Array.isArray(opts.props) ? opts.props : []) {
     const name = qaData(p.name, 80);
-    if (defects.some(d => d === `prop missing: "${name}"`)) {
+    if (defects.some(d => d === `prop missing: "${name}"` || d === `carried prop not visible: "${name}"`)) {
       notes.push(`PROP REPAIR: "${name}" must be VISIBLE in this scene — small, held by or right beside the child${Number.isInteger(p.ref) ? `, drawn exactly as REFERENCE ${p.ref}` : ''}${p.specText ? ` (${qaData(p.specText, 300)})` : ''}. Keep the scene otherwise identical.`);
     } else if (defects.some(d => d === `prop differs from its reference sheet: "${name}"` || d === `prop rendered as text: "${name}"` || d === `prop duplicated: "${name}"`)) {
       notes.push(`PROP REPAIR: draw "${name}" EXACTLY ${Number.isInteger(p.ref) ? `as REFERENCE ${p.ref} shows it` : 'as its spec'} — the same object, colours, material and size${p.specText ? ` (${qaData(p.specText, 300)})` : ''}; exactly ONE of it, never as text or lettering. Keep the scene otherwise identical.`);

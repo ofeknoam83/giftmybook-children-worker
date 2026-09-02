@@ -128,6 +128,43 @@ test('a verdict missing a STRICT field (outfit slots) is malformed → qaUnavail
   expect(r2.bbox).toBeNull();
 });
 
+test('the OPTIONAL outfit slots (outerwear/accessories) tolerate a missing or off-enum answer; the required slots stay strict', async () => {
+  const lenient = cleanVerdict();
+  delete lenient.outfit.outerwear;
+  lenient.outfit.accessories = 'n/a';
+  fetchWithTimeout.mockResolvedValueOnce(answer(lenient));
+  const r1 = await checkSpreadRenderV2(IMG, fullOpts());
+  expect(r1.qaUnavailable).toBeUndefined();
+  expect(r1.pass).toBe(true);
+  expect(r1.blocking).toEqual([]);
+
+  const strict = cleanVerdict();
+  delete strict.outfit.top;
+  fetchWithTimeout.mockResolvedValueOnce(answer(strict));
+  const r2 = await checkSpreadRenderV2(IMG, fullOpts());
+  expect(r2.qaUnavailable).toMatch(/malformed/);
+});
+
+test('a CARRIED prop that is not visible is ADVISORY; a declared (required) prop missing is BLOCKING', async () => {
+  const opts = fullOpts();
+  opts.props = [
+    { name: 'teddy bear', specText: null, sheet: PROP, expected: 'required' },
+    { name: 'blue blanket', specText: null, sheet: null, expected: 'carried' },
+  ];
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ props: [
+    { name: 'teddy bear', presence: 'absent', look: 'n/a', duplicated: false, as_text: false },
+    { name: 'blue blanket', presence: 'absent', look: 'n/a', duplicated: false, as_text: false },
+  ] })));
+  const r = await checkSpreadRenderV2(IMG, opts);
+  expect(r.pass).toBe(false);
+  expect(r.blocking).toEqual(['prop missing: "teddy bear"']);
+  expect(r.advisory).toContain('carried prop not visible: "blue blanket"');
+  expect(classifyDefects(['carried prop not visible: "blue blanket"']).blocking).toEqual([]);
+  const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts.find(p => p.text).text;
+  expect(prompt).toContain('"blue blanket" — expected present (the child keeps it with them');
+  expect(prompt).toContain('"teddy bear"');
+});
+
 test('bath/water spreads skip the outfit check; an absent child suppresses identity/outfit/action findings', async () => {
   fetchWithTimeout.mockResolvedValue(answer(cleanVerdict({ child_absent: true, outfit: { top: 'mismatch', bottom: 'mismatch', footwear: 'mismatch', outerwear: 'mismatch', accessories: 'mismatch' }, same_child: false, depicts_beat: false })));
   const r = await checkSpreadRenderV2(IMG, { ...fullOpts(), bathWater: true });

@@ -19,7 +19,9 @@ const KEY = 'children-jobs/book-1/ce-renders/ce-9/abc-b123/spread-7.wide.c2.png'
 beforeEach(() => { downloadBuffer.mockReset(); uploadBuffer.mockClear(); });
 
 test('parseCandidateKey accepts only this book\'s candidate keys', () => {
-  expect(parseCandidateKey('book-1', KEY)).toEqual({ spread: 7, canonicalKey: 'children-jobs/book-1/ce-renders/ce-9/abc-b123/spread-7.wide.png' });
+  expect(parseCandidateKey('book-1', KEY)).toEqual({ spread: 7, canonicalKey: 'children-jobs/book-1/ce-renders/ce-9/abc-b123/spread-7.wide.png', candidate: 'c2' });
+  // repair-pass candidates keep their own bytes beside the key (`.r{p}c{k}`)
+  expect(parseCandidateKey('book-1', KEY.replace('.c2.png', '.r1c2.png'))).toEqual({ spread: 7, canonicalKey: 'children-jobs/book-1/ce-renders/ce-9/abc-b123/spread-7.wide.png', candidate: 'r1c2' });
   expect(parseCandidateKey('book-2', KEY)).toBeNull();
   expect(parseCandidateKey('book-1', 'children-jobs/book-1/ce-renders/ce-9/abc/spread-7.wide.png')).toBeNull();
   expect(parseCandidateKey('book-1', '../../etc/passwd')).toBeNull();
@@ -34,7 +36,7 @@ test('pickCandidate promotes the bytes and writes an admin-vouched marker', asyn
   const marker = JSON.parse(uploadBuffer.mock.calls[1][0].toString('utf8'));
   expect(uploadBuffer.mock.calls[1][1]).toBe(`${r.storageKey}.qa.json`);
   expect(marker).toMatchObject({ qaVersion: QA_VERSION, adminPicked: true, renderHash: r.renderHash });
-  expect(marker.advisories[0].note).toContain('candidate 2 picked by an admin');
+  expect(marker.advisories[0].note).toContain('candidate c2 picked by an admin');
 });
 
 test('a foreign key is refused with a 400-class error before any storage access', async () => {

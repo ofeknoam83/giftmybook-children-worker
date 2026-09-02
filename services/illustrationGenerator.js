@@ -515,7 +515,16 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // shrinks and the model's instruction budget goes to the scene. Legacy
   // callers (cover, coloring, comics, un-bibled renders) are byte-identical.
   const bible = opts.bible && typeof opts.bible === 'object' ? opts.bible : null;
-  const refShown = bible ? 'REFERENCE 1 (the character model sheet)' : 'the reference photo';
+  // The pack's indices are whatever the bible assigned (a sheet-less book
+  // has the cover at 1) — never hardcode "REFERENCE 1".
+  const sheetRefNo = bible && Number.isInteger(bible.characterSheetRef) ? bible.characterSheetRef : null;
+  const coverRefNo = bible && Number.isInteger(bible.coverRef) ? bible.coverRef : null;
+  const refShown = bible
+    ? (sheetRefNo ? `REFERENCE ${sheetRefNo} (the character model sheet)` : (coverRefNo ? `REFERENCE ${coverRefNo} (the approved cover)` : 'the reference images'))
+    : 'the reference photo';
+  const refPair = bible
+    ? [sheetRefNo && `REFERENCE ${sheetRefNo} (model sheet)`, coverRefNo && `REFERENCE ${coverRefNo} (approved cover)`].filter(Boolean).join(' and ') || 'the reference images'
+    : null;
   const bibleOutfit = bible ? bible.outfitSpecText || null : null;
   if (bible) {
     parts.push(...renderBibleBlocks(bible, { bathWaterScene }));
@@ -572,7 +581,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   // C2: CHARACTER description is the VERY FIRST block in the prompt
   parts.push(bible
-    ? `DRAW THIS EXACT CHILD — match REFERENCE 1 (model sheet) and REFERENCE 2 (approved cover) precisely:`
+    ? `DRAW THIS EXACT CHILD — match ${refPair} precisely:`
     : `DRAW THIS EXACT CHILD — match the reference photo precisely:`);
   if (opts.characterAnchor) {
     parts.push(opts.characterAnchor);
@@ -765,7 +774,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const skinToneMatch = anchorText.match(/skin[:\s]+([^.;,\n]+)/i) || anchorText.match(/((?:light|medium|dark|fair|olive|brown|tan|deep|pale)[^.;,\n]*skin[^.;,\n]*)/i);
   const skinTone = skinToneMatch ? skinToneMatch[1].trim() : `as shown in ${refShown}`;
   // hairStyle already extracted above for C2
-  const outfitDesc = characterOutfit || (bible ? 'the outfit of REFERENCE 1 (the character model sheet) and the CHARACTER block' : 'as shown in the reference photo');
+  const outfitDesc = characterOutfit || (bible ? `the outfit of ${refShown} and the CHARACTER block` : 'as shown in the reference photo');
   parts.push('');
   parts.push(`CONSISTENCY RULES (NON-NEGOTIABLE):`);
   parts.push(`- The child's FACE must have the same bone structure, nose shape, and eye placement as the reference photo`);
@@ -884,7 +893,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(
     bathWaterScene
       ? `8. BATH/WATER MODE: modest bubbles/towel/swimwear — NOT street outfit in water; still PG-modest. \u2713`
-      : `8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || (bibleOutfit ? `the CHARACTER block outfit (REFERENCE 1): ${bibleOutfit}` : '[match reference photo]')}. \u2713`
+      : `8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || (bibleOutfit ? `the CHARACTER block outfit (${refShown}): ${bibleOutfit}` : '[match reference photo]')}. \u2713`
   );
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (embedStoryText && textRulesForEmbed) {

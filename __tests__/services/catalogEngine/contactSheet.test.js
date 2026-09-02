@@ -73,7 +73,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  delete process.env.CATALOG_WORLD_QA;
+  delete process.env.CATALOG_CONTACT_QA;
   delete process.env.CATALOG_QA_VISION_MODEL;
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -312,8 +312,8 @@ describe('checkCharacterContactSheet', () => {
     expect(fetchWithTimeout).not.toHaveBeenCalled();
   });
 
-  test('CATALOG_WORLD_QA=0 kill-switch resolves null without a call', async () => {
-    process.env.CATALOG_WORLD_QA = '0';
+  test('CATALOG_CONTACT_QA=0 kill-switch resolves null without a call', async () => {
+    process.env.CATALOG_CONTACT_QA = '0';
     const { checkCharacterContactSheet, checkPropContactSheet, fetchWithTimeout } = load();
     expect(await checkCharacterContactSheet({ tiles: tiles12, sheet })).toBeNull();
     expect(await checkPropContactSheet({ tiles: tiles12, propSheet: { buffer: sheet.buffer } })).toBeNull();

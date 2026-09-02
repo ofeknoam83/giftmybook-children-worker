@@ -335,6 +335,11 @@ async function runBookPipeline(params) {
       // generateFrontCoverImage received no photo bytes, so the physical
       // cover showed a different child than the one the parent approved.
       ...(approvedCoverBuffer ? { preGeneratedCoverBuffer: approvedCoverBuffer } : {}),
+      // The worker's own probe-anchor covers (/v13/generate-cover-image →
+      // children-covers/{bookId}/anchor-cover-*.png) are rendered through
+      // the pixar_premium path and carry no path marker — say so, or the
+      // wrap would img2img-"harmonize" (re-render) the approved pixels.
+      ...(/\/anchor-cover-[^/]*\.png(\?|$)/.test(String(approvedCoverUrl || '')) ? { coverSourceIs3D: true } : {}),
       // Fallback (download failed): at least anchor the re-render on the
       // approved cover URL instead of rendering an undescribed child.
       ...(!approvedCoverBuffer && approvedCoverUrl ? { childPhotoUrl: approvedCoverUrl } : {}),

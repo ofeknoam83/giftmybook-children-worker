@@ -382,7 +382,7 @@ function validateVerdict(json, spreads, defect) {
  */
 async function runContactCheck(o) {
   const { label, defect } = o;
-  if (!flags.worldQaEnabled()) return null;
+  if (!flags.contactQaEnabled()) return null;
   const tiles = await normalizeTiles(o.tiles, label);
   if (tiles.length < 2) return null;
   const spreads = tiles.map(t => t.spread);

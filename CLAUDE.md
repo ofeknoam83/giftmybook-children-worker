@@ -293,16 +293,25 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   off-centre / shot-size rules, and (opt-in `CATALOG_IDENTITY_METRICS=1`,
   Vertex multimodal embeddings) an identity similarity score + set outliers.
   **Selection:** each spread renders `CATALOG_RENDER_CANDIDATES` (default 2)
-  candidates concurrently beside the shipped key (`spread-N.<aspect>.cK.png`),
+  candidates concurrently beside the shipped key (`spread-N.<aspect>.cK.png`
+  for the base pass, `.rPcK.png` for repair pass P — every scored candidate
+  keeps its OWN bytes, so a rejected repair never overwrites better pixels
+  and the failure payload's candidates are exactly what was scored; only
+  the N=1 base render lives at the canonical key itself),
   scores them (`select.js`: blocking defects sink a candidate below zero,
   advisories and metrics shade the rest, unchecked ranks below checked),
   promotes the best to the canonical key, and runs the bounded repair loop
   ONLY while blocking (or embedded-text) defects remain — each pass renders
   N fresh candidates steered by `repairNoteV2` (slot/prop/companion/action/
-  emotion/anatomy notes from pinned data only) and adopts a higher score;
-  drift-class defects draw on `CATALOG_DRIFT_MAX_REPAIRS` beyond the general
-  budget. **Set gates:** the ce-5 world gate is unchanged; the **contact-
-  sheet gate** (`contactSheet.js`, `runContactSheetGate`) tiles the child
+  emotion/anatomy notes from pinned data only) and adopts a higher score
+  (an UNCHECKED repair — checker outage mid-loop — never replaces a render
+  whose defects are known); drift-class defects draw on
+  `CATALOG_DRIFT_MAX_REPAIRS` beyond the general budget. A carried comfort
+  object that is not visible is ADVISORY (`carried prop not visible`);
+  a declared evidence prop missing is BLOCKING. **Set gates:** the ce-5
+  world gate is unchanged; the **contact-
+  sheet gate** (`contactSheet.js`, `runContactSheetGate`, kill-switch
+  `CATALOG_CONTACT_QA=0`) tiles the child
   crops beside the model sheet (and prop crops beside their sheets) in one
   image per call so garments are legible, flags `character_rendering` /
   `prop_rendering`, and re-renders flagged FRESH spreads once
@@ -314,7 +323,11 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   `shipPolicy` advisory); the `.qa.json` marker records `qaVersion`
   (`QA_VERSION`, versions.js) and an `unresolved` flag, so a replay under a
   newer checker — or of an unresolved render — re-checks instead of
-  trusting it. Admin remedies: `POST /v13/pick-candidate` promotes a
+  trusting it (the one exception: a render the opt-in switch shipped is
+  marked `shippedOnExhaustion` and replays WITH its blocking list while the
+  switch stays on, so the callback keeps reporting it; switch off and it
+  re-checks). The render phase and both set gates emit a 30s progress
+  heartbeat so the server's idle watchdog never aborts a healthy book. Admin remedies: `POST /v13/pick-candidate` promotes a
   candidate to the canonical key with an admin-vouched marker;
   `/v13/render-spreads` with `identityKeyed:false` re-renders one spread
   of a CUSTOMER book onto its own cache key. **The printed product:** the
@@ -366,6 +379,8 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   as quoted nouns only).
 - `CATALOG_EMOTION_PLAN=0` — (ce-9) no per-spread emotion line/check;
   `CATALOG_EMOTION_CLASSIFIER=0` keeps the keyword table only.
+- `CATALOG_CONTACT_QA=0` — (ce-9) skip the contact-sheet set gate and its
+  corrective re-renders (independent of `CATALOG_WORLD_QA`).
 - `CATALOG_SHIP_ON_EXHAUSTION=1` — (ce-9, OPT-IN) ship blocking residuals
   with an advisory instead of failing `consistency_unresolved`.
 - `CATALOG_IDENTITY_METRICS=1` — (ce-9, OPT-IN) embedding identity score +

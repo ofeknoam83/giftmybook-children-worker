@@ -14,7 +14,7 @@ const { downloadBuffer, uploadBuffer } = require('../../gcsStorage');
 const { QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 
-const CANDIDATE_KEY_RE = /^children-jobs\/([A-Za-z0-9_-]{1,128})\/ce-renders\/.+\/spread-(\d{1,2})\.[a-z-]+\.c(\d)\.png$/;
+const CANDIDATE_KEY_RE = /^children-jobs\/([A-Za-z0-9_-]{1,128})\/ce-renders\/.+\/spread-(\d{1,2})\.[a-z-]+\.((?:r\d{1,2})?c\d)\.png$/;
 
 /**
  * Validate a candidate storage key belongs to the given book's render
@@ -27,7 +27,7 @@ function parseCandidateKey(bookId, key) {
   if (typeof key !== 'string') return null;
   const m = key.match(CANDIDATE_KEY_RE);
   if (!m || m[1] !== bookId) return null;
-  return { spread: Number(m[2]), canonicalKey: key.replace(/\.c\d\.png$/, '.png') };
+  return { spread: Number(m[2]), canonicalKey: key.replace(/\.(?:r\d{1,2})?c\d\.png$/, '.png'), candidate: m[3] };
 }
 
 /**
@@ -47,7 +47,7 @@ async function pickCandidate({ bookId, candidateKey, log = () => {} }) {
   const renderHash = fnv1a(buffer.toString('base64')).toString(36);
   await uploadBuffer(
     Buffer.from(JSON.stringify({
-      advisories: [{ stage: 'admin', spread: parsed.spread, note: `candidate ${candidateKey.match(/\.c(\d)\.png$/)[1]} picked by an admin` }],
+      advisories: [{ stage: 'admin', spread: parsed.spread, note: `candidate ${parsed.candidate} picked by an admin` }],
       renderHash,
       qaVersion: QA_VERSION,
       adminPicked: true,

@@ -116,7 +116,9 @@ beforeEach(() => {
     if (key.endsWith('.qa.json')) throw new Error('no marker');
     const n = (seen.get(key) || 0) + 1;
     seen.set(key, n);
-    if (n === 1 && !key.includes('.c')) throw new Error('cache miss');
+    // Candidate keys (`.cK` / `.rPcK`) are never cache-checked — only
+    // downloaded right after their own render.
+    if (n === 1 && !/\.(?:r\d+)?c\d\.png$/.test(key)) throw new Error('cache miss');
     return Buffer.from(`png:${key}`);
   });
   generateIllustration.mockImplementation(async (scene, ref, style, opts) => `https://gcs.example/${opts.gcsPath}`);
@@ -176,8 +178,14 @@ test('blocking residuals after candidates + repairs fail the book consistency_un
   expect(err.failureCode).toBe('consistency_unresolved');
   expect(err.unresolved.map(u => u.spread)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   expect(err.unresolved[0].defects).toEqual(['prop missing: "teddy bear"']);
-  expect(err.unresolved[0].candidates.length).toBeGreaterThanOrEqual(1);
-  expect(err.unresolved[0].candidates[0]).toMatchObject({ storageKey: expect.stringMatching(/spread-1\.square\.png$/), url: expect.stringContaining('https://signed.example/') });
+  // N=1: the base render lives AT the canonical key (not pickable — and
+  // overwritten by the promoted repair); each repair pass keeps its own
+  // bytes beside it, so the admin picks exactly what was scored.
+  expect(err.unresolved[0].candidates.map(c => c.storageKey)).toEqual([
+    expect.stringMatching(/spread-1\.square\.r1c1\.png$/),
+    expect.stringMatching(/spread-1\.square\.r2c1\.png$/),
+  ]);
+  expect(err.unresolved[0].candidates[0]).toMatchObject({ pass: 'repair1', url: expect.stringContaining('https://signed.example/') });
   expect(err.bookBible).toBeTruthy();
   // base + 1 general + 1 drift repair per spread = 3 renders per spread
   expect(generateIllustration).toHaveBeenCalledTimes(12 * 3);
@@ -237,7 +245,85 @@ test('prop and companion sheets ride the pack only on the spreads that carry the
   expect(bySpread[5].referencePack.map(r => r.kind)).toEqual(['characterSheet', 'cover', 'prop']);
   expect(bySpread[5].bible.props[0]).toMatchObject({ name: 'Teddy Bear', carried: true, ref: 3 });
   const qa5 = checkSpreadRenderV2.mock.calls.find(c => c[1].label.includes(':s5:'))[1];
-  expect(qa5.props).toEqual([{ name: 'Teddy Bear', specText: 'a small honey-brown plush bear', sheet: { base64: PROP_SHEET.base64, mimeType: 'image/png' }, expected: 'required' }]);
+  // carried on spread 5 (declared on 3): its absence is advisory, not blocking
+  expect(qa5.props).toEqual([{ name: 'Teddy Bear', specText: 'a small honey-brown plush bear', sheet: { base64: PROP_SHEET.base64, mimeType: 'image/png' }, expected: 'carried' }]);
+  const qa3 = checkSpreadRenderV2.mock.calls.find(c => c[1].label.includes(':s3:'))[1];
+  expect(qa3.props[0]).toMatchObject({ name: 'Teddy Bear', expected: 'required' });
+});
+
+test('N=1: a repair that scores WORSE renders beside the key and never overwrites the better base render', async () => {
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '1';
+  process.env.CATALOG_DRIFT_MAX_REPAIRS = '0';
+  const worse = { pass: false, defects: ['duplicated child hero', 'painted text in the art'], blocking: ['duplicated child hero', 'painted text in the art'], advisory: [], verdict: {}, bbox: null, refs: { sheetRef: 2, props: [], companionRef: null } };
+  checkSpreadRenderV2
+    .mockResolvedValueOnce(blockingQa('duplicated child hero')) // base
+    .mockResolvedValueOnce(worse); // repair 1
+  const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  const keys = generateIllustration.mock.calls.map(c => c[3].gcsPath);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(results[0].storageKey); // the N=1 base pass renders straight to the key
+  expect(keys[1]).toMatch(/spread-1\.square\.r1c1\.png$/); // the repair renders BESIDE it
+  // the rejected repair was never copied over the base render
+  expect(uploadBuffer.mock.calls.filter(c => c[1] === results[0].storageKey && c[2] === 'image/png')).toHaveLength(0);
+  expect(results[0].buffer.toString()).toBe(`png:${results[0].storageKey}`);
+  expect(results[0].blocking).toEqual(['duplicated child hero']);
+  // the failure payload offers only candidates that still hold their own bytes
+  expect(results[0].candidateFiles.map(c => c.storageKey)).toEqual([keys[1]]);
+});
+
+test('an UNCHECKED repair (checker outage mid-loop) never replaces the checked render; the marker records unresolved', async () => {
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '1';
+  process.env.CATALOG_DRIFT_MAX_REPAIRS = '0';
+  checkSpreadRenderV2
+    .mockResolvedValueOnce(blockingQa('duplicated child hero'))
+    .mockResolvedValueOnce({ pass: true, defects: [], blocking: [], advisory: [], qaUnavailable: 'spread QA HTTP 503', verdict: null, bbox: null, refs: { sheetRef: 2, props: [], companionRef: null } });
+  const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  expect(generateIllustration).toHaveBeenCalledTimes(2);
+  expect(results[0].buffer.toString()).toBe(`png:${results[0].storageKey}`);
+  expect(results[0].blocking).toEqual(['duplicated child hero']);
+  expect(results[0].advisories).toEqual(expect.arrayContaining([
+    expect.objectContaining({ stage: 'spreadQa', note: expect.stringContaining('repair could not be verified (spread QA HTTP 503) — kept the checked render') }),
+  ]));
+  expect(results[0].advisories.some(a => /UNCHECKED/.test(a.note))).toBe(false);
+  // the unchecked candidate ranks below the checked one on the candidate list
+  expect(results[0].candidateFiles).toEqual([expect.objectContaining({ storageKey: expect.stringMatching(/r1c1\.png$/), score: 40 })]);
+  const marker = JSON.parse(uploadBuffer.mock.calls.filter(c => c[1].endsWith('.qa.json')).pop()[0].toString());
+  expect(marker).toMatchObject({ unresolved: true, qa: { blocking: ['duplicated child hero'] } });
+});
+
+test('CATALOG_SHIP_ON_EXHAUSTION=1: the marker records the shipped defects and a replay keeps reporting them; switch off and it re-checks', async () => {
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '0';
+  process.env.CATALOG_DRIFT_MAX_REPAIRS = '0';
+  checkSpreadRenderV2.mockResolvedValue(blockingQa('duplicated child hero'));
+  const first = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  expect(first.unresolved.map(u => u.spread)).toEqual([1]);
+  const markerBuf = uploadBuffer.mock.calls.filter(c => c[1].endsWith('.qa.json')).pop()[0];
+  const marker = JSON.parse(markerBuf.toString());
+  expect(marker).toMatchObject({ unresolved: true, shippedOnExhaustion: true, qa: { blocking: ['duplicated child hero'] } });
+  const storageKey = first.results[0].storageKey;
+
+  // Replay under the switch: no render, no re-check, the defects stay on record.
+  downloadBuffer.mockImplementation(async key => (key.endsWith('.qa.json') ? markerBuf : Buffer.from(`png:${key}`)));
+  generateIllustration.mockClear();
+  checkSpreadRenderV2.mockClear();
+  const replay = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  expect(generateIllustration).not.toHaveBeenCalled();
+  expect(checkSpreadRenderV2).not.toHaveBeenCalled();
+  expect(replay.results[0]).toMatchObject({ storageKey, fresh: false, blocking: ['duplicated child hero'] });
+  expect(replay.unresolved.map(u => u.spread)).toEqual([1]);
+  expect(replay.advisories).toEqual(expect.arrayContaining([expect.objectContaining({ stage: 'shipPolicy' })]));
+
+  // Switch off: the unresolved marker never vouches — the replay re-checks.
+  delete process.env.CATALOG_SHIP_ON_EXHAUSTION;
+  const rechecked = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  expect(checkSpreadRenderV2).toHaveBeenCalledTimes(1);
+  expect(checkSpreadRenderV2.mock.calls[0][1].label).toContain(':recheck');
+  expect(generateIllustration).not.toHaveBeenCalled(); // no repair budget
+  expect(rechecked.results[0].blocking).toEqual(['duplicated child hero']);
 });
 
 test('a cached render whose marker predates QA_VERSION is re-checked, never trusted', async () => {

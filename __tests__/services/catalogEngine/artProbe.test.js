@@ -65,6 +65,9 @@ beforeEach(() => {
   const seen = new Map();
   downloadBuffer.mockImplementation(async (key) => {
     if (key.endsWith('.qa.json')) throw new Error('no marker');
+    // Candidate keys (`.cK` / `.rPcK`, ce-9) are never cache-checked —
+    // they are only downloaded right after their own render.
+    if (/\.(?:r\d+)?c\d\.png$/.test(key)) return Buffer.from('png-bytes');
     const n = (seen.get(key) || 0) + 1;
     seen.set(key, n);
     if (n === 1) throw new Error('cache miss');

@@ -24,7 +24,7 @@ const { getBibleProps, normalizePropValue } = require('./propSheet');
 const { getOutfitLock } = require('../outfitLock');
 const { getEmotionPlan, renderEmotionLine } = require('../emotionPlan');
 const { getWorldPlate } = require('../worldPlate');
-const { uploadBuffer, getSignedUrl } = require('../../../gcsStorage');
+const { uploadBuffer, uploadBufferIfAbsent, downloadBuffer, getSignedUrl } = require('../../../gcsStorage');
 const { fnv1a } = require('../../selection');
 const { STYLE_VERSION } = require('../../versions');
 const flags = require('../../flags');
@@ -39,6 +39,72 @@ const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  */
 function anchorHash(anchorUrl) {
   return fnv1a(String(anchorUrl).split('?')[0]).toString(36);
+}
+
+/**
+ * Deterministic GCS path for one story's elected emotion plan.
+ * @param {string} storyKey fnv1a of the story's identity
+ * @returns {string}
+ */
+function emotionPlanPath(storyKey) {
+  return `catalog-assets/emotion-plans/${STYLE_VERSION}/${storyKey}.json`;
+}
+
+/**
+ * Validate a stored emotion-plan blob: an own-property object of spread →
+ * {emotion, intensity} strings (the closed enums are re-checked by
+ * renderEmotionLine / the QA vocabulary — a foreign value simply renders
+ * nothing). Returns null when unusable.
+ * @param {*} blob
+ * @returns {{plan: object, hash: string, source: string}|null}
+ */
+function cleanStoredEmotionPlan(blob) {
+  if (!blob || typeof blob !== 'object' || !blob.plan || typeof blob.plan !== 'object') return null;
+  const plan = {};
+  for (const [k, v] of Object.entries(blob.plan)) {
+    const spread = Number(k);
+    if (!Number.isInteger(spread) || spread < 1 || spread > 12 || !v || typeof v !== 'object') continue;
+    if (typeof v.emotion !== 'string' || typeof v.intensity !== 'string') continue;
+    plan[spread] = { emotion: v.emotion.slice(0, 20), intensity: v.intensity.slice(0, 10), source: typeof v.source === 'string' ? v.source.slice(0, 20) : 'elected' };
+  }
+  if (Object.keys(plan).length === 0) return null;
+  return { plan, hash: fnv1a(JSON.stringify(plan)).toString(36), source: typeof blob.source === 'string' ? blob.source.slice(0, 20) : 'elected' };
+}
+
+/**
+ * Resolve the story's emotion plan with create-if-absent election: the
+ * first instance to compute a plan (table + optional classifier) publishes
+ * it; every later caller adopts the published plan verbatim. GCS failures
+ * fall back to the locally computed plan (logged) — the render still gets
+ * a plan, only the cross-instance guarantee weakens.
+ * @param {{book: object, story: object, ageBand?: string, log: Function}} p
+ * @returns {Promise<{plan: object, hash: string, source: string}|null>}
+ */
+async function electEmotionPlan({ book, story, ageBand, log }) {
+  const storyKey = fnv1a(`${story?.book_id || book?.id || ''}|${ageBand || ''}|${(story?.spreads || []).map(s => `${s.spread}:${s.text}`).join('|')}`).toString(36);
+  const path = emotionPlanPath(storyKey);
+  try {
+    const cached = await downloadBuffer(path).catch(() => null);
+    if (cached) {
+      const stored = cleanStoredEmotionPlan(JSON.parse(cached.toString('utf8')));
+      if (stored) return stored;
+    }
+  } catch (err) {
+    log('warn', `emotion plan cache read failed (${err.message}) — computing locally`);
+  }
+  const computed = await getEmotionPlan({ book, story, ageBand, log });
+  if (!computed) return null;
+  const local = { plan: computed.plan, hash: fnv1a(JSON.stringify(computed.plan)).toString(36), source: computed.source || 'table' };
+  try {
+    const { created } = await uploadBufferIfAbsent(Buffer.from(JSON.stringify({ plan: local.plan, source: local.source, electedAt: new Date().toISOString() })), path, 'application/json');
+    if (!created) {
+      const winner = cleanStoredEmotionPlan(JSON.parse((await downloadBuffer(path)).toString('utf8')));
+      if (winner) return winner;
+    }
+  } catch (err) {
+    log('warn', `emotion plan election failed (${err.message}) — using the locally computed plan`);
+  }
+  return local;
 }
 
 /**
@@ -127,11 +193,15 @@ async function buildBookBible(p) {
   // 4. World plate (ce-5, unchanged; fail-open).
   const worldPlate = await getWorldPlate({ theme: p.theme, costTracker: p.costTracker, log });
 
-  // 5. Emotion plan (closed enum; fail-open to null).
+  // 5. Emotion plan (closed enum; fail-open to null) — ELECTED in GCS per
+  //    story so every instance and retry pins the SAME plan: the classifier
+  //    refinement is fail-open and only cached in-process, and the plan's
+  //    hash rides the render cache key, so an un-elected plan would fork
+  //    the key across instances (orphaning bench-approved renders).
   let emotion = null;
   if (flags.emotionPlanEnabled()) {
     try {
-      emotion = await getEmotionPlan({ book: p.book, story: p.story, ageBand: p.ageBand, log });
+      emotion = await electEmotionPlan({ book: p.book, story: p.story, ageBand: p.ageBand, log });
     } catch (err) {
       log('warn', `emotion plan unavailable (${err.message}) — rendering without one`);
       emotion = null;
@@ -142,7 +212,8 @@ async function buildBookBible(p) {
     styleVersion: STYLE_VERSION,
     anchorHash: aHash,
     characterSheet: sheet ? { key: sheet.storageKey, hash: sheet.hash, likeness: sheet.likeness ?? null, candidates: sheet.candidates ?? null } : null,
-    outfitSpec: outfit ? { text: outfit.outfit, hash: outfit.hash, source: outfit.source || (sheet ? 'sheet' : 'anchor') } : null,
+    // The anchor-derived lock never sets `source`; only a sheet-derived one does.
+    outfitSpec: outfit ? { text: outfit.outfit, hash: outfit.hash, source: outfit.source || 'anchor' } : null,
     props: props.filter(x => x && x.sheet).map(x => ({ value: x.value, key: x.sheet.storageKey, hash: x.sheet.hash, specText: x.sheet.specText || null })),
     companion: companion ? { name: companion.key, key: companion.storageKey, hash: companion.hash, specText: companion.specText || null } : null,
     worldPlate: worldPlate ? { hash: worldPlate.hash } : null,
@@ -329,4 +400,4 @@ async function prepareIdentity(p) {
   };
 }
 
-module.exports = { buildBookBible, buildReferencePack, buildPromptBible, summarizeBible, prepareIdentity, propSheetFor, anchorHash };
+module.exports = { buildBookBible, buildReferencePack, buildPromptBible, summarizeBible, prepareIdentity, propSheetFor, anchorHash, electEmotionPlan, emotionPlanPath };

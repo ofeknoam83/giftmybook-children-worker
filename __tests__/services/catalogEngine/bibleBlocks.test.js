@@ -55,7 +55,7 @@ test('bible mode states the outfit ONCE and drops the legacy repetition; legacy 
   expect(bible).not.toContain('5. OUTFIT LOCK (CRITICAL)');
   expect(bible).toContain('match REFERENCE 1 (model sheet) and REFERENCE 2 (approved cover) precisely');
   expect(bible).toContain('REFERENCES = IDENTITY ONLY');
-  expect(bible).toContain('8. OUTFIT MATCH: child is wearing exactly: the CHARACTER block outfit (REFERENCE 1)');
+  expect(bible).toContain('8. OUTFIT MATCH: child is wearing exactly: the CHARACTER block outfit (REFERENCE 1 (the character model sheet))');
   expect(bible.length).toBeLessThan(legacy.length + 1200);
   expect(legacy).not.toContain('CHARACTER (THE ONLY CHILD');
 });

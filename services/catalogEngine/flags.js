@@ -64,6 +64,10 @@
  *                                   (cache fold -e0).
  *  - CATALOG_EMOTION_CLASSIFIER=0 — (ce-9) emotion plan from the keyword
  *                                   table only (no per-story classifier call).
+ *  - CATALOG_CONTACT_QA=0         — (ce-9) skip the contact-sheet set gate
+ *                                   (character/prop crops vs the sheets)
+ *                                   and its re-renders; independent of
+ *                                   CATALOG_WORLD_QA.
  *  - CATALOG_SHIP_ON_EXHAUSTION=1 — (ce-9, OPT-IN) ship a spread whose
  *                                   BLOCKING defects survived candidates +
  *                                   repairs with an advisory, instead of
@@ -116,6 +120,7 @@ module.exports = {
   propSheetsEnabled: () => !envOff('CATALOG_PROP_SHEETS'),
   emotionPlanEnabled: () => !envOff('CATALOG_EMOTION_PLAN'),
   emotionClassifierEnabled: () => !envOff('CATALOG_EMOTION_CLASSIFIER'),
+  contactQaEnabled: () => !envOff('CATALOG_CONTACT_QA'),
   shipOnExhaustion: () => envOn('CATALOG_SHIP_ON_EXHAUSTION'),
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 2, 1, 3),

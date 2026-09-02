@@ -30,8 +30,11 @@ const WEIGHTS = {
  * @param {number} k 1-based candidate index
  * @returns {string}
  */
-function candidateKey(storageKey, k) {
-  return storageKey.replace(/\.png$/, `.c${k}.png`);
+function candidateKey(storageKey, k, pass = 0) {
+  // Every pass keeps its own bytes: `.c{k}` for the base pass, `.r{p}c{k}`
+  // for repair pass p — a candidate the failure payload scored must never
+  // be overwritten by a later pass (the admin picks what was scored).
+  return storageKey.replace(/\.png$/, pass > 0 ? `.r${pass}c${k}.png` : `.c${k}.png`);
 }
 
 /**

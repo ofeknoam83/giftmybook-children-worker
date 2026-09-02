@@ -295,7 +295,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     sheet: sheetImage,
     props: [...declaredProps, ...carriedProps].map(name => {
       const sheet = propSheetFor(bible, name); // normalized match (case/whitespace)
-      return { name, specText: sheet ? sheet.specText || null : null, sheet: sheet ? { base64: sheet.base64, mimeType: sheet.mimeType || 'image/png' } : null, expected: 'required' };
+      // A declared prop is the beat's evidence (absence BLOCKS); a carried
+      // comfort object is continuity decoration (absence is advisory).
+      return { name, specText: sheet ? sheet.specText || null : null, sheet: sheet ? { base64: sheet.base64, mimeType: sheet.mimeType || 'image/png' } : null, expected: declaredProps.includes(name) ? 'required' : 'carried' };
     }),
     companion: companionOnSpread && theme.companion && theme.companion.name
       ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null }
@@ -330,16 +332,23 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         // older eyes — either way the replay re-checks instead of trusting it.
         if (marker.renderHash !== renderContentHash(cached)) throw new Error('marker does not match the cached render');
         if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
-        if (marker.unresolved) throw new Error('marker records unresolved blocking defects');
-        log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes)`);
+        // An unresolved marker never vouches — EXCEPT the one case where the
+        // opt-in ship policy already shipped those pixels with their defects
+        // on the record: replaying them keeps the book's advisories and
+        // `unresolved[]` truthful instead of re-spending the repair budget
+        // on every dispatch. Turn the switch off and the replay re-checks.
+        if (marker.unresolved && !(marker.shippedOnExhaustion && flags.shipOnExhaustion())) throw new Error('marker records unresolved blocking defects');
+        const markerBlocking = marker.unresolved && Array.isArray(marker.qa?.blocking) ? [...marker.qa.blocking] : [];
+        log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes${markerBlocking.length > 0 ? `, ${markerBlocking.length} BLOCKING defect(s) on record` : ''})`);
         return {
           spread, buffer: cached, storageKey,
           url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS),
           advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
           fresh: false,
           bathWater,
-          blocking: [],
+          blocking: markerBlocking,
           candidates: [],
+          candidateFiles: [],
           qa: marker.qa || null,
           bbox: marker.qa?.bbox || null,
         };
@@ -363,17 +372,20 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   }
 
   // ── Candidates ──────────────────────────────────────────────────────────
-  // Render N candidates concurrently (N=1 renders straight to the shipped
-  // key — the pre-ce-9 flow), score each with QA v2 + metrics, keep the best.
+  // Render N candidates concurrently, score each with QA v2 + metrics, keep
+  // the best. Only the N=1 BASE pass renders straight to the shipped key
+  // (the pre-ce-9 flow); every repair pass renders beside it (`.r{p}c{k}`)
+  // so a rejected repair never overwrites the better pixels the key holds,
+  // and every scored candidate keeps its own bytes for the failure payload.
   const nCandidates = flags.renderCandidates();
   let fresh = false;
   let checkerUnavailable = false;
   const candidateLog = [];
   let best = null;
 
-  const renderCandidates = async (sceneText, passLabel) => {
+  const renderCandidates = async (sceneText, passLabel, pass = 0) => {
     const list = await Promise.all(Array.from({ length: nCandidates }, (_, i) => i + 1).map(async (k) => {
-      const key = nCandidates > 1 ? candidateKey(storageKey, k) : storageKey;
+      const key = pass > 0 || nCandidates > 1 ? candidateKey(storageKey, k, pass) : storageKey;
       const attemptLog = [];
       let cUrl = null;
       try {
@@ -450,7 +462,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     log('warn', `Spread ${spread} QA failed (${best.qa.defects.join('; ')}) — corrective re-render ${budgetName}`);
     try {
       const repairedScene = `${baseScene}\n${repairNoteV2(best.qa.defects, embedText ? spreadText : null, repairOpts(best.qa))}`;
-      const list = await renderCandidates(repairedScene, `repair${generalUsed + driftUsed}`);
+      const pass = generalUsed + driftUsed;
+      const list = await renderCandidates(repairedScene, `repair${pass}`, pass);
       const rendered = list.filter(c => c.buffer);
       if (rendered.length === 0) {
         advisories.push({ stage: 'spreadQa', spread, note: `repair render failed; shipped render with defects: ${best.qa.defects.join('; ')}` });
@@ -459,11 +472,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       }
       const repairedBest = pickBest(rendered);
       if (repairedBest.qa && repairedBest.qa.qaUnavailable) {
-        // Repairing blind would spend renders with no verdict to steer them.
-        checkerUnavailable = true;
-        advisories.push({ stage: 'spreadQa', spread, note: `repair shipped UNCHECKED — ${repairedBest.qa.qaUnavailable}` });
-        best = repairedBest;
-        fresh = true;
+        // The checker went away mid-loop: an UNCHECKED repair never
+        // replaces a render whose defects are known (the book fails
+        // `consistency_unresolved` with both on the candidate list, and
+        // the admin sees the unchecked one scored below any checked one);
+        // repairing further would spend renders with no verdict to steer.
+        advisories.push({ stage: 'spreadQa', spread, note: `repair could not be verified (${repairedBest.qa.qaUnavailable}) — kept the checked render with defects: ${best.qa.defects.join('; ')}` });
         repairAborted = true;
         break;
       }
@@ -482,7 +496,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // Candidates rendered beside the key; the winner is COPIED to the shipped
   // key so replay, markers, the world gate, and the PDF all read ONE image.
   let buffer = best.buffer;
-  if (best.key !== storageKey || (fresh && nCandidates > 1)) {
+  if (best.key !== storageKey) {
     try {
       await uploadBuffer(buffer, storageKey, 'image/png');
     } catch (err) {
@@ -526,8 +540,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           qaVersion: QA_VERSION,
           qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, score: best.score } : null,
           // An unresolved marker never vouches: the next replay re-checks
-          // (an admin may have raised budgets or picked a candidate).
-          ...(blocking.length > 0 && !flags.shipOnExhaustion() ? { unresolved: true } : {}),
+          // (an admin may have raised budgets or picked a candidate) —
+          // unless the opt-in ship policy shipped it, which the marker
+          // records so the replay keeps reporting the defects it carries.
+          ...(blocking.length > 0 ? { unresolved: true } : {}),
+          ...(blocking.length > 0 && flags.shipOnExhaustion() ? { shippedOnExhaustion: true } : {}),
           checkedAt: new Date().toISOString(),
         })),
         qaMarkerKey,
@@ -543,7 +560,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     spread, buffer, storageKey, url, advisories, fresh, bathWater,
     blocking,
     candidates: candidateLog,
-    candidateFiles: candidateLog.filter(c => c.key && c.score != null).map(c => ({ storageKey: c.key, score: c.score, pass: c.pass })),
+    // Every scored candidate that still holds its own bytes (the N=1 base
+    // render lives AT the canonical key, which the promotion above may
+    // have overwritten — and picking the canonical key is a no-op anyway).
+    candidateFiles: candidateLog.filter(c => c.key && c.key !== storageKey && c.score != null).map(c => ({ storageKey: c.key, score: c.score, pass: c.pass })),
     qa: best.qa || null,
     bbox: best.qa ? best.qa.bbox || null : null,
     crop: best.metrics ? best.metrics.crop || null : null,
@@ -698,7 +718,7 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
  * @returns {Promise<{pass: boolean, checked: number, flagged?: Array, rerendered?: number[], unavailable?: string}|null>}
  */
 async function runContactSheetGate({ results, bible, rerender, onProgress = () => {}, log }) {
-  if (!flags.worldQaEnabled() || !bible || !bible.sheet) return null;
+  if (!flags.contactQaEnabled() || !bible || !bible.sheet) return null;
   const rendered = results.filter(r => r.buffer);
   if (rendered.length < 2) return null;
   const heartbeat = setInterval(() => onProgress(1, 'Contact-sheet consistency gate in progress...'), 30000);
@@ -942,12 +962,22 @@ async function renderStorySpreads(params) {
   // probe contract reports per-spread failures, and the other renders were
   // already paid for (they stay cached either way). The full-book caller
   // still fails the run on any missing buffer below.
-  const settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
-    const r = await renderSpread(spreadArgs(beat.spread, { forceRerender: forceRerender || forceSet.has(beat.spread) }));
-    done += 1;
-    onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
-    return r;
-  })));
+  // A spread's N candidates + repair passes + QA calls can take many
+  // minutes between two per-spread progress events, and the server's
+  // per-book watchdog aborts books idle >20min — a 30s heartbeat keeps a
+  // healthy render phase alive (the same pattern the set gates use).
+  const renderHeartbeat = setInterval(() => onProgress(Math.max(0.01, done / wanted.length), `Illustrating spreads (${done}/${wanted.length} done)...`), 30000);
+  let settled;
+  try {
+    settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
+      const r = await renderSpread(spreadArgs(beat.spread, { forceRerender: forceRerender || forceSet.has(beat.spread) }));
+      done += 1;
+      onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
+      return r;
+    })));
+  } finally {
+    clearInterval(renderHeartbeat);
+  }
   const results = settled.map((s, i) => {
     if (s.status === 'fulfilled') return s.value;
     const spread = wanted[i].spread;
