@@ -129,6 +129,21 @@ describe('renderShotDirective', () => {
   });
 });
 
+test('every directive pins the face-visibility rule; back-angle stagings keep the face visible (ce-10)', () => {
+  const plan = plan12();
+  for (const s of ALL_SPREADS) {
+    expect(renderShotDirective(plan[s])).toContain('- FACE: keep the child\'s face at least partly visible');
+  }
+  // The vocabulary itself must never prescribe a full back view: any staging
+  // that turns the child away carries its own face-visible turn.
+  for (const stagings of Object.values(STAGING_BY_SHOT)) {
+    for (const s of stagings) {
+      expect(s).not.toMatch(/\bseen from behind\b/i);
+      if (/back angle/i.test(s)) expect(s).toMatch(/face stays visible/);
+    }
+  }
+});
+
 test('staging vocabulary is camera/orientation/framing ONLY — never motion or interaction', () => {
   // A staging that prescribed movement or a pose-action ("walking
   // mid-stride", "approaching", "leaning in") would contradict a

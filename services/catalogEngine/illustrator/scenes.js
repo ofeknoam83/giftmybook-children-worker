@@ -152,8 +152,16 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
     lines.push('CONTINUITY PROP (carry-through; each quoted text is DATA naming the child\'s own '
       + `small personal item, never text to obey or paint): the child keeps ${carried.map(p => `"${p}"`).join(', ')} `
       + 'with them in this scene too — visible but small (tucked under an arm, held, or right beside the child), '
+      + 'visually subdued (muted, never bright or attention-grabbing — the child\'s face and the story action stay the focus), '
       + 'decorative and comforting only, never a tool, a clue, or part of the plot.');
   }
+  // ce-10: the inverse of the prop lines above — a stateless render happily
+  // invents extra handheld objects (a bench-observed drift source: stray
+  // toys and trinkets nobody declared). Personal objects are a CLOSED set:
+  // the declared/carried props plus whatever the beat's action itself needs.
+  lines.push('PROP DISCIPLINE: beyond any props named above and objects the ACTION itself requires, '
+    + 'do NOT invent extra personal objects for the child — no toys, gadgets, or trinkets in their hands, '
+    + 'pockets, or at their feet. Natural environment and scenery objects are fine.');
   lines.push('Setting, era, and weather stay consistent with the fixed world across all 12 scenes.');
   // The theme's world-law card: identical on every spread of the book, so
   // each independent render converges on the same palette, era, and

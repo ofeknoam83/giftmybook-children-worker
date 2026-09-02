@@ -452,6 +452,12 @@ describe('slim illustrator scene prompts', () => {
     expect(later).toContain('CONTINUITY PROP');
     expect(later).toContain('"toy fox"');
     expect(later).toContain('never a tool, a clue, or part of the plot');
+    // ce-10: the carried prop is subdued, and the personal-object set is
+    // CLOSED on every spread — props or not.
+    expect(later).toContain('visually subdued');
+    expect(buildScenePrompt({ book, theme, spread: 1, spreadText: 't', profile, evidence }))
+      .toContain('PROP DISCIPLINE: beyond any props named above');
+    expect(later).toContain('PROP DISCIPLINE');
   });
 
   test('only visual object evidence persists — food stays pinned; the kill-switch restores pinning', () => {

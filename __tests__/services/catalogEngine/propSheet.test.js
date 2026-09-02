@@ -104,7 +104,7 @@ describe('getPropSheet — happy path', () => {
     const sheet = await mod.getPropSheet({ kind: 'prop', value: 'teddy bear', theme: FARM, costTracker, log: quiet });
 
     const pngPath = mod.propSheetPath('farm', fnv1a('teddy bear').toString(36));
-    expect(pngPath).toBe(`catalog-assets/prop-sheets/ce-9/farm-${fnv1a('teddy bear').toString(36)}.png`);
+    expect(pngPath).toBe(`catalog-assets/prop-sheets/ce-10/farm-${fnv1a('teddy bear').toString(36)}.png`);
     expect(sheet).toMatchObject({
       key: 'teddy bear',
       kind: 'prop',
@@ -513,7 +513,7 @@ describe('getBibleProps', () => {
     expect(bible.props[0].sheet).toMatchObject({ kind: 'prop', key: 'teddy bear', storageKey: mod.propSheetPath('dinosaur', fnv1a('teddy bear').toString(36)) });
     expect(bible.props[1].sheet).toMatchObject({ kind: 'prop', key: 'blueberry pancakes' });
     expect(bible.companion).toMatchObject({ kind: 'companion', key: 'Tavi', mimeType: 'image/png' });
-    expect(bible.companion.storageKey).toMatch(/^catalog-assets\/companion-sheets\/ce-9\/dinosaur-[0-9a-z]+\.png$/);
+    expect(bible.companion.storageKey).toMatch(/^catalog-assets\/companion-sheets\/ce-10\/dinosaur-[0-9a-z]+\.png$/);
     expect(bible.companion.spec.name).toBe('Tavi');
     expect(bible.advisories).toEqual([]);
     expect(imageCalls(fetch)).toHaveLength(3); // 2 props + 1 companion, never one per evidence record
