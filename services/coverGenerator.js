@@ -10,6 +10,10 @@
  */
 
 const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
+// Strict-JSON cover judges: thinking OFF + a ≥2048-token ceiling (the 2.5
+// flash judge counts reasoning tokens against maxOutputTokens; a small cap
+// clipped the JSON and the fail-open checks ran blind). See shared/llm/geminiJson.
+const { jsonQaGenerationConfig } = require('./shared/llm/geminiJson');
 const {
   generateIllustration,
   getNextApiKey,
@@ -472,7 +476,7 @@ Answer STRICT JSON only:
               { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: { temperature: 0, maxOutputTokens: 512, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(512, 'gemini-2.5-flash'),
         }),
       }
     );
@@ -534,7 +538,7 @@ Answer STRICT JSON only:
               { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(256, 'gemini-2.5-flash'),
         }),
       },
       30000,
@@ -594,7 +598,7 @@ A normal child has exactly two hands and two arms. Only report what you can clea
               { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(256, 'gemini-2.5-flash'),
         }),
       },
       30000,

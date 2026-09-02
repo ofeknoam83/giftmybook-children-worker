@@ -33,6 +33,7 @@ const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
 const OUTFIT_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../shared/llm/geminiJson');
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const OUTFIT_TIMEOUT_MS = 60000;
 const OUTFIT_MAX_CHARS = 700;
@@ -274,15 +275,15 @@ async function deriveOutfit(refPhoto, source = 'anchor') {
             { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
           ],
         }],
-        generationConfig: { temperature: 0, maxOutputTokens: 512, responseMimeType: 'application/json' },
+        // Thinking OFF + a ≥2048-token ceiling (shared/llm/geminiJson).
+        generationConfig: jsonQaGenerationConfig(512, OUTFIT_MODEL()),
       }),
     },
     OUTFIT_TIMEOUT_MS,
   );
   if (!resp.ok) throw new Error(`outfit vision HTTP ${resp.status}`);
   const data = await resp.json();
-  const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-  const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+  const json = parseJsonText(responseText(data));
   const rendered = renderOutfitSpec(json);
   if (!rendered) throw new Error('outfit vision returned no usable spec');
   if (source === 'sheet') {

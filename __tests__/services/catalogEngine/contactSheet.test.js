@@ -165,7 +165,8 @@ describe('checkCharacterContactSheet', () => {
     expect(result).toEqual({ pass: true, flagged: [], checked: 12 });
     const { url, body, prompt, parts } = sentRequest(fetchWithTimeout);
     expect(url).toContain('/gemini-2.5-flash:generateContent?key=test-key');
-    expect(body.generationConfig).toEqual({ temperature: 0, maxOutputTokens: 1024, responseMimeType: 'application/json' });
+    // Thinking OFF, and never a ceiling under 2048 (the 2.5 flash judge spends reasoning tokens from maxOutputTokens).
+    expect(body.generationConfig).toEqual({ temperature: 0, maxOutputTokens: 2048, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } });
     expect(parts).toHaveLength(2);
     expect(parts[1].inline_data.mimeType).toBe('image/jpeg');
     const sent = await sharp(Buffer.from(parts[1].inline_data.data, 'base64')).metadata();
