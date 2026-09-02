@@ -244,7 +244,14 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   candidates (`CATALOG_SHEET_CANDIDATES`, default 3) each QA'd + likeness-
   judged against the cover, elected per anchor path in GCS
   (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
-  `.json`). REQUIRED by default: a book that cannot build one fails
+  `.json`). Every strict-JSON judge call in the illustrator (sheet, prop,
+  spread, world, plate, contact, outfit) builds its generationConfig with
+  `shared/llm/geminiJson.js` `jsonQaGenerationConfig` — thinking OFF on
+  the 2.5 flash family and a ≥2048-token ceiling — because
+  `gemini-2.5-flash` counts its reasoning tokens against `maxOutputTokens`
+  (2026-09-02: a 256-token cap clipped every sheet verdict and failed every
+  book `identity_kit_failed`); `parseJsonText` tolerates fences/prose and
+  an unparseable answer names its `finishReason`. REQUIRED by default: a book that cannot build one fails
   `identity_kit_failed` (never a silent cover-only render; a set the judge
   could not verify is never elected either — an elected sheet is pinned
   per anchor for good; `CATALOG_SHEET_REQUIRED=0` degrades to an advisory). (2) The **outfit

@@ -34,6 +34,7 @@
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../../illustrationGenerator');
 const { PIXAR_STYLE, GEMINI_QA_MODEL, GEMINI_IMAGE_SAFETY_SETTINGS } = require('../../../shared/illustration/config');
+const { jsonQaGenerationConfig, responseText, parseJsonText, unparseableDetail } = require('../../../shared/llm/geminiJson');
 const { downloadBuffer, uploadBuffer, uploadBufferIfAbsent } = require('../../../gcsStorage');
 const { STYLE_VERSION } = require('../../versions');
 const { fnv1a } = require('../../selection');
@@ -351,19 +352,24 @@ async function judgeSheetCandidate(sheetBuffer, refPhoto) {
               { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
             ],
           }],
-          generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+          // Thinking OFF + a ≥2048-token ceiling (shared/llm/geminiJson):
+          // the 2.5 flash judge counts its reasoning against
+          // maxOutputTokens, and a small cap left every answer clipped.
+          generationConfig: jsonQaGenerationConfig(1024, QA_MODEL()),
         }),
       },
       QA_TIMEOUT_MS,
     );
     if (!resp.ok) return { unverifiable: `sheet QA HTTP ${resp.status}` };
     const data = await resp.json();
-    const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    const text = responseText(data);
     let json;
     try {
-      json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+      json = parseJsonText(text);
     } catch (parseErr) {
-      return { unverifiable: 'sheet QA returned unparseable JSON' };
+      // Name WHY (a spent budget, a safety block, an empty body) — the
+      // advisory is what the admin sees on identity_kit_failed.
+      return { unverifiable: `sheet QA returned unparseable JSON${unparseableDetail(data, text)}` };
     }
     const verdict = parseSheetVerdict(json);
     if (!verdict) return { unverifiable: 'sheet QA returned a malformed verdict' };

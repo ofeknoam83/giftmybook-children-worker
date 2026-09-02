@@ -42,6 +42,7 @@
 const pLimit = require('p-limit');
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../../illustrationGenerator');
 const { PIXAR_STYLE, GEMINI_QA_MODEL, GEMINI_IMAGE_SAFETY_SETTINGS } = require('../../../shared/illustration/config');
+const { jsonQaGenerationConfig, responseText, parseJsonText, unparseableDetail } = require('../../../shared/llm/geminiJson');
 const { downloadBuffer, uploadBufferIfAbsent } = require('../../../gcsStorage');
 const { renderWorldCardBlock } = require('../../worldCards');
 const { STYLE_VERSION } = require('../../versions');
@@ -368,15 +369,20 @@ async function visionJson(prompt, imageBuffer, maxOutputTokens) {
             { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } },
           ],
         }],
-        generationConfig: { temperature: 0, maxOutputTokens, responseMimeType: 'application/json' },
+        // Thinking OFF + a ≥2048-token ceiling (shared/llm/geminiJson).
+        generationConfig: jsonQaGenerationConfig(maxOutputTokens, VISION_MODEL()),
       }),
     },
     VISION_TIMEOUT_MS,
   );
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const data = await resp.json();
-  const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-  return JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+  const text = responseText(data);
+  try {
+    return parseJsonText(text);
+  } catch (err) {
+    throw new Error(`unparseable JSON${unparseableDetail(data, text)}: ${err.message}`);
+  }
 }
 
 const SHEET_QA_PROMPT = `You are checking a REFERENCE SHEET image for a children's picture book. The sheet must show ONE subject (an object or a friendly creature/character) alone — usually the same subject twice side by side (a front view and a three-quarter view) — on a flat neutral background.

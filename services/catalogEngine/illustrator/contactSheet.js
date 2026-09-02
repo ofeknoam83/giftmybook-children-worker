@@ -41,6 +41,7 @@
 const sharp = require('sharp');
 const { getNextApiKey, fetchWithTimeout } = require('../../illustrationGenerator');
 const { GEMINI_QA_MODEL } = require('../../shared/illustration/config');
+const { jsonQaGenerationConfig } = require('../../shared/llm/geminiJson');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
@@ -415,7 +416,7 @@ async function runContactCheck(o) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0, maxOutputTokens: VISION_MAX_OUTPUT_TOKENS, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(VISION_MAX_OUTPUT_TOKENS, model),
         }),
       },
       VISION_TIMEOUT_MS,

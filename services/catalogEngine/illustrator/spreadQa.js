@@ -32,6 +32,10 @@ const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustr
 const { SHOT_TYPE_QA_DESCRIPTIONS } = require('./shotPlan');
 
 const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+// Every strict-JSON judge call shares ONE generationConfig: thinking OFF on
+// the 2.5 flash family and a ≥2048-token ceiling (the model counts its
+// reasoning against maxOutputTokens — a small cap clips the JSON).
+const { jsonQaGenerationConfig } = require('../../shared/llm/geminiJson');
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
@@ -166,7 +170,7 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
               { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: { temperature: 0, maxOutputTokens: 512, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(512, QA_MODEL()),
         }),
       },
       60000,
@@ -379,7 +383,7 @@ async function checkWorldConsistency(entries, opts = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(1024, QA_MODEL()),
         }),
       },
       90000,
@@ -511,7 +515,7 @@ async function checkWorldPlate(imageBuffer, opts = {}) {
               { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(256, QA_MODEL()),
         }),
       },
       60000,
@@ -901,7 +905,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: 'application/json' },
+          generationConfig: jsonQaGenerationConfig(1024, QA_MODEL()),
         }),
       },
       90000,

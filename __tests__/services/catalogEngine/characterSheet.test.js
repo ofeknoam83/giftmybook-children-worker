@@ -276,6 +276,26 @@ test('an unverifiable candidate never passes silently, and when EVERY candidate 
   expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
 });
 
+test('the judge runs with thinking OFF and a ≥2048-token ceiling; a clipped or empty answer names its finishReason; prose/fences still parse', async () => {
+  // 2026-09-02 incident: a 256-token cap on the thinking model left EVERY
+  // judge answer clipped ("unparseable JSON" ×3 → identity_kit_failed).
+  installTransport([
+    () => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"readable_text": fal' }] } }] }) }),
+    () => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'SAFETY', content: { parts: [] } }] }) }),
+    `Here is the verdict:\n\`\`\`json\n${JSON.stringify(CLEAN_VERDICT)}\n\`\`\``,
+  ]);
+  const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF });
+  expect(sheet.base64).toBe(CANDIDATE_PNGS[2].toString('base64'));
+  expect(sheet.advisories.map(a => a.note)).toEqual([
+    'candidate 1 unverifiable: sheet QA returned unparseable JSON (finishReason: MAX_TOKENS, 21 chars)',
+    'candidate 2 unverifiable: sheet QA returned unparseable JSON (finishReason: SAFETY, empty response)',
+  ]);
+  expect(judgeCalls()).toHaveLength(3);
+  for (const [, init] of judgeCalls()) {
+    expect(JSON.parse(init.body).generationConfig).toEqual({ temperature: 0, maxOutputTokens: 2048, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } });
+  }
+});
+
 test('CATALOG_CHARACTER_SHEET=0 returns null with no IO — the only null result', async () => {
   process.env.CATALOG_CHARACTER_SHEET = '0';
   await expect(getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF })).resolves.toBeNull();
