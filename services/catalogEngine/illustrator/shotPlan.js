@@ -48,22 +48,26 @@ const SHOT_TYPE_QA_DESCRIPTIONS = {
 };
 
 /** Closed staging vocabulary, per shot type — framings compatible with ANY
- * beat action (they say HOW the fixed action is framed, never what it is). */
+ * beat action. Every entry describes CAMERA position, subject ORIENTATION,
+ * or FRAMING only — never motion, posture, or interaction: the beat's
+ * ACTION line owns what the child is doing, and a staging that prescribed
+ * movement (e.g. "walking mid-stride") would contradict a stationary beat
+ * and alter the frozen plot. */
 const STAGING_BY_SHOT = {
   wide: [
-    'small within the vast environment, mid-action',
-    'seen from behind, looking into the scene',
-    'walking or moving through the scene mid-stride',
-    'framed through natural foreground scenery (foliage, rocks, doorway) with depth between camera and child',
+    'small within the vast environment, the scenery dominating the frame',
+    'seen from behind, the camera looking past them into the scene',
+    'placed off-center against sweeping depth — foreground, middle ground, and distant background all visible',
+    'framed through natural foreground scenery (foliage, rocks, an opening) with depth between camera and child',
   ],
   medium: [
-    'in profile, engaged with the point of interest',
-    'facing the viewer, mid-action',
-    'seen from a three-quarter back angle, attention on the point of interest',
-    'leaning toward the point of interest, body language full of intent',
+    'seen in profile, the point of interest beside them in frame',
+    'seen from the front, the camera facing them',
+    'seen from a three-quarter back angle, the point of interest beyond them',
+    'seen from a slight side angle, the point of interest in the near foreground',
   ],
   'close-up': [
-    'face and hands filling the frame, focused on the point of interest',
+    'face and hands filling the frame, the point of interest in view',
     'the key object of the action large in the foreground, the child\'s expressive face just behind it',
     'tight on the child\'s expression, the background softly out of focus',
   ],
@@ -71,8 +75,8 @@ const STAGING_BY_SHOT = {
     'seen from directly above, the child and the point of interest forming a clear graphic pattern on the ground',
   ],
   'low-angle': [
-    'the camera at ground level looking up, the child mid-action against the towering environment',
-    'the camera low behind the point of interest on the ground, the child approaching it',
+    'the camera at ground level looking up, the towering environment rising behind them',
+    'the camera low beside the focal point of the action on the ground, the child framed above and beyond it',
   ],
 };
 

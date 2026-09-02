@@ -155,3 +155,35 @@ describe('cleanOutfit', () => {
     expect(cleanOutfit(null)).toBeNull();
   });
 });
+
+describe('renderOutfitSpec hardening (review fixes)', () => {
+  test('a required slot too thin to lock (no color/cut/length detail) is rejected', () => {
+    // "shoes" / "blue pants" cannot pin the hem or footwear detail the
+    // drift lives in — reject and let derivation retry, never pin a
+    // partial lock.
+    expect(renderOutfitSpec({ ...SPEC_JSON, footwear: { desc: 'shoes', visibility: 'seen' } })).toBeNull();
+    expect(renderOutfitSpec({ ...SPEC_JSON, bottom: { desc: 'blue pants', visibility: 'seen' } })).toBeNull();
+  });
+
+  test('an oversized rendered sentence drops trailing accessories WHOLE — spec and sentence stay consistent, nothing truncates mid-item', () => {
+    const long = n => `a very detailed ${'x'.repeat(120)} accessory number ${n}`;
+    const out = renderOutfitSpec({
+      top: { desc: 'red short-sleeved cotton t-shirt with a white cat graphic on the chest', visibility: 'seen' },
+      bottom: { desc: 'full-length medium-blue denim jeans reaching the ankles', visibility: 'inferred' },
+      footwear: { desc: 'white low-top canvas sneakers with white laces', visibility: 'inferred' },
+      accessories: [1, 2, 3, 4, 5, 6].map(n => ({ desc: long(n), visibility: 'seen' })),
+    });
+    expect(out).not.toBeNull();
+    expect(out.outfit.length).toBeLessThanOrEqual(700);
+    // Every accessory KEPT in the spec appears whole in the sentence; every
+    // dropped one appears nowhere — the pinned words and the stored spec
+    // never disagree about what is locked.
+    expect(out.spec.accessories.length).toBeLessThan(6);
+    for (const a of out.spec.accessories) expect(out.outfit).toContain(a.desc);
+    expect(out.outfit).not.toContain(`accessory number ${out.spec.accessories.length + 1}`);
+    // The garment slots always survive.
+    expect(out.outfit).toContain('Top:');
+    expect(out.outfit).toContain('Bottom:');
+    expect(out.outfit).toContain('Footwear:');
+  });
+});

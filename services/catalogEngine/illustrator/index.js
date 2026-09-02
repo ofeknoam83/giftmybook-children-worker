@@ -227,6 +227,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS),
           advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
           fresh: false,
+          bathWater,
         };
       } catch (markerErr) {
         // No marker (crash between upload and check) or a marker for other
@@ -254,7 +255,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         note: 'render failed (all prompt variants rejected) — spread has no illustration',
         ...(attemptLog.length > 0 ? { detail: { attempts: attemptLog } } : {}),
       });
-      return { spread, buffer: null, storageKey, url: null, advisories, fresh: false };
+      return { spread, buffer: null, storageKey, url: null, advisories, fresh: false, bathWater };
     }
     buffer = await downloadBuffer(storageKey);
     fresh = true;
@@ -348,7 +349,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       log('warn', `Spread ${spread}: QA marker write failed (${mErr.message}) — a replay will re-check`);
     }
   }
-  return { spread, buffer, storageKey, url, advisories, fresh };
+  // bathWater rides the result so the world gate can exempt these spreads
+  // from outfit judgments (their coverage legitimately differs).
+  return { spread, buffer, storageKey, url, advisories, fresh, bathWater };
 }
 
 /** Corrective world-gate re-renders allowed per run (cost bound). */
@@ -419,7 +422,14 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
     onProgress(1, `Checking world consistency across ${rendered.length} spreads...`);
     const verdict = await checkWorldConsistency(
       rendered.map(r => ({ spread: r.spread, buffer: r.buffer })),
-      { label: 'worldQa', embeddedText },
+      {
+        label: 'worldQa',
+        embeddedText,
+        // BATH/WATER spreads legitimately differ in coverage — the gate
+        // must not read that as an outfit break (mirrors the per-spread
+        // outfit check's exemption).
+        outfitExemptSpreads: rendered.filter(r => r.bathWater).map(r => r.spread),
+      },
     );
     if (!verdict) return null;
     if (verdict.qaUnavailable) {
@@ -679,6 +689,7 @@ async function renderStorySpreads(params) {
       url: null,
       advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
       fresh: false,
+      bathWater: false,
     };
   });
 

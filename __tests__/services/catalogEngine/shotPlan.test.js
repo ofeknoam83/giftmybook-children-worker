@@ -49,12 +49,19 @@ test('wide bookends, no adjacent repeats, full menu coverage, no type over 4', (
 });
 
 test('band 1-3 restricts the menu to board-book shot types (bookends stay wide)', () => {
-  const plan = plan12({ ageBand: '1-3' });
-  const shots = ALL_SPREADS.map(s => plan[s].shotType);
-  for (const t of shots) expect(SHOT_TYPES_YOUNG).toContain(t);
-  expect(shots[0]).toBe('wide');
-  expect(shots[11]).toBe('wide');
-  for (let i = 1; i < shots.length; i += 1) expect(shots[i]).not.toBe(shots[i - 1]);
+  // Types repeat more on the 3-type menu by design (board-book simplicity)
+  // — the documented bound is at most 6 occurrences of any one type.
+  for (const seedBasis of ['y1', 'y2', 'y3', 'y4', 'y5', 'y6']) {
+    const plan = plan12({ ageBand: '1-3', seedBasis });
+    const shots = ALL_SPREADS.map(s => plan[s].shotType);
+    for (const t of shots) expect(SHOT_TYPES_YOUNG).toContain(t);
+    expect(shots[0]).toBe('wide');
+    expect(shots[11]).toBe('wide');
+    for (let i = 1; i < shots.length; i += 1) expect(shots[i]).not.toBe(shots[i - 1]);
+    for (const type of SHOT_TYPES_YOUNG) expect(shots).toContain(type);
+    const counts = shots.reduce((m, t) => ({ ...m, [t]: (m[t] || 0) + 1 }), {});
+    for (const n of Object.values(counts)) expect(n).toBeLessThanOrEqual(6);
+  }
 });
 
 test('placement strictly alternates thirds; staging comes from the shot type\'s closed list', () => {
@@ -120,4 +127,19 @@ describe('renderShotDirective', () => {
       expect(renderShotDirective(plan[s])).not.toContain('ART TUNING ');
     }
   });
+});
+
+test('staging vocabulary is camera/orientation/framing ONLY — never motion or interaction', () => {
+  // A staging that prescribed movement or a pose-action ("walking
+  // mid-stride", "approaching", "leaning in") would contradict a
+  // stationary beat and alter the frozen plot — the beat's ACTION line
+  // owns what the child does.
+  // "point of interest" / "focal point of the action" are framing nouns,
+  // not the verb "pointing" — only the verb form is banned.
+  const MOTION_OR_INTERACTION = /\b(walk\w*|strid\w*|approach\w*|lean\w*|run\w*|jump\w*|climb\w*|reach\w*|hold\w*|point\w+(?!\s+of\b))\b/i;
+  for (const stagings of Object.values(STAGING_BY_SHOT)) {
+    for (const s of stagings) {
+      expect(s).not.toMatch(MOTION_OR_INTERACTION);
+    }
+  }
 });

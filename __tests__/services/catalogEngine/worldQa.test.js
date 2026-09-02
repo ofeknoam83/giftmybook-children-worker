@@ -198,3 +198,27 @@ describe('composition variety (ce-8: composition_duplicate)', () => {
     expect(world).not.toContain('SHOT TYPE');
   });
 });
+
+describe('bath/water outfit exemption (mirrors the per-spread outfit check)', () => {
+  test('exempt spreads ride the gate prompt as an explicit never-flag-outfit note', async () => {
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2, 3), { outfitExemptSpreads: [2] });
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('spread(s) 2 are bath/water scenes');
+    expect(prompt).toMatch(/NEVER flag an outfit difference\s+involving these spreads/);
+    expect(prompt).toMatch(/age,\s+proportions, stylization, and hair only/);
+  });
+
+  test('without exemptions (and for spreads not in the check) the note is absent', async () => {
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2));
+    let prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).not.toContain('bath/water scenes');
+    // An exemption for a spread outside this check never reaches the prompt.
+    fetchWithTimeout.mockClear();
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2), { outfitExemptSpreads: [9] });
+    prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).not.toContain('bath/water scenes');
+  });
+});

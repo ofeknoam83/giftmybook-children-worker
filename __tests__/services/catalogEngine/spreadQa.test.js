@@ -302,6 +302,10 @@ describe('locked outfit (ce-8: the pinned spec is verified per spread)', () => {
     expect(prompt).toContain(`"${SPEC}"`);
     expect(prompt).toContain('garment by garment');
     expect(prompt).toContain('outfit_mismatch');
+    // Crop exemption: a close-up/medium plan legitimately crops garments
+    // out of frame — the check must never read that as a missing item.
+    expect(prompt).toMatch(/never flag a\s+garment you cannot see/);
+    expect(prompt).toContain('cropped out of frame');
   });
 
   test('a clear outfit break is a defect with a FIXED string (no model free-text)', async () => {

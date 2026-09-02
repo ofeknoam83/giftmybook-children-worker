@@ -21,7 +21,7 @@ jest.mock('../../../services/gcsStorage', () => ({
   getSignedUrl: jest.fn().mockResolvedValue('https://signed.example/render.png'),
 }));
 
-const { generateIllustration, fetchWithTimeout } = require('../../../services/illustrationGenerator');
+const { generateIllustration, fetchWithTimeout, isModestBathWaterScene } = require('../../../services/illustrationGenerator');
 const { downloadBuffer } = require('../../../services/gcsStorage');
 const { renderStorySpreads, illustrateStory } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
@@ -664,5 +664,24 @@ describe('shot plan rides the render path (ce-8)', () => {
     expect(repairScene).toContain('duplicates another spread\'s composition');
     expect(repairScene).toContain('Obey THIS spread\'s assigned composition exactly:');
     expect(repairScene).toContain('COMPOSITION (ASSIGNED FOR THIS SPREAD');
+  });
+
+  test('bath/water spreads reach the world gate as outfit-exempt', async () => {
+    isModestBathWaterScene.mockImplementation(scene => scene.includes('Scene 3 of 12'));
+    let gatePrompt = null;
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      if (prompt.includes('CROSS-SPREAD CONSISTENCY')) {
+        gatePrompt = prompt;
+        return geminiText(JSON.stringify({ consistent: true, flagged: [] }));
+      }
+      return geminiText(cleanVerdict);
+    });
+    try {
+      await renderStorySpreads(baseParams());
+      expect(gatePrompt).toContain('spread(s) 3 are bath/water scenes');
+    } finally {
+      isModestBathWaterScene.mockReset().mockReturnValue(false);
+    }
   });
 });

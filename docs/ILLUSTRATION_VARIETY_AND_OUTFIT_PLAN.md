@@ -150,11 +150,15 @@ assert:
 - spread 1 = wide establishing, spread 12 = wide closing (genre convention,
   matching the arrival/farewell beats every catalog book shares);
 - no `shotType` repeats on adjacent spreads; every type in the menu appears
-  at least once per 12; no type appears more than 4 times;
+  at least once per 12; on the full 5-type menu no type appears more than 4
+  times;
 - `placement` never lands on the same third three spreads running;
 - age band 1-3: menu restricted to `wide`/`medium`/`close-up` (the
   renderer's BOARD BOOK composition rule for ≤2 stays in force and outranks
-  the plan);
+  the plan). With only three types over ten inner slots plus the two fixed
+  `wide` bookends, types repeat more by design — the bound is at most 6
+  occurrences of any one type (board-book simplicity is the point for
+  toddlers, and adjacency still forces alternation);
 - `half` layout: the plan keeps `shotType`/`staging` but emits NO placement
   line — the existing halfHint owns placement (child and action in the
   right half) and must keep winning.

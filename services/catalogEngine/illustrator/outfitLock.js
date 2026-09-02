@@ -159,42 +159,75 @@ function cleanSlotDesc(value) {
   return cleaned.length >= 3 ? cleaned : null;
 }
 
+/** Minimum words for a REQUIRED slot description: the contract is color +
+ * garment + cut/length words, so a description that thin ("shoes",
+ * "blue pants") cannot pin the hem/footwear detail the drift lives in —
+ * reject it and let the derivation retry rather than pin a partial lock. */
+const REQUIRED_SLOT_MIN_WORDS = 3;
+
 /** @param {*} slot @returns {{desc: string, visibility: string}|null} */
 function cleanSlot(slot) {
   const desc = cleanSlotDesc(slot?.desc);
   if (!desc) return null;
+  // `visibility` is diagnostics-only (it never reaches a prompt or the
+  // hash), so an off-enum value normalizes to 'seen' instead of rejecting
+  // an otherwise-usable garment description.
   const visibility = slot?.visibility === 'inferred' ? 'inferred' : 'seen';
   return { desc, visibility };
 }
 
+/** A required slot must actually carry the color/garment/length detail. */
+function cleanRequiredSlot(slot) {
+  const cleaned = cleanSlot(slot);
+  if (!cleaned) return null;
+  return cleaned.desc.split(' ').length >= REQUIRED_SLOT_MIN_WORDS ? cleaned : null;
+}
+
 /**
  * Validate + sanitize the model's structured answer and render the pinned
- * spec sentence. top/bottom/footwear are REQUIRED (the whole point of v2 is
- * that no garment slot stays unspecified); outerwear/accessories optional.
+ * spec sentence. top/bottom/footwear are REQUIRED and must be detailed
+ * enough to lock (>= REQUIRED_SLOT_MIN_WORDS words — the whole point of v2
+ * is that no garment stays unspecified); outerwear/accessories are
+ * optional and fail soft (a malformed optional entry is dropped, never a
+ * reason to lose the lock). The rendered sentence must fit
+ * OUTFIT_MAX_CHARS whole: trailing accessories are dropped FROM BOTH the
+ * sentence and the stored spec until it fits (spec and pinned words must
+ * never disagree about what is locked), and a spec whose garment slots
+ * alone cannot fit is rejected — a silently truncated lock would end
+ * mid-item and defeat full coverage.
  * @param {*} json the model's parsed JSON
  * @returns {{spec: object, outfit: string}|null} null when unusable
  */
 function renderOutfitSpec(json) {
   if (!json || typeof json !== 'object') return null;
-  const top = cleanSlot(json.top);
-  const bottom = cleanSlot(json.bottom);
-  const footwear = cleanSlot(json.footwear);
+  const top = cleanRequiredSlot(json.top);
+  const bottom = cleanRequiredSlot(json.bottom);
+  const footwear = cleanRequiredSlot(json.footwear);
   if (!top || !bottom || !footwear) return null;
   const outerwear = json.outerwear ? cleanSlot(json.outerwear) : null;
   const accessories = (Array.isArray(json.accessories) ? json.accessories : [])
     .map(cleanSlot)
     .filter(Boolean)
     .slice(0, 6);
-  const spec = { top, bottom, footwear, ...(outerwear ? { outerwear } : {}), accessories };
-  const parts = [
+  // Slot descs are already control-stripped and collapsed (cleanSlotDesc),
+  // so the plain join IS the normalized sentence — its length is checked
+  // against the cap directly (cleanOutfit's slice can never distinguish
+  // "fits exactly" from "was truncated").
+  const render = (acc) => [
     `Top: ${top.desc}.`,
     `Bottom: ${bottom.desc}.`,
     `Footwear: ${footwear.desc}.`,
     ...(outerwear ? [`Outerwear: ${outerwear.desc}.`] : []),
-    ...(accessories.length > 0 ? [`Accessories: ${accessories.map(a => a.desc).join('; ')}.`] : []),
-  ];
-  const outfit = cleanOutfit(parts.join(' '));
-  return outfit ? { spec, outfit } : null;
+    ...(acc.length > 0 ? [`Accessories: ${acc.map(a => a.desc).join('; ')}.`] : []),
+  ].join(' ');
+  for (let keep = accessories.length; keep >= 0; keep -= 1) {
+    const kept = accessories.slice(0, keep);
+    const outfit = render(kept);
+    if (outfit.length >= OUTFIT_MIN_CHARS && outfit.length <= OUTFIT_MAX_CHARS) {
+      return { spec: { top, bottom, footwear, ...(outerwear ? { outerwear } : {}), accessories: kept }, outfit };
+    }
+  }
+  return null;
 }
 
 /**

@@ -99,11 +99,15 @@ borderline framing passes.`);
   if (outfitSpec) {
     sections.push(`The child's outfit is LOCKED for the whole book to exactly this spec:
 "${outfitSpec}"
-Check it garment by garment. Flag a mismatch ONLY on a CLEAR break: a
-different garment, a different color family, a missing or added item, or a
+Check it garment by garment, but judge ONLY the garments and body regions
+actually VISIBLE in this framing: a close-up, partial view, or composition
+that crops a garment out of the frame is NOT a missing item — never flag a
+garment you cannot see. Flag a mismatch ONLY on a CLEAR break among the
+visible garments: a different garment, a different color family, an added
+item, a garment clearly absent from a body region that IS in view, or a
 visibly different pant/sleeve length than specified. Scene lighting shifts
 and minor fold/shading differences pass.`);
-    fields.push('"outfit_mismatch": true|false, // the child\'s clothing clearly breaks the locked outfit spec above');
+    fields.push('"outfit_mismatch": true|false, // a VISIBLE garment clearly breaks the locked outfit spec above (garments cropped out of frame never count)');
   }
 
   fields.push(
@@ -269,9 +273,13 @@ async function qaThumbnail(buffer) {
  * @param {boolean} [embeddedText] embedded layout: also judge how each
  *   spread integrates its painted story text (band vs over-artwork, one
  *   typography) — meaningless for text-free caption/half renders
+ * @param {number[]} [outfitExemptSpreads] BATH/WATER spreads whose clothing
+ *   coverage legitimately differs (bubble foam, towel, or swimwear by the
+ *   renderer's own BATH/WATER MODE) — the gate must never read their
+ *   different coverage as an outfit break
  * @returns {string}
  */
-function worldQaPrompt(spreads, embeddedText = false) {
+function worldQaPrompt(spreads, embeddedText = false, outfitExemptSpreads = []) {
   const textDim = embeddedText
     ? `\n4. TEXT TREATMENT — every spread integrates its painted story text the
 same way: painted directly over continuous artwork (never sitting on a
@@ -293,7 +301,12 @@ objects, and the environment.
 2. CHARACTER RENDERING — the ONE child hero reads as the SAME rendering of
 the SAME child on every spread: the same apparent age, the same face and
 body proportions, the same stylization level, the same outfit, and the same
-hair.
+hair.${outfitExemptSpreads.length > 0 ? `
+NOTE: spread(s) ${outfitExemptSpreads.join(', ')} are bath/water scenes —
+their clothing coverage legitimately differs (bubble foam, a towel, or
+swimwear instead of the book's outfit). NEVER flag an outfit difference
+involving these spreads; judge their character rendering on age,
+proportions, stylization, and hair only.` : ''}
 3. COMPOSITION VARIETY — each spread is its own picture. Flag a spread
 under this dimension ONLY when it is a NEAR-DUPLICATE of another spread in
 the set: the same camera distance AND the same camera angle AND the same
@@ -331,9 +344,12 @@ const WORLD_DEFECTS = new Set(['palette_lighting', 'era_technology', 'materials_
 /**
  * Run the book-level world-consistency check across one run's renders.
  * @param {Array<{spread: number, buffer: Buffer}>} entries
- * @param {{label?: string, embeddedText?: boolean}} [opts]
+ * @param {{label?: string, embeddedText?: boolean, outfitExemptSpreads?: number[]}} [opts]
  *   `embeddedText` = the renders carry Gemini-painted story text, so the
  *   gate also judges TEXT TREATMENT consistency across the set.
+ *   `outfitExemptSpreads` = BATH/WATER spreads whose coverage legitimately
+ *   differs — never flagged for outfit differences (mirrors the per-spread
+ *   outfit check's exemption).
  * @returns {Promise<{pass: boolean, flagged: Array<{spread: number, note: string}>, qaUnavailable?: string}|null>}
  *   null when fewer than 2 entries (consistency needs a comparison — a
  *   single-spread probe correctly skips the gate). Infra errors pass with
@@ -345,7 +361,11 @@ async function checkWorldConsistency(entries, opts = {}) {
   if (!Array.isArray(entries) || entries.length < 2) return null;
   const subset = entries.slice(0, WORLD_QA_MAX_IMAGES);
   try {
-    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread), embeddedText) }];
+    // Only exemptions for spreads actually in this check ride the prompt.
+    const inCheck = new Set(subset.map(e => e.spread));
+    const outfitExempt = (Array.isArray(opts.outfitExemptSpreads) ? opts.outfitExemptSpreads : [])
+      .filter(s => inCheck.has(s));
+    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread), embeddedText, outfitExempt) }];
     for (const e of subset) {
       const thumb = await qaThumbnail(e.buffer);
       parts.push({ text: `SPREAD ${e.spread}:` });
