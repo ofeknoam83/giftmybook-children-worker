@@ -94,16 +94,22 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * @param {number} [p.deadlineMs]
  * @param {Function} [p.limit] p-limit instance shared across segments
  * @param {boolean} [p.forceNew] ignore cached candidate bytes
+ * @param {string} [p.clipHash] the segment's clip identity (repair passes reuse the base pass's)
+ * @param {string} [p.canonicalKey] the segment's canonical clip key (repair passes reuse the base pass's)
  * @returns {Promise<{clipHash: string, canonicalKey: string, seconds: number, candidates: Array<{k: number, pass: number, storageKey: string, buffer: Buffer|null, status: string, error: string|null, providerJobId: string|null, cached: boolean}>}>}
  */
 async function generateCandidates(p) {
   const { provider } = p;
   const seconds = clipSecondsFor(p.segment.requestedSeconds, provider.profile.durations);
-  const clipHash = clipHashFor({
+  // Every pass of a segment shares the BASE brief's clip identity: repair
+  // candidates (`.rPcK`) sit beside the same canonical key, so an admin-
+  // picked repair candidate replays on the next dispatch (the replay probe
+  // is computed from the base brief).
+  const clipHash = p.clipHash || clipHashFor({
     provider: provider.provider, model: provider.model, briefHash: p.brief.hash,
     startFrameHash: p.startFrame.hash, referenceHashes: (p.references || []).map(r => r.hash), seconds, aspect: p.aspect,
   });
-  const canonicalKey = clipKey(p.bookId, p.segment.index, clipHash);
+  const canonicalKey = p.canonicalKey || clipKey(p.bookId, p.segment.index, clipHash);
   const pass = p.pass || 0;
   const n = Math.max(1, p.n || 1);
   const run = p.limit || ((fn) => fn());

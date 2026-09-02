@@ -229,7 +229,11 @@ async function generateGiftVideo(p) {
   }
   if (dropCover) {
     plan = buildFilmPlan({ available: entries.map(e => e.spread), coverKind: null, emotionPlan, shotPlan, textLayout, ageBand });
-    textGateReport.forEach(t => { t.segment = Math.max(0, t.segment - 1); });
+    // The report keeps the cover's verdict (segment null, dropped) and
+    // re-indexes the spreads to the rebuilt plan.
+    for (const t of textGateReport) {
+      if (t.kind === 'cover') { t.segment = null; t.dropped = true; } else { t.segment = Math.max(0, t.segment - 1); }
+    }
   }
 
   // ── References (the identity kit as reference elements) ────────────────
@@ -379,9 +383,9 @@ async function generateGiftVideo(p) {
           bookId, segment: s, brief, startFrame, references: x.references, provider, aspect, n, pass,
           seed: Number.isInteger(p.seed) ? p.seed : null, token: p.providerToken || null, costTracker,
           ctx: { touch, log, abortSignal: p.abortSignal }, limit, forceNew: !!p.forceNew,
+          clipHash, canonicalKey,
           ...(p.pollIntervalMs ? { pollIntervalMs: p.pollIntervalMs } : {}),
         });
-        if (pass === 0) { canonicalKey = gen.canonicalKey; clipHash = gen.clipHash; }
         generatedSeconds += gen.candidates.filter(c => c.status === 'done' && !c.cached).length * gen.seconds;
         const scored = [];
         for (const c of gen.candidates) {

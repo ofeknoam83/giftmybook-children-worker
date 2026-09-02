@@ -211,6 +211,11 @@ describe('generateGiftVideo', () => {
     expect(u.defects).toEqual(['identity break: the child does not match the character model sheet']);
     expect(u.candidates).toHaveLength(4); // 2 base + 2 repair candidates, each with its own key
     expect(u.candidates.map(c => c.storageKey)).toEqual(expect.arrayContaining([expect.stringMatching(/\.c1\.mp4$/), expect.stringMatching(/\.r1c2\.mp4$/)]));
+    // every pass shares the base clip identity: the repair candidates sit
+    // beside the SAME canonical key, so a pick-clip of one replays later
+    const bases = new Set(u.candidates.map(c => c.storageKey.replace(/\.(?:r\d+)?c\d\.mp4$/, '.mp4')));
+    expect(bases.size).toBe(1);
+    expect([...bases][0]).toBe(err.details.plan.find(s => s.spread === 7).clip.storageKey);
     expect(u.candidates.every(c => c.url && typeof c.score === 'number')).toBe(true);
     expect(err.details.plan.find(s => s.spread === 7).clip.repairs).toBe(1);
     expect(runFfmpeg).not.toHaveBeenCalled();
