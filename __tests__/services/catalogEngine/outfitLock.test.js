@@ -52,7 +52,7 @@ test('derives, elects, and caches one spec per anchor; a re-signed URL reuses it
   fetchWithTimeout.mockResolvedValue(outfitJson());
   const anchorUrl = freshAnchor();
   const lock = await getOutfitLock({ anchorUrl, refPhoto: REF });
-  expect(lock).toEqual({ outfit: RENDERED_SPEC, hash: fnv1a(RENDERED_SPEC).toString(36) });
+  expect(lock).toMatchObject({ outfit: RENDERED_SPEC, hash: fnv1a(RENDERED_SPEC).toString(36) });
   expect(uploadBufferIfAbsent).toHaveBeenCalledWith(
     expect.any(Buffer), outfitLockPath(anchorHash(anchorUrl)), 'application/json',
   );

@@ -232,6 +232,116 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   never plot-critical) so the carried item never vanishes mid-book; only
   `object_presence` persists — food/place/interest moments stay pinned to
   their declared spreads. Kill-switch `CATALOG_PROP_CONTINUITY=0`.
+  **The Book Bible + selection gate (`ce-9`, 2026-09-02 —
+  `docs/ILLUSTRATION_CONSISTENCY_REFACTOR_PLAN.md`)** is the structural
+  answer to clothing/prop drift: every fixed input becomes PIXELS + a
+  schema-validated spec, built ONCE per book (`illustrator/bible/index.js`
+  `buildBookBible`) before any spread renders, and verified AGAINST. (1) The
+  **character model sheet** (`bible/characterSheet.js`): from the approved
+  cover (+ the raw photo as a likeness aid), ONE 16:9 sheet — the child
+  full-body front / three-quarter / back in the complete outfit, feet
+  visible, two head insets, flat grey background, no text — best-of-N
+  candidates (`CATALOG_SHEET_CANDIDATES`, default 3) each QA'd + likeness-
+  judged against the cover, elected per anchor path in GCS
+  (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
+  `.json`). REQUIRED by default: a book that cannot build one fails
+  `identity_kit_failed` (never a silent cover-only render; a set the judge
+  could not verify is never elected either — an elected sheet is pinned
+  per anchor for good; `CATALOG_SHEET_REQUIRED=0` degrades to an advisory). (2) The **outfit
+  spec v3** derives FROM the sheet (`outfitLock.js` `source: 'sheet'`,
+  `catalog-assets/outfit-locks/v3/{sheetHash}.json`, per-slot `colourHex`,
+  an `inferred` slot is a derivation failure → cover-derived fallback with
+  an advisory). (3) **Prop and companion sheets** (`bible/propSheet.js`):
+  one plate per distinct `visual_required` evidence value (two angles,
+  flat background, no text) + a vision-read structured spec rendered to one
+  inert `specText`; cached by (normalized value, theme, STYLE_VERSION);
+  the theme companion gets a sheet when drawable (`isDrawableCompanion`
+  excludes human adults — a named human companion is instead explicitly
+  ALLOWED by the COMPANION block, which used to contradict the no-humans
+  background rule on 38 books); fail-open. (4) The **emotion plan**
+  (`emotionPlan.js`): a closed enum (10 emotions × 3 intensities) from a
+  beat-keyword table, optionally refined by ONE per-story classifier call
+  (`CATALOG_EMOTION_CLASSIFIER`), band 1-3 restricted, no adjacent repeats.
+  The manifest (`children-jobs/{bookId}/bible.json`) hashes every input
+  into `bibleHash`, folded into the render key as `-b{hash}` (replacing the
+  ce-5/ce-7 `-w`/`-o` folds) and echoed on completion/probe callbacks as
+  `bookBible` (signed URLs, hashes, spec text).
+  **Rendering:** every call attaches the **reference pack** in fixed order
+  with fixed labels — character sheet, approved cover, the spread's prop
+  sheets (declared + carried), the companion sheet when the beat names it,
+  the world plate (`buildReferenceParts`) — and the prompt states the
+  identity ONCE in structured CHARACTER / PROPS / COMPANION / EMOTION blocks
+  (`renderBibleBlocks`, `opts.bible`), switching the legacy six-fold outfit
+  repetition off; legacy callers stay byte-identical. The safety ladder's
+  `sanitized` rung now strips trigger words from the SCENE only (pinned
+  blocks intact), the `generic-safe` rung re-attaches the bible blocks, the
+  renderer sends `GEMINI_IMAGE_SAFETY_SETTINGS` on every image call, and a
+  render accepted on any rung other than `original` carries a stage
+  `render` advisory (before ce-9 it shipped silently, prop- and action-less).
+  **Verification:** `spreadQa.js` `checkSpreadRenderV2` attaches the sheets
+  BESIDE the render and returns a schema-shaped verdict — identity vs the
+  sheet, the outfit garment BY garment (`match|mismatch|not_visible`), each
+  prop vs its sheet (presence/look/duplicated/as_text), the companion, the
+  beat's action, the planned emotion, a child bbox, and the cover's anatomy/
+  lettering fields — with FIXED defect strings split by `classifyDefects`
+  into BLOCKING (missing/duplicated child, identity/hair/skin, any visible
+  outfit slot, declared props, companion, extra limbs, painted text in
+  caption layout, missing/garbled embedded text, style break) and
+  ADVISORY (action, emotion, hands/face, lettering, shot type). Strict
+  (blocking-class) fields fail open on a malformed verdict; advisory-class
+  fields are soft. `metrics.js` adds deterministic signals from the bbox:
+  crop, garment-region colour ΔE vs the spec's `colourHex`, safe-zone /
+  off-centre / shot-size rules, and (opt-in `CATALOG_IDENTITY_METRICS=1`,
+  Vertex multimodal embeddings) an identity similarity score + set outliers.
+  **Selection:** each spread renders `CATALOG_RENDER_CANDIDATES` (default 2)
+  candidates concurrently beside the shipped key (`spread-N.<aspect>.cK.png`
+  for the base pass, `.rPcK.png` for repair pass P — every scored candidate
+  keeps its OWN bytes, so a rejected repair never overwrites better pixels
+  and the failure payload's candidates are exactly what was scored; only
+  the N=1 base render lives at the canonical key itself),
+  scores them (`select.js`: blocking defects sink a candidate below zero,
+  advisories and metrics shade the rest, unchecked ranks below checked),
+  promotes the best to the canonical key, and runs the bounded repair loop
+  ONLY while blocking (or embedded-text) defects remain — each pass renders
+  N fresh candidates steered by `repairNoteV2` (slot/prop/companion/action/
+  emotion/anatomy notes from pinned data only) and adopts a higher score
+  (an UNCHECKED repair — checker outage mid-loop — never replaces a render
+  whose defects are known); drift-class defects draw on
+  `CATALOG_DRIFT_MAX_REPAIRS` beyond the general budget. A carried comfort
+  object that is not visible is ADVISORY (`carried prop not visible`);
+  a declared evidence prop missing is BLOCKING. **Set gates:** the ce-5
+  world gate is unchanged; the **contact-
+  sheet gate** (`contactSheet.js`, `runContactSheetGate`, kill-switch
+  `CATALOG_CONTACT_QA=0`) tiles the child
+  crops beside the model sheet (and prop crops beside their sheets) in one
+  image per call so garments are legible, flags `character_rendering` /
+  `prop_rendering`, and re-renders flagged FRESH spreads once
+  (`CATALOG_CONTACT_MAX_RERENDERS`, default 3); prop tiles are the
+  structured verdict's per-prop bbox crops (`propBoxes`, kept on the
+  marker), the whole spread only as a named fallback, and a prop repair
+  cites the prop sheet's index in the re-render's own pack. **Ship policy:** advisory
+  residuals ship with advisories; BLOCKING residuals fail the book
+  `consistency_unresolved` with `unresolved: [{spread, defects,
+  candidates:[{storageKey, url, score}]}]` + `bookBible` on the failure
+  callback (opt-in `CATALOG_SHIP_ON_EXHAUSTION=1` ships them with a stage
+  `shipPolicy` advisory); the `.qa.json` marker records `qaVersion`
+  (`QA_VERSION`, versions.js) and an `unresolved` flag, so a replay under a
+  newer checker — or of an unresolved render — re-checks instead of
+  trusting it (the one exception: a render the opt-in switch shipped is
+  marked `shippedOnExhaustion` and replays WITH its blocking list while the
+  switch stays on, so the callback keeps reporting it; switch off and it
+  re-checks). The render phase and both set gates emit a 30s progress
+  heartbeat so the server's idle watchdog never aborts a healthy book. Admin remedies: `POST /v13/pick-candidate` promotes a
+  candidate to the canonical key with an admin-vouched marker;
+  `/v13/render-spreads` with `identityKeyed:false` re-renders one spread
+  of a CUSTOMER book onto its own cache key. **The printed product:** the
+  wrap cover now prints the approved cover's OWN pixels
+  (`preGeneratedCoverBuffer` — before ce-9 `runBookPipeline` passed no
+  photo bytes and the physical front cover was a fresh, title-less,
+  un-anchored render), and the upsell spread's four covers render with the
+  locked outfit and the character sheet as REFERENCE 1
+  (`CATALOG_UPSELL_OUTFIT_LOCK=0` frees them). `qaAdvisories` is capped at
+  80 with blocking-class notes first.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -264,6 +374,26 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   composition (shot type/staging/placement) and its QA checks (cache-keyed:
   `-sp0` folds into the render key when disabled, so planned and plan-less
   renders never replay each other).
+- `CATALOG_CHARACTER_SHEET=0` — (ce-9) no character model sheet (renders
+  anchor on the cover alone; the outfit spec derives from the cover again).
+- `CATALOG_SHEET_REQUIRED=0` — (ce-9) a book whose sheet cannot be built
+  renders sheet-less with a stage `characterSheet` advisory instead of
+  failing `identity_kit_failed`.
+- `CATALOG_PROP_SHEETS=0` — (ce-9) no prop / companion sheets (props ride
+  as quoted nouns only).
+- `CATALOG_EMOTION_PLAN=0` — (ce-9) no per-spread emotion line/check;
+  `CATALOG_EMOTION_CLASSIFIER=0` keeps the keyword table only.
+- `CATALOG_CONTACT_QA=0` — (ce-9) skip the contact-sheet set gate and its
+  corrective re-renders (independent of `CATALOG_WORLD_QA`).
+- `CATALOG_SHIP_ON_EXHAUSTION=1` — (ce-9, OPT-IN) ship blocking residuals
+  with an advisory instead of failing `consistency_unresolved`.
+- `CATALOG_IDENTITY_METRICS=1` — (ce-9, OPT-IN) embedding identity score +
+  set outliers (`CATALOG_EMBEDDING_BACKEND`, default `vertex`).
+- `CATALOG_UPSELL_OUTFIT_LOCK=0` — (ce-9) upsell covers dress freely again.
+- Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 2, clamped 1-3),
+  `CATALOG_DRIFT_MAX_REPAIRS` (default 2, clamped 0-4),
+  `CATALOG_CONTACT_MAX_RERENDERS` (default 3), `CATALOG_SHEET_CANDIDATES`
+  (default 3, clamped 1-4).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
@@ -338,6 +468,24 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `children-covers/{bookId}/anchor-cover-{ts}.png`, so Art Bench render
   probes can anchor on a cover the way production books do (plan §5.1). No
   wrap PDF, no upsell; `title` is echoed for labeling, never painted (D5).
+- `POST /v13/prepare-identity` — (ce-9) `{bookId, approvedCoverUrl,
+  childPhotoUrls?, profile:{name,age}?, characterDescription?}` → sync
+  `{bookBible:{characterSheet:{url,hash,likeness}, outfitSpec:{text,hash,
+  source}, advisories}}`: builds (or fetches) the identity kit for an anchor
+  so the app can prepare it at cover approval; 422 `identity_kit_failed`
+  when no sheet candidate passes. `/generate-book` builds it lazily
+  otherwise (GCS election converges both paths on one sheet).
+- `POST /v13/pick-candidate` — (ce-9) `{bookId, storageKey}` (a
+  `…/spread-N.<aspect>.cK.png` candidate from a `consistency_unresolved`
+  failure payload) → promotes it to the spread's canonical key with an
+  admin-vouched marker; a re-dispatch of `/generate-book` (no
+  `forceRerender`) then replays it into the PDFs.
+- `/generate-book` completion callbacks now also carry `bookBible`,
+  `contactQa`; failure callbacks may carry `failureCode:
+  'consistency_unresolved'` + `unresolved[]` + `qaAdvisories` + `bookBible`,
+  or `identity_kit_failed`. `/v13/render-spreads` callbacks carry
+  `bookBible`, `contactQa`, `unresolved[]`, and the request accepts
+  `identityKeyed:false` (customer-key per-spread re-render).
 - `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
   flip + pre-print overlay preview (entries from the request). Text layouts:
   `caption` (art page + white text page), `half` (FULL-SPREAD wide
@@ -388,7 +536,9 @@ LLM-drafting alternatives into `drafts/` (never loaded).
 `children-jobs/{bookId}/checkpoint.json` (`engine: 'catalog-v13'`,
 `completedStage: story|illustration`, the story pair, textLayout). A legacy
 (pre-cutover) checkpoint restarts fresh, loudly. Cleared on success. Render
-resume comes from the STYLE_VERSION-keyed cache, not the checkpoint.
+resume comes from the STYLE_VERSION-keyed cache, not the checkpoint; the
+Book Bible's manifest sits beside it (`bible.json`) and its assets are
+elected per anchor/theme under `catalog-assets/`.
 
 ## Environment Variables
 

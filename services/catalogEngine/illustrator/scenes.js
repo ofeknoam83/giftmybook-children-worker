@@ -164,4 +164,4 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
   return lines.join('\n');
 }
 
-module.exports = { buildScenePrompt, visualPropsForSpread, continuityPropsForSpread, hasCarryThroughProps, beatMentionsCompanion };
+module.exports = { buildScenePrompt, visualPropsForSpread, continuityPropsForSpread, hasCarryThroughProps, beatMentionsCompanion, inertPropValue };

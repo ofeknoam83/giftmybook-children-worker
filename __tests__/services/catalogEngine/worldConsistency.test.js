@@ -4,6 +4,13 @@
  *  2. world plate — fixed per-theme reference image, cache-keyed;
  *  3. world gate — fresh-only, budget-capped corrective re-renders.
  */
+// ce-9: this suite pins the pre-bible render path (one candidate rendered
+// straight to the shipped key; no character/prop sheets, no emotion plan).
+process.env.CATALOG_CHARACTER_SHEET = '0';
+process.env.CATALOG_PROP_SHEETS = '0';
+process.env.CATALOG_EMOTION_PLAN = '0';
+process.env.CATALOG_RENDER_CANDIDATES = '1';
+
 
 const { getWorldCard, renderWorldCardBlock, WORLD_CARD_MAX_BYTES } = require('../../../services/catalogEngine/worldCards');
 const { listThemes, getBook } = require('../../../services/catalogEngine/catalog');
@@ -149,7 +156,10 @@ describe('probe cache key composition (identityKeyed + world plate)', () => {
       // With no plate the key is base + identity; the identity segment must
       // extend the running key (base prefix intact), so a plate fold — when
       // present — survives in exactly the same composition.
-      expect(storyHash.startsWith(`${storyFingerprint(story)}-i`)).toBe(true);
+      // ce-9: the bible fold (-b{hash}, carrying the plate/outfit/sheet
+      // hashes) sits between the story fingerprint and the identity segment.
+      expect(storyHash.startsWith(storyFingerprint(story))).toBe(true);
+      expect(storyHash).toMatch(new RegExp(`^${storyFingerprint(story)}-b[0-9a-z]+-i[0-9a-z]+$`));
     } finally {
       delete process.env.CATALOG_WORLD_PLATE;
       delete process.env.CATALOG_OUTFIT_LOCK;

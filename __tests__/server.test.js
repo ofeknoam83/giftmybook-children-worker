@@ -24,6 +24,14 @@ jest.mock('../services/catalogEngine/pipeline', () => ({
 jest.mock('../services/catalogEngine/illustrator', () => ({
   renderStorySpreads: jest.fn(),
 }));
+// ce-9 admin endpoints: the identity kit builder and candidate promotion are
+// mocked at the module level server.js requires lazily inside the handlers.
+jest.mock('../services/catalogEngine/illustrator/bible', () => ({
+  prepareIdentity: jest.fn(),
+}));
+jest.mock('../services/catalogEngine/illustrator/candidates', () => ({
+  pickCandidate: jest.fn(),
+}));
 jest.mock('../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'fake-base64', mimeType: 'image/jpeg' }),
@@ -804,5 +812,65 @@ describe('textLayout vocabulary: half', () => {
     await new Promise(r => setTimeout(r, 25));
     expect(renderStorySpreads).toHaveBeenCalledWith(expect.objectContaining({ textLayout: 'half' }));
     global.fetch = realFetch;
+  });
+});
+
+
+describe('ce-9 admin endpoints', () => {
+  const { prepareIdentity } = require('../services/catalogEngine/illustrator/bible');
+  const { pickCandidate } = require('../services/catalogEngine/illustrator/candidates');
+  const auth = { 'x-api-key': 'test-api-key' };
+
+  beforeEach(() => { prepareIdentity.mockReset(); pickCandidate.mockReset(); });
+
+  test('POST /v13/prepare-identity validates the anchor, name and description before any work', async () => {
+    expect((await request(app).post('/v13/prepare-identity').set(auth).send({ bookId: 'bad id!' })).status).toBe(400);
+    const noAnchor = await request(app).post('/v13/prepare-identity').set(auth).send({ bookId: 'b1' });
+    expect(noAnchor.status).toBe(400);
+    expect(noAnchor.body.failureCode).toBe('missing_identity_reference');
+    const badName = await request(app).post('/v13/prepare-identity').set(auth).send({ bookId: 'b1', approvedCoverUrl: 'https://x/c.png', profile: { name: 'Em\u0000ma' } });
+    expect(badName.status).toBe(400);
+    const badDesc = await request(app).post('/v13/prepare-identity').set(auth).send({ bookId: 'b1', approvedCoverUrl: 'https://x/c.png', characterDescription: 'nice\u0007' });
+    expect(badDesc.status).toBe(400);
+    expect(prepareIdentity).not.toHaveBeenCalled();
+  });
+
+  test('POST /v13/prepare-identity builds the kit and echoes the bookBible summary', async () => {
+    prepareIdentity.mockResolvedValue({ characterSheet: { url: 'https://s/sheet.png', hash: 'h1', likeness: 0.9 }, outfitSpec: { text: 'Top: red.', hash: 'o1', source: 'sheet' }, advisories: [] });
+    const res = await request(app).post('/v13/prepare-identity').set(auth).send({
+      bookId: 'b1', approvedCoverUrl: 'https://x/cover.png?sig=1', childPhotoUrls: ['https://x/photo.jpg'],
+      profile: { name: '  Emma  ', age: 4 }, characterDescription: 'short curly hair',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.bookBible.characterSheet.hash).toBe('h1');
+    expect(prepareIdentity).toHaveBeenCalledWith(expect.objectContaining({
+      bookId: 'b1', anchorUrl: 'https://x/cover.png?sig=1', childPhotoUrl: 'https://x/photo.jpg',
+      profile: { name: 'Emma', age: 4 }, characterDescription: 'short curly hair',
+    }));
+  });
+
+  test('POST /v13/prepare-identity maps identity_kit_failed to 422 with the advisories', async () => {
+    prepareIdentity.mockRejectedValue(Object.assign(new Error('no candidate passed QA'), { failureCode: 'identity_kit_failed', advisories: [{ stage: 'characterSheet', note: 'candidate 1 rejected: text' }] }));
+    const res = await request(app).post('/v13/prepare-identity').set(auth).send({ bookId: 'b1', approvedCoverUrl: 'https://x/cover.png' });
+    expect(res.status).toBe(422);
+    expect(res.body.failureCode).toBe('identity_kit_failed');
+    expect(res.body.advisories).toHaveLength(1);
+  });
+
+  test('POST /v13/pick-candidate validates its input and promotes the candidate', async () => {
+    expect((await request(app).post('/v13/pick-candidate').set(auth).send({ bookId: 'b1' })).status).toBe(400);
+    pickCandidate.mockRejectedValueOnce(Object.assign(new Error('storageKey is not a candidate render of this book'), { statusCode: 400 }));
+    expect((await request(app).post('/v13/pick-candidate').set(auth).send({ bookId: 'b1', storageKey: 'children-jobs/other/x.c1.png' })).status).toBe(400);
+    pickCandidate.mockResolvedValueOnce({ spread: 7, storageKey: 'children-jobs/b1/ce-renders/ce-9/k/spread-7.wide.png', renderHash: 'r' });
+    const res = await request(app).post('/v13/pick-candidate').set(auth).send({ bookId: 'b1', storageKey: 'children-jobs/b1/ce-renders/ce-9/k/spread-7.wide.c2.png' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, spread: 7, storageKey: 'children-jobs/b1/ce-renders/ce-9/k/spread-7.wide.png' });
+    expect(pickCandidate).toHaveBeenCalledWith(expect.objectContaining({ bookId: 'b1', candidateKey: 'children-jobs/b1/ce-renders/ce-9/k/spread-7.wide.c2.png' }));
+  });
+
+  test('the ce-9 endpoints require the API key', async () => {
+    expect((await request(app).post('/v13/prepare-identity').send({ bookId: 'b1' })).status).toBe(403);
+    expect((await request(app).post('/v13/pick-candidate').send({ bookId: 'b1' })).status).toBe(403);
   });
 });

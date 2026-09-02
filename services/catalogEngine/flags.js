@@ -51,6 +51,35 @@
  *                                   key so planned and plan-less renders
  *                                   never replay each other).
  *
+ *  - CATALOG_CHARACTER_SHEET=0    — (ce-9) stop building the per-anchor
+ *                                   CHARACTER MODEL SHEET (renders anchor on
+ *                                   the cover alone; the outfit spec derives
+ *                                   from the cover again, with inferred slots).
+ *  - CATALOG_SHEET_REQUIRED=0     — (ce-9) let a book whose character sheet
+ *                                   cannot be built render sheet-less with an
+ *                                   advisory instead of failing needs_review.
+ *  - CATALOG_PROP_SHEETS=0        — (ce-9) stop building prop / companion
+ *                                   reference sheets (props ride as nouns).
+ *  - CATALOG_EMOTION_PLAN=0       — (ce-9) stop pinning a per-spread emotion
+ *                                   (cache fold -e0).
+ *  - CATALOG_EMOTION_CLASSIFIER=0 — (ce-9) emotion plan from the keyword
+ *                                   table only (no per-story classifier call).
+ *  - CATALOG_CONTACT_QA=0         — (ce-9) skip the contact-sheet set gate
+ *                                   (character/prop crops vs the sheets)
+ *                                   and its re-renders; independent of
+ *                                   CATALOG_WORLD_QA.
+ *  - CATALOG_SHIP_ON_EXHAUSTION=1 — (ce-9, OPT-IN) ship a spread whose
+ *                                   BLOCKING defects survived candidates +
+ *                                   repairs with an advisory, instead of
+ *                                   failing the book `consistency_unresolved`.
+ *  - CATALOG_IDENTITY_METRICS=1   — (ce-9, OPT-IN) run the deterministic
+ *                                   identity metrics (embedding similarity)
+ *                                   beside vision QA; off until calibrated.
+ *  - CATALOG_RENDER_CANDIDATES=N  — (ce-9) candidates rendered per spread
+ *                                   and scored before selection (1-3, default 2).
+ *  - CATALOG_DRIFT_MAX_REPAIRS=N  — (ce-9) extra corrective passes reserved
+ *                                   for drift-class defects (0-4, default 2).
+ *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
  */
@@ -58,6 +87,18 @@
 function envOff(name) {
   const v = process.env[name];
   return v === '0' || v === 'false';
+}
+
+/** Opt-in switch: only an explicit '1' / 'true' enables it. */
+function envOn(name) {
+  const v = process.env[name];
+  return v === '1' || v === 'true';
+}
+
+/** Bounded integer knob with a default (non-integers / out-of-range ⇒ default). */
+function envInt(name, def, min, max) {
+  const n = Number(process.env[name]);
+  return Number.isInteger(n) && n >= min && n <= max ? n : def;
 }
 
 module.exports = {
@@ -73,4 +114,15 @@ module.exports = {
   propContinuityEnabled: () => !envOff('CATALOG_PROP_CONTINUITY'),
   outfitLockEnabled: () => !envOff('CATALOG_OUTFIT_LOCK'),
   shotPlanEnabled: () => !envOff('CATALOG_SHOT_PLAN'),
+  // ce-9 — the Book Bible + selection gate
+  characterSheetEnabled: () => !envOff('CATALOG_CHARACTER_SHEET'),
+  sheetRequired: () => !envOff('CATALOG_SHEET_REQUIRED'),
+  propSheetsEnabled: () => !envOff('CATALOG_PROP_SHEETS'),
+  emotionPlanEnabled: () => !envOff('CATALOG_EMOTION_PLAN'),
+  emotionClassifierEnabled: () => !envOff('CATALOG_EMOTION_CLASSIFIER'),
+  contactQaEnabled: () => !envOff('CATALOG_CONTACT_QA'),
+  shipOnExhaustion: () => envOn('CATALOG_SHIP_ON_EXHAUSTION'),
+  identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
+  renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 2, 1, 3),
+  driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 2, 0, 4),
 };

@@ -3,16 +3,27 @@
  *
  * Design (deliberate contrast with the deleted native illustrator):
  *  - the fixed catalog beat IS the scene (no art director, no concept pass);
- *  - identity anchors on the parent-APPROVED COVER character (the reference
- *    image on every render); the raw photo is only a fallback for coverless
- *    admin test books;
- *  - one render per spread + ONE vision QA check + a bounded corrective
- *    re-render loop (CATALOG_SPREAD_QA_MAX_REPAIRS, default 2 — each pass
- *    steered by the LATEST check's defects), then ship-with-advisory
- *    (closed critical list: painted text, missing or duplicated child,
- *    broken medium);
+ *  - identity anchors on the parent-APPROVED COVER character and, since
+ *    ce-9, on the BOOK BIBLE built from it (bible/index.js): a character
+ *    model sheet, the outfit spec derived from that sheet, prop and
+ *    companion sheets, the world plate, and an emotion plan — every fixed
+ *    input as pixels + schema-validated specs, hashed into the cache key
+ *    and attached to every render as a labeled REFERENCE PACK;
+ *  - every spread renders N CANDIDATES (CATALOG_RENDER_CANDIDATES, default
+ *    2), each scored by the structured QA verdict v2 (spreadQa.js — checked
+ *    AGAINST the sheets) plus deterministic metrics (metrics.js), and the
+ *    best is selected; bounded corrective re-renders run only while
+ *    BLOCKING defects remain (CATALOG_SPREAD_QA_MAX_REPAIRS + a separate
+ *    CATALOG_DRIFT_MAX_REPAIRS budget for identity/outfit/prop defects);
+ *  - the set-level gate keeps the ce-5 world check and adds ce-9 CONTACT
+ *    SHEETS (contactSheet.js): the child crops of every spread beside the
+ *    model sheet, and the prop crops beside their sheets, in one call each;
+ *  - graded ship policy: advisory-class residuals ship with advisories (as
+ *    always); BLOCKING residuals fail the book `consistency_unresolved`
+ *    with the spread's candidates attached, unless CATALOG_SHIP_ON_EXHAUSTION=1;
  *  - renders cache under a deterministic STYLE_VERSION-keyed GCS path so a
- *    re-dispatch replays finished spreads instead of re-paying for them.
+ *    re-dispatch replays finished spreads instead of re-paying for them; the
+ *    `.qa.json` marker records the QA_VERSION it was checked under.
  *
  * Text policy (per layout — 2026-08-31 change of D5):
  *  - `caption` layout: words are PDF type, never pixels — renders use
@@ -25,14 +36,18 @@
 
 const { generateIllustration, downloadPhotoAsBase64, isModestBathWaterScene } = require('../../illustrationGenerator');
 const { downloadBuffer, uploadBuffer, getSignedUrl, deletePrefix } = require('../../gcsStorage');
-const { buildScenePrompt, hasCarryThroughProps } = require('./scenes');
-const { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote } = require('./spreadQa');
+const { buildScenePrompt, hasCarryThroughProps, visualPropsForSpread, continuityPropsForSpread, beatMentionsCompanion, inertPropValue } = require('./scenes');
+const { checkSpreadRenderV2, repairNoteV2, checkWorldConsistency, worldRepairNote, classifyDefects } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
 const { buildShotPlan, renderShotDirective } = require('./shotPlan');
-const { getWorldPlate } = require('./worldPlate');
-const { getOutfitLock } = require('./outfitLock');
+const { buildBookBible, buildReferencePack, buildPromptBible, summarizeBible, propSheetFor } = require('./bible');
+const { candidateKey, scoreCandidate, isClean, pickBest, compareCandidates, residualBlocking, hasDriftDefect } = require('./select');
+const metrics = require('./metrics');
+const { checkCharacterContactSheet, checkPropContactSheet, contactRepairNote } = require('./contactSheet');
+const { normalizePropValue } = require('./bible/propSheet');
+const { EMOTIONS, EMOTION_CUES } = require('./emotionPlan');
 const { renderWorldCardBlock } = require('../worldCards');
-const { STYLE_VERSION } = require('../versions');
+const { STYLE_VERSION, QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
@@ -91,14 +106,65 @@ const SPREAD_QA_MAX_REPAIRS = () => {
   return Number.isInteger(n) && n >= 0 && n <= 4 ? n : 2;
 };
 
+/** Corrective world-gate re-renders allowed per run (cost bound). */
+const WORLD_QA_MAX_RERENDERS = () => {
+  const n = Number(process.env.CATALOG_WORLD_QA_MAX_RERENDERS);
+  return Number.isInteger(n) && n >= 0 ? n : 3;
+};
+
+/** Corrective contact-sheet re-renders allowed per run (ce-9, cost bound). */
+const CONTACT_QA_MAX_RERENDERS = () => {
+  const n = Number(process.env.CATALOG_CONTACT_MAX_RERENDERS);
+  return Number.isInteger(n) && n >= 0 ? n : 3;
+};
+
+/**
+ * Whether a verdict still calls for a corrective render: any BLOCKING
+ * defect, or an embedded-text defect (the ce-3/ce-4 typography contract
+ * repaired on every failing render before ce-9 and still does).
+ * @param {{blocking?: string[], advisory?: string[], qaUnavailable?: string}} qa
+ * @returns {boolean}
+ */
+function needsRepair(qa) {
+  if (!qa || qa.qaUnavailable) return false;
+  if (Array.isArray(qa.blocking) && qa.blocking.length > 0) return true;
+  return (qa.advisory || []).some(d => d.startsWith('embedded story text'));
+}
+
+/**
+ * Deterministic metrics for one candidate (fail-open: any failure → null
+ * fields). Bbox rules and garment colours run whenever the verdict gave a
+ * bbox; the embedding identity score is opt-in (CATALOG_IDENTITY_METRICS).
+ * @returns {Promise<{bbox: object|null, colour: object|null, identityScore: number|null, crop: Buffer|null}>}
+ */
+async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, ageBand, log }) {
+  const out = { bbox: null, colour: null, identityScore: null, crop: null };
+  try {
+    if (!qa || !qa.bbox) return out;
+    out.bbox = metrics.bboxRules({ bbox: qa.bbox, shotType, aspect, textLayout, ageBand });
+    const crop = await metrics.cropBbox(buffer, qa.bbox);
+    out.crop = crop;
+    if (crop && bible.outfit && bible.outfit.spec) {
+      const colours = await metrics.regionColours(crop);
+      if (colours) out.colour = metrics.outfitColourCheck(colours, bible.outfit.spec);
+    }
+    if (crop && bible.sheet && flags.identityMetricsEnabled()) {
+      out.identityScore = await metrics.identityScore({ renderCrop: crop, sheetCrop: Buffer.from(bible.sheet.base64, 'base64'), log });
+    }
+  } catch (err) {
+    log('warn', `metrics unavailable (${err.message})`);
+  }
+  return out;
+}
+
 /**
  * Render (or replay) one spread; returns the layout-ready record. `fresh`
  * marks pixels created by THIS call (base render or repair) — a cache
- * replay is not fresh, and only fresh renders are eligible for the world
- * gate's corrective re-render.
- * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean}>}
+ * replay is not fresh, and only fresh renders are eligible for the set-level
+ * gates' corrective re-render.
+ * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, worldPlate, outfitLock, shotEntry, worldNote, seed, costTracker, forceRerender, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, ageBand, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -110,10 +176,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const qaMarkerKey = `${storageKey}.qa.json`;
   const advisories = [];
 
+  const beat = book.beats.find(b => b.spread === spread);
   const spreadText = story.spreads.find(s => s.spread === spread)?.text || '';
+  const evidence = story.personalization_evidence;
   const scene = buildScenePrompt({
     book, theme, spread, spreadText, profile,
-    evidence: story.personalization_evidence,
+    evidence,
     embedText,
   });
   // The Art Tuning Layer rides the scene string tagged with its 'ART
@@ -124,7 +192,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // safety rules.
   const tuningBlock = renderArtTuningBlock(tuning, spread);
   // The spread's assigned composition (shotPlan.js): fixed template text
-  // appended BEFORE the half-layout hint, any world-gate repair note, and
+  // appended BEFORE the half-layout hint, any set-gate repair note, and
   // the Art Tuning block — all of those still outrank it.
   const shotDirective = renderShotDirective(shotEntry);
   const sceneWithShot = shotDirective ? `${scene}\n${shotDirective}` : scene;
@@ -135,21 +203,43 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
     : '';
   const sceneWithLayout = halfHint ? `${sceneWithShot}${halfHint}` : sceneWithShot;
-  // worldNote: the world-consistency gate's corrective suffix on its one
-  // targeted re-render (always with forceRerender, so the cache never
-  // conflates a gate-repaired render with a base one at a stale key).
-  const sceneWithWorldNote = worldNote ? `${sceneWithLayout}\n${worldNote}` : sceneWithLayout;
-  const baseScene = tuningBlock ? `${sceneWithWorldNote}\n${tuningBlock}` : sceneWithWorldNote;
   // BATH/WATER MODE spreads deliberately change the child's coverage — the
   // pinned outfit spec must not be enforced against them (the renderer's own
   // heuristic decides, so QA and prompt agree on which spreads those are).
   const bathWater = isModestBathWaterScene(scene, spreadText);
+
+  // ── The Book Bible on THIS spread: the reference pack (fixed order +
+  // labels) and the structured prompt blocks that cite it. Declared props
+  // are the evidence spread's own; carried props are the comfort object
+  // riding every later spread (ce-6).
+  const declaredProps = visualPropsForSpread(evidence, spread).map(inertPropValue).filter(Boolean);
+  const carriedProps = flags.propContinuityEnabled()
+    ? continuityPropsForSpread(evidence, spread).map(inertPropValue).filter(p => p && !declaredProps.includes(p))
+    : [];
+  const companionOnSpread = !!(beat && beatMentionsCompanion(beat, theme.companion));
+  const { pack, refs } = buildReferencePack(bible, {
+    refPhoto,
+    propValues: [...declaredProps, ...carriedProps],
+    companionOnSpread,
+  });
+  const promptBible = buildPromptBible(bible, refs, {
+    spread, declaredProps, carriedProps, companionOnSpread, characterDescription: characterDescription || null,
+  });
+  const outfitSpecText = bible.outfit ? bible.outfit.outfit : null;
+  // worldNote: a set-level gate's corrective suffix on its one targeted
+  // re-render (always with forceRerender, so the cache never conflates a
+  // gate-repaired render with a base one at a stale key). A gate that must
+  // cite one of THIS render's reference images passes a function of the
+  // pack's indices (the prop contact gate names the prop sheet to match).
+  const worldNoteText = typeof worldNote === 'function' ? worldNote(refs) : (worldNote || null);
+  const sceneWithWorldNote = worldNoteText ? `${sceneWithLayout}\n${worldNoteText}` : sceneWithLayout;
+  const baseScene = tuningBlock ? `${sceneWithWorldNote}\n${tuningBlock}` : sceneWithWorldNote;
+  const sheetImage = bible.sheet ? { base64: bible.sheet.base64, mimeType: bible.sheet.mimeType || 'image/png' } : null;
+
   // Per-attempt diagnostics sink (filled by generateIllustration): when the
   // render fails, the advisory carries WHY — variant ladder, NSFW blocks,
   // Gemini finish/block reasons, the model's own refusal text.
-  const attemptLog = [];
   const renderOpts = {
-    attemptLog,
     aspectRatio: aspect === 'wide' ? '16:9' : '1:1',
     // Embedded layout runs the renderer's text-embed path: typography rules
     // in the prompt, plus OCR verification with extra retries for
@@ -162,28 +252,25 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     childName: profile.name,
     childAge: profile.age,
     characterDescription: characterDescription || null,
-    // The per-anchor outfit lock (outfitLock.js): the SAME concrete
-    // garment-by-garment spec on every stateless render arms the
-    // renderer's OUTFIT LOCK machinery (per-garment color verification,
-    // no additions/removals) — "identical across spreads" only works as a
-    // pinned spec, never as an aspiration. Its hash rides the cache key.
-    ...(outfitLock ? { characterOutfit: outfitLock.outfit } : {}),
-    // The assigned shot type arms the renderer's composition enforcement
-    // block (previously dormant — nothing supplied shotType, the exact
-    // pre-ce-7 characterOutfit situation).
+    // The outfit spec still rides as `characterOutfit` for the renderer's
+    // generic-safe rung (its OUTFIT line) — bible mode states it ONCE in the
+    // CHARACTER block and switches the legacy repetition off.
+    ...(outfitSpecText ? { characterOutfit: outfitSpecText } : {}),
+    // The assigned shot type arms the renderer's composition enforcement.
     ...(shotEntry ? { shotType: shotEntry.shotType } : {}),
     bookId,
     costTracker,
-    gcsPath: storageKey,
-    // The identity anchor: generateIllustration reads the reference image
-    // from opts (never from its second positional parameter) — the bytes
-    // were resolved ONCE by illustrateStory and ride every render.
+    // The identity anchor bytes still ride (the renderer's with-photo
+    // branch); with a reference pack the pack's cover entry is what the
+    // model actually receives, in its labeled slot.
     childPhotoUrl: characterRefUrl,
     _cachedPhotoBase64: refPhoto.base64,
     _cachedPhotoMime: refPhoto.mimeType,
-    // The fixed per-theme world plate (or null): a second reference image
-    // identical on every spread, so stateless renders converge on one world.
-    ...(worldPlate ? { worldPlate: { base64: worldPlate.base64, mimeType: worldPlate.mimeType } } : {}),
+    // ce-9: the reference pack replaces the anchor+plate pair (the plate is
+    // the pack's last entry), and the structured bible blocks ride the
+    // prompt ONCE (renderBibleBlocks) — including on the generic-safe rung.
+    ...(pack.length > 0 ? { referencePack: pack } : {}),
+    bible: promptBible,
     // The world-law card, the assigned composition, any gate repair note,
     // AND the Art Tuning block must survive the renderer's generic-safe
     // NSFW fallback — that variant discards the scene, and a render that
@@ -193,7 +280,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // directive is closed-vocabulary template text (shotPlan.js), the note
     // maps a closed enum, the tuning is admin-approved and sanitized
     // (tuning.js).
-    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), shotDirective, worldNote, tuningBlock].filter(Boolean).join('\n') || null,
+    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), shotDirective, worldNoteText, tuningBlock].filter(Boolean).join('\n') || null,
     // Workbench probes may pin a seed for tighter A/B; applying it stays
     // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
     // retry-without on seed-rejecting models). The seed also rides the
@@ -202,38 +289,80 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     ...(seed != null ? { seed } : {}),
   };
 
-  let buffer = null;
+  // The structured QA check against the bible — the SAME pinned inputs on
+  // every candidate, repair, and replay re-check of this spread.
+  const qaOpts = {
+    expectedText: embedText ? spreadText : null,
+    shotType: shotEntry ? shotEntry.shotType : null,
+    outfitSpec: outfitSpecText,
+    bathWater,
+    sheet: sheetImage,
+    props: [...declaredProps, ...carriedProps].map(name => {
+      const sheet = propSheetFor(bible, name); // normalized match (case/whitespace)
+      // A declared prop is the beat's evidence (absence BLOCKS); a carried
+      // comfort object is continuity decoration (absence is advisory).
+      return { name, specText: sheet ? sheet.specText || null : null, sheet: sheet ? { base64: sheet.base64, mimeType: sheet.mimeType || 'image/png' } : null, expected: declaredProps.includes(name) ? 'required' : 'carried' };
+    }),
+    companion: companionOnSpread && theme.companion && theme.companion.name
+      ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null }
+      : null,
+    beat: beat ? beat.beat : null,
+    emotion: promptBible.emotion ? { emotion: promptBible.emotion.emotion, intensity: promptBible.emotion.intensity, cue: EMOTION_CUES[promptBible.emotion.emotion] || null } : null,
+    emotionVocabulary: EMOTIONS,
+  };
+  const runQa = (buffer, label) => checkSpreadRenderV2(buffer, { label, ...qaOpts });
+  const repairOpts = (qa) => ({
+    shotType: qaOpts.shotType,
+    outfitSpec: outfitSpecText,
+    sheetRef: refs.characterSheetRef,
+    props: qaOpts.props.map(p => ({ name: p.name, specText: p.specText, ref: refs.props[p.name] || null })),
+    companion: qaOpts.companion ? { name: qaOpts.companion.name, ref: refs.companionRef } : null,
+    beat: qaOpts.beat,
+    emotion: qaOpts.emotion,
+  });
+  const metricsFor = (buffer, qa) => runMetrics({ buffer, qa, bible, shotType: qaOpts.shotType, aspect, textLayout, ageBand, log });
+
+  // ── Replay ──────────────────────────────────────────────────────────────
+  let cachedBuffer = null;
   let url = null;
-  // fresh = this call created new pixels for this spread (base render or
-  // repair). The world-consistency gate may only re-render FRESH spreads: a
-  // replayed cached render's storageKey is shared with earlier captured
-  // rounds, and overwriting it would silently change what they display.
-  let fresh = false;
   if (!forceRerender) {
     try {
       const cached = await downloadBuffer(storageKey);
       try {
         const marker = JSON.parse((await downloadBuffer(qaMarkerKey)).toString('utf8'));
-        // The marker vouches for SPECIFIC pixels: a forced overwrite that
-        // failed before its marker write leaves new bytes beside the old
-        // marker, so a replay only trusts a marker whose renderHash matches
-        // the cached image — anything else re-checks.
-        if (marker.renderHash !== renderContentHash(cached)) {
-          throw new Error('marker does not match the cached render');
-        }
-        log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes)`);
+        // The marker vouches for SPECIFIC pixels under a SPECIFIC checker: a
+        // forced overwrite that failed before its marker write leaves new
+        // bytes beside the old marker, and an older QA_VERSION judged with
+        // older eyes — either way the replay re-checks instead of trusting it.
+        if (marker.renderHash !== renderContentHash(cached)) throw new Error('marker does not match the cached render');
+        if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
+        // An unresolved marker never vouches — EXCEPT the one case where the
+        // opt-in ship policy already shipped those pixels with their defects
+        // on the record: replaying them keeps the book's advisories and
+        // `unresolved[]` truthful instead of re-spending the repair budget
+        // on every dispatch. Turn the switch off and the replay re-checks.
+        if (marker.unresolved && !(marker.shippedOnExhaustion && flags.shipOnExhaustion())) throw new Error('marker records unresolved blocking defects');
+        const markerBlocking = marker.unresolved && Array.isArray(marker.qa?.blocking) ? [...marker.qa.blocking] : [];
+        log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes${markerBlocking.length > 0 ? `, ${markerBlocking.length} BLOCKING defect(s) on record` : ''})`);
         return {
           spread, buffer: cached, storageKey,
           url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS),
           advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
           fresh: false,
           bathWater,
+          blocking: markerBlocking,
+          candidates: [],
+          candidateFiles: [],
+          qa: marker.qa || null,
+          bbox: marker.qa?.bbox || null,
+          propBoxes: Array.isArray(marker.qa?.propBoxes) ? marker.qa.propBoxes : [],
         };
       } catch (markerErr) {
-        // No marker (crash between upload and check) or a marker for other
-        // pixels — re-check the cached image instead of approving it.
+        // No marker (crash between upload and check), a marker for other
+        // pixels, or an older checker — re-check the cached image instead
+        // of approving it.
         log('warn', `Spread ${spread}: cached render not QA-vouched (${markerErr.message}) — re-checking before replay`);
-        buffer = cached;
+        cachedBuffer = cached;
         url = await getSignedUrl(storageKey, SIGNED_URL_TTL_MS);
       }
     } catch {
@@ -247,87 +376,163 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     await deletePrefix(qaMarkerKey).catch(() => {});
   }
 
-  if (!buffer) {
-    url = await generateIllustration(baseScene, characterRefUrl, 'pixar_premium', renderOpts);
-    if (!url) {
+  // ── Candidates ──────────────────────────────────────────────────────────
+  // Render N candidates concurrently, score each with QA v2 + metrics, keep
+  // the best. Only the N=1 BASE pass renders straight to the shipped key
+  // (the pre-ce-9 flow); every repair pass renders beside it (`.r{p}c{k}`)
+  // so a rejected repair never overwrites the better pixels the key holds,
+  // and every scored candidate keeps its own bytes for the failure payload.
+  const nCandidates = flags.renderCandidates();
+  let fresh = false;
+  let checkerUnavailable = false;
+  const candidateLog = [];
+  let best = null;
+
+  const renderCandidates = async (sceneText, passLabel, pass = 0) => {
+    const list = await Promise.all(Array.from({ length: nCandidates }, (_, i) => i + 1).map(async (k) => {
+      const key = pass > 0 || nCandidates > 1 ? candidateKey(storageKey, k, pass) : storageKey;
+      const attemptLog = [];
+      let cUrl = null;
+      try {
+        cUrl = await generateIllustration(sceneText, characterRefUrl, 'pixar_premium', { ...renderOpts, attemptLog, gcsPath: key });
+      } catch (err) {
+        // One thrown candidate costs only that candidate (the others may
+        // still ship); when EVERY candidate throws, the first error
+        // propagates with its attempt log — the legacy single-render
+        // contract (renderStorySpreads turns it into the spread's
+        // `render errored` advisory with detail.attempts).
+        if (!Array.isArray(err.attempts) && attemptLog.length > 0) err.attempts = attemptLog;
+        return { k, key, url: null, buffer: null, attemptLog, error: err };
+      }
+      if (!cUrl) return { k, key, url: null, buffer: null, attemptLog };
+      const buffer = await downloadBuffer(key);
+      const qa = await runQa(buffer, `spreadQa:${bookId}:s${spread}:${passLabel}c${k}`);
+      const m = await metricsFor(buffer, qa);
+      const accepted = attemptLog.find(a => a.accepted);
+      return { k, key, url: cUrl, buffer, attemptLog, qa, metrics: m, score: scoreCandidate({ qa, metrics: m }), variant: accepted ? accepted.variant : 'original' };
+    }));
+    for (const c of list) candidateLog.push({ pass: passLabel, k: c.k, key: c.key, score: c.score ?? null, defects: c.qa ? c.qa.defects : null, variant: c.variant || null, error: c.error ? String(c.error.message || c.error) : null });
+    return list;
+  };
+
+  if (cachedBuffer) {
+    // Unvouched cached pixels: re-check them as the single candidate.
+    const qa = await runQa(cachedBuffer, `spreadQa:${bookId}:s${spread}:recheck`);
+    const m = await metricsFor(cachedBuffer, qa);
+    best = { k: 0, key: storageKey, url, buffer: cachedBuffer, attemptLog: [], qa, metrics: m, score: scoreCandidate({ qa, metrics: m }), variant: 'cached' };
+  } else {
+    const list = await renderCandidates(baseScene, 'base');
+    const rendered = list.filter(c => c.buffer);
+    if (rendered.length === 0 && list.every(c => c.error)) throw list[0].error;
+    if (rendered.length === 0) {
+      const attempts = list.flatMap(c => c.attemptLog);
       advisories.push({
         stage: 'render', spread,
-        note: 'render failed (all prompt variants rejected) — spread has no illustration',
-        ...(attemptLog.length > 0 ? { detail: { attempts: attemptLog } } : {}),
+        note: `render failed (all prompt variants rejected on ${list.length} candidate${list.length === 1 ? '' : 's'}) — spread has no illustration`,
+        ...(attempts.length > 0 ? { detail: { attempts } } : {}),
       });
-      return { spread, buffer: null, storageKey, url: null, advisories, fresh: false, bathWater };
+      return { spread, buffer: null, storageKey, url: null, advisories, fresh: false, bathWater, blocking: [], candidates: candidateLog, qa: null, bbox: null };
     }
-    buffer = await downloadBuffer(storageKey);
+    best = pickBest(rendered);
     fresh = true;
   }
-
-  // The per-spread check verifies each render against the SAME pinned specs
-  // on every spread (assigned shot type; locked outfit) — renders that each
-  // pass also match each other, with no cross-spread reads (the ce-4
-  // TEXT_RULES pattern). BATH/WATER spreads skip the outfit check by design.
-  const qaOpts = {
-    expectedText: embedText ? spreadText : null,
-    shotType: shotEntry ? shotEntry.shotType : null,
-    outfitSpec: outfitLock && !bathWater ? outfitLock.outfit : null,
-  };
-  let qa = await checkSpreadRender(buffer, {
-    label: `spreadQa:${bookId}:s${spread}`,
-    ...qaOpts,
-  });
-  let checkerUnavailable = !!qa.qaUnavailable;
-  if (qa.qaUnavailable) {
+  if (best.qa && best.qa.qaUnavailable) {
+    checkerUnavailable = true;
     // A checker outage must never report silently clean: ship best-effort,
     // but say so on the completion payload.
-    advisories.push({ stage: 'spreadQa', spread, note: `shipped UNCHECKED — ${qa.qaUnavailable}` });
+    advisories.push({ stage: 'spreadQa', spread, note: `shipped UNCHECKED — ${best.qa.qaUnavailable}` });
   }
-  // Bounded corrective re-render loop: each pass is steered by the LATEST
-  // check's defects (a repair that traded one defect for another is fixed
-  // for what it actually shows, not for the first render's findings) and
-  // fully re-checked. Best-effort by contract: any repair-path failure
-  // ships the last rendered image (with an advisory) instead of failing
-  // the whole book.
-  const repairBudget = SPREAD_QA_MAX_REPAIRS();
+  if (best.variant && best.variant !== 'original' && best.variant !== 'cached') {
+    // The safety-fallback ladder rebuilt (sanitized) or discarded
+    // (generic-safe) the scene — never silent (ce-9).
+    advisories.push({ stage: 'render', spread, note: `rendered from the "${best.variant}" fallback prompt after a safety block — scene content may be reduced; QA verified the result against the bible` });
+  }
+
+  // ── Bounded corrective re-render loop ───────────────────────────────────
+  // Runs only while the best candidate still carries BLOCKING (or embedded
+  // text) defects; each pass renders N fresh candidates steered by the
+  // LATEST verdict's defects and adopts the higher-scoring result. Drift-
+  // class defects draw on their own extra budget so a stubborn text defect
+  // cannot starve an outfit fix. Best-effort by contract: any repair-path
+  // failure ships the best render so far (with an advisory).
+  const generalBudget = SPREAD_QA_MAX_REPAIRS();
+  const driftBudget = flags.driftMaxRepairs();
+  let generalUsed = 0;
+  let driftUsed = 0;
   let repairAborted = false;
-  for (let attempt = 1; !qa.pass && attempt <= repairBudget && !repairAborted; attempt += 1) {
-    log('warn', `Spread ${spread} QA failed (${qa.defects.join('; ')}) — corrective re-render ${attempt}/${repairBudget}`);
+  while (!checkerUnavailable && !repairAborted && needsRepair(best.qa)) {
+    const drift = hasDriftDefect(best.qa.blocking);
+    let budgetName;
+    if (generalUsed < generalBudget) { generalUsed += 1; budgetName = `${generalUsed}/${generalBudget}`; } else if (drift && driftUsed < driftBudget) { driftUsed += 1; budgetName = `drift ${driftUsed}/${driftBudget}`; } else break;
+    log('warn', `Spread ${spread} QA failed (${best.qa.defects.join('; ')}) — corrective re-render ${budgetName}`);
     try {
-      const repairedScene = `${baseScene}\n${repairNote(qa.defects, embedText ? spreadText : null, { shotType: qaOpts.shotType, outfitSpec: qaOpts.outfitSpec })}`;
-      const repairedUrl = await generateIllustration(repairedScene, characterRefUrl, 'pixar_premium', renderOpts);
-      if (!repairedUrl) {
-        advisories.push({ stage: 'spreadQa', spread, note: `repair render failed; shipped render with defects: ${qa.defects.join('; ')}` });
+      const repairedScene = `${baseScene}\n${repairNoteV2(best.qa.defects, embedText ? spreadText : null, repairOpts(best.qa))}`;
+      const pass = generalUsed + driftUsed;
+      const list = await renderCandidates(repairedScene, `repair${pass}`, pass);
+      const rendered = list.filter(c => c.buffer);
+      if (rendered.length === 0) {
+        advisories.push({ stage: 'spreadQa', spread, note: `repair render failed; shipped render with defects: ${best.qa.defects.join('; ')}` });
         repairAborted = true;
         break;
       }
-      url = repairedUrl;
-      buffer = await downloadBuffer(storageKey);
-      fresh = true;
-      qa = await checkSpreadRender(buffer, {
-        label: `spreadQa:${bookId}:s${spread}:repair${attempt}`,
-        ...qaOpts,
-      });
-      if (qa.qaUnavailable) {
-        // Repairing blind would spend renders with no verdict to steer them.
-        checkerUnavailable = true;
-        advisories.push({ stage: 'spreadQa', spread, note: `repair shipped UNCHECKED — ${qa.qaUnavailable}` });
+      const repairedBest = pickBest(rendered);
+      if (repairedBest.qa && repairedBest.qa.qaUnavailable) {
+        // The checker went away mid-loop: an UNCHECKED repair never
+        // replaces a render whose defects are known (the book fails
+        // `consistency_unresolved` with both on the candidate list, and
+        // the admin sees the unchecked one scored below any checked one);
+        // repairing further would spend renders with no verdict to steer.
+        advisories.push({ stage: 'spreadQa', spread, note: `repair could not be verified (${repairedBest.qa.qaUnavailable}) — kept the checked render with defects: ${best.qa.defects.join('; ')}` });
         repairAborted = true;
+        break;
+      }
+      // Tier first (checked > unchecked, blocking-free > blocking), score
+      // within the tier — a repair that cleared the blocking defect is
+      // adopted even when advisories/metrics leave its score lower.
+      if (compareCandidates(repairedBest, best) >= 0) {
+        best = repairedBest;
+        fresh = true;
       }
     } catch (repairErr) {
-      log('warn', `Spread ${spread} repair errored (${repairErr.message}) — shipping the previous render`);
-      // The repair may have died AFTER uploading new pixels — restore the
-      // shipped render to the cache key so the URL, cache, and PDF stay
-      // one image (a failed restore is caught by the marker hash).
-      await uploadBuffer(buffer, storageKey, 'image/png').catch(() => {});
-      advisories.push({ stage: 'spreadQa', spread, note: `repair render errored (${repairErr.message}); shipped render with defects: ${qa.defects.join('; ')}` });
+      log('warn', `Spread ${spread} repair errored (${repairErr.message}) — shipping the best render so far`);
+      advisories.push({ stage: 'spreadQa', spread, note: `repair render errored (${repairErr.message}); shipped render with defects: ${best.qa.defects.join('; ')}` });
       repairAborted = true;
     }
   }
-  if (!qa.pass && !qa.qaUnavailable && !repairAborted) {
+
+  // ── Ship the winner at the canonical key ────────────────────────────────
+  // Candidates rendered beside the key; the winner is COPIED to the shipped
+  // key so replay, markers, the world gate, and the PDF all read ONE image.
+  let buffer = best.buffer;
+  if (best.key !== storageKey) {
+    try {
+      await uploadBuffer(buffer, storageKey, 'image/png');
+    } catch (err) {
+      // A failed promotion leaves the key holding stale bytes with no
+      // marker (the marker hash check re-checks on replay); the shipped
+      // buffer + a candidate URL still let the book complete.
+      log('warn', `Spread ${spread}: could not promote the winning candidate to the cache key (${err.message})`);
+      advisories.push({ stage: 'render', spread, note: `winning candidate could not be written to the cache key (${err.message}) — a replay will re-render` });
+    }
+  }
+  url = await getSignedUrl(storageKey, SIGNED_URL_TTL_MS);
+
+  const blocking = residualBlocking(best);
+  if (!best.qa || best.qa.qaUnavailable) {
+    // unchecked — already advised above
+  } else if (best.qa.defects.length > 0 && !repairAborted) {
+    const spent = generalUsed + driftUsed;
+    const budgetNote = spent > 0 ? `after ${spent} repair render(s)` : (generalBudget === 0 ? '(repairs disabled)' : '(no repair budget applied)');
     advisories.push({
       stage: 'spreadQa', spread,
-      note: repairBudget > 0
-        ? `shipped with residual defects after ${repairBudget} repair render(s): ${qa.defects.join('; ')}`
-        : `shipped with defects (repairs disabled): ${qa.defects.join('; ')}`,
+      note: blocking.length > 0
+        ? `BLOCKING residual defects ${budgetNote}: ${blocking.join('; ')}${best.qa.advisory.length > 0 ? ` (advisory: ${best.qa.advisory.join('; ')})` : ''}`
+        : `shipped with advisory defects: ${best.qa.advisory.join('; ')}`,
     });
+  }
+  // bbox rule findings ride as advisories too (deterministic composition/safe-zone).
+  if (best.metrics && best.metrics.bbox && Array.isArray(best.metrics.bbox.notes)) {
+    for (const n of best.metrics.bbox.notes) advisories.push({ stage: 'composition', spread, note: n });
   }
 
   // Persist the QA-complete marker so future replays skip the check
@@ -337,11 +542,19 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   if (!checkerUnavailable) {
     try {
       await uploadBuffer(
-        // renderHash pins the marker to the exact bytes that were checked:
-        // if a repair uploaded new pixels but this in-memory buffer is the
-        // first render (post-repair download failed), the hashes differ
-        // and the next replay re-checks instead of trusting this marker.
-        Buffer.from(JSON.stringify({ advisories, tuningTag, renderHash: renderContentHash(buffer), checkedAt: new Date().toISOString() })),
+        Buffer.from(JSON.stringify({
+          advisories, tuningTag,
+          renderHash: renderContentHash(buffer),
+          qaVersion: QA_VERSION,
+          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], score: best.score } : null,
+          // An unresolved marker never vouches: the next replay re-checks
+          // (an admin may have raised budgets or picked a candidate) —
+          // unless the opt-in ship policy shipped it, which the marker
+          // records so the replay keeps reporting the defects it carries.
+          ...(blocking.length > 0 ? { unresolved: true } : {}),
+          ...(blocking.length > 0 && flags.shipOnExhaustion() ? { shippedOnExhaustion: true } : {}),
+          checkedAt: new Date().toISOString(),
+        })),
         qaMarkerKey,
         'application/json',
       );
@@ -349,19 +562,25 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       log('warn', `Spread ${spread}: QA marker write failed (${mErr.message}) — a replay will re-check`);
     }
   }
-  // bathWater rides the result so the world gate can exempt these spreads
+  // bathWater rides the result so the set gates can exempt these spreads
   // from outfit judgments (their coverage legitimately differs).
-  return { spread, buffer, storageKey, url, advisories, fresh, bathWater };
+  return {
+    spread, buffer, storageKey, url, advisories, fresh, bathWater,
+    blocking,
+    candidates: candidateLog,
+    // Every scored candidate that still holds its own bytes (the N=1 base
+    // render lives AT the canonical key, which the promotion above may
+    // have overwritten — and picking the canonical key is a no-op anyway).
+    candidateFiles: candidateLog.filter(c => c.key && c.key !== storageKey && c.score != null).map(c => ({ storageKey: c.key, score: c.score, pass: c.pass })),
+    qa: best.qa || null,
+    bbox: best.qa ? best.qa.bbox || null : null,
+    propBoxes: best.qa && Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [],
+    crop: best.metrics ? best.metrics.crop || null : null,
+  };
 }
 
-/** Corrective world-gate re-renders allowed per run (cost bound). */
-const WORLD_QA_MAX_RERENDERS = () => {
-  const n = Number(process.env.CATALOG_WORLD_QA_MAX_RERENDERS);
-  return Number.isInteger(n) && n >= 0 ? n : 3;
-};
-
 /**
- * Which flagged spreads the world gate may re-render: FRESH renders only
+ * Which flagged spreads a set-level gate may re-render: FRESH renders only
  * (a replayed cached render's storageKey is shared with earlier captured
  * rounds — overwriting it would silently change what they display), oldest
  * flagged first, capped by the re-render budget. Pure — exported for tests.
@@ -384,6 +603,55 @@ function planWorldRepairs(results, flagged, budget) {
     remaining -= 1;
     return { ...f, skipReason: null };
   });
+}
+
+/**
+ * Apply one set-level verdict's repairs: advisories + one corrective
+ * re-render per eligible flagged spread through the full per-spread path.
+ * Shared by the world gate and the ce-9 contact-sheet gate.
+ * @returns {Promise<number[]>} spreads re-rendered
+ */
+async function applySetRepairs({ results, flagged, budget, stage, rerender, noteFor, onProgress, log }) {
+  const plan = planWorldRepairs(results, flagged, budget);
+  const rerendered = [];
+  for (const f of plan) {
+    const idx = results.findIndex(r => r.spread === f.spread && r.buffer);
+    if (idx === -1) continue;
+    const entry = results[idx];
+    entry.advisories.push({ stage, spread: f.spread, note: `${stage === 'worldQa' ? 'world consistency' : 'set consistency'}: ${f.note}` });
+    if (f.skipReason) {
+      entry.advisories.push({ stage, spread: f.spread, note: `shipped without set re-render (${f.skipReason})` });
+      continue;
+    }
+    log('warn', `Spread ${f.spread} broke set consistency (${f.defect}: ${f.note}) — one corrective re-render`);
+    onProgress(1, `Set repair: re-rendering spread ${f.spread}...`);
+    try {
+      // The repair prompt is built ONLY from the closed defect enum (plus,
+      // for composition_duplicate, the spread's own pinned plan directive)
+      // — f.note is free-form diagnostics and never reaches a prompt.
+      const repaired = await rerender(f.spread, noteFor(f));
+      if (repaired.buffer) {
+        // Keep the audit trail: the gate finding + the fresh render's own
+        // advisories ride together on the replacing entry.
+        results[idx] = { ...repaired, advisories: [...entry.advisories, ...repaired.advisories] };
+        rerendered.push(f.spread);
+      } else {
+        entry.advisories.push({ stage, spread: f.spread, note: 'set re-render failed; shipped the flagged render' });
+      }
+    } catch (err) {
+      // The re-render may have died AFTER uploading new pixels to the
+      // shipped entry's storageKey — restore the shipped bytes so the
+      // callback URL, the cache, and the PDF stay one image (the stale
+      // marker was already dropped; a failed restore just re-checks on
+      // the next replay).
+      log('warn', `Spread ${f.spread} set re-render errored (${err.message}) — shipping the flagged render`);
+      await uploadBuffer(entry.buffer, entry.storageKey, 'image/png').catch((restoreErr) => {
+        log('warn', `Spread ${f.spread}: could not restore the shipped render to its cache key (${restoreErr.message})`);
+      });
+      entry.advisories.push({ stage, spread: f.spread, note: `set re-render errored (${err.message}); shipped the flagged render` });
+    }
+  }
+  return rerendered;
 }
 
 /**
@@ -437,46 +705,11 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
       return { pass: true, checked: rendered.length, unavailable: verdict.qaUnavailable };
     }
     if (verdict.pass) return { pass: true, checked: rendered.length };
-
-    const plan = planWorldRepairs(results, verdict.flagged, WORLD_QA_MAX_RERENDERS());
-    const rerendered = [];
-    for (const f of plan) {
-      const idx = results.findIndex(r => r.spread === f.spread && r.buffer);
-      if (idx === -1) continue;
-      const entry = results[idx];
-      entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world consistency: ${f.note}` });
-      if (f.skipReason) {
-        entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `shipped without world re-render (${f.skipReason})` });
-        continue;
-      }
-      log('warn', `Spread ${f.spread} broke world consistency (${f.defect}: ${f.note}) — one corrective re-render`);
-      onProgress(1, `World repair: re-rendering spread ${f.spread}...`);
-      try {
-        // The repair prompt is built ONLY from the closed defect enum (plus,
-        // for composition_duplicate, the spread's own pinned plan directive)
-        // — f.note is free-form diagnostics and never reaches a prompt.
-        const repaired = await rerender(f.spread, worldRepairNote(f.defect, { planDirective: planDirectiveFor(f.spread) }));
-        if (repaired.buffer) {
-          // Keep the audit trail: the gate finding + the fresh render's own
-          // advisories ride together on the replacing entry.
-          results[idx] = { ...repaired, advisories: [...entry.advisories, ...repaired.advisories] };
-          rerendered.push(f.spread);
-        } else {
-          entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: 'world re-render failed; shipped the flagged render' });
-        }
-      } catch (err) {
-        // The re-render may have died AFTER uploading new pixels to the
-        // shipped entry's storageKey — restore the shipped bytes so the
-        // callback URL, the cache, and the PDF stay one image (the stale
-        // marker was already dropped; a failed restore just re-checks on
-        // the next replay).
-        log('warn', `Spread ${f.spread} world re-render errored (${err.message}) — shipping the flagged render`);
-        await uploadBuffer(entry.buffer, entry.storageKey, 'image/png').catch((restoreErr) => {
-          log('warn', `Spread ${f.spread}: could not restore the shipped render to its cache key (${restoreErr.message})`);
-        });
-        entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world re-render errored (${err.message}); shipped the flagged render` });
-      }
-    }
+    const rerendered = await applySetRepairs({
+      results, flagged: verdict.flagged, budget: WORLD_QA_MAX_RERENDERS(), stage: 'worldQa', rerender,
+      noteFor: f => worldRepairNote(f.defect, { planDirective: planDirectiveFor(f.spread) }),
+      onProgress, log,
+    });
     return { pass: false, checked: rendered.length, flagged: verdict.flagged, rerendered };
   } finally {
     clearInterval(heartbeat);
@@ -484,11 +717,142 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
 }
 
 /**
+ * The reference index of a prop's sheet in one render's pack, matched on
+ * the NORMALIZED value (the pack is keyed by the spread's own wording, the
+ * bible by the sheet's value). Null when the pack carries no such sheet.
+ * @param {{props?: Object<string, number>}|null} refs
+ * @param {string} value
+ * @returns {number|null}
+ */
+function propReferenceIndex(refs, value) {
+  const want = normalizePropValue(value);
+  for (const key of Object.keys(refs && refs.props ? refs.props : {})) {
+    if (normalizePropValue(key) === want) return refs.props[key];
+  }
+  return null;
+}
+
+/**
+ * ce-9 contact-sheet gate: the child crops of every rendered spread beside
+ * the CHARACTER MODEL SHEET in one image (garments legible — the world
+ * gate's 1024px thumbnails were not), plus one props contact sheet per
+ * prop sheet, each judged in one call; flagged FRESH spreads re-render once
+ * through the full per-spread path with the closed-vocabulary repair note.
+ * Skipped without a sheet / under 2 tiles. Ship-with-advisory like the
+ * world gate.
+ * @returns {Promise<{pass: boolean, checked: number, flagged?: Array, rerendered?: number[], unavailable?: string}|null>}
+ */
+async function runContactSheetGate({ results, bible, evidence = [], rerender, onProgress = () => {}, log }) {
+  if (!flags.contactQaEnabled() || !bible || !bible.sheet) return null;
+  const rendered = results.filter(r => r.buffer);
+  if (rendered.length < 2) return null;
+  const heartbeat = setInterval(() => onProgress(1, 'Contact-sheet consistency gate in progress...'), 30000);
+  try {
+    onProgress(1, `Checking character + prop consistency across ${rendered.length} spreads...`);
+    const flagged = [];
+    // Child tiles: the QA bbox crop when we have one, else the whole spread
+    // — named as such (`cropped: false`), so the judge never reads scene or
+    // world differences in a full image as character drift.
+    const childTiles = [];
+    for (const r of rendered) {
+      let tile = r.crop || null;
+      if (!tile && r.bbox) tile = await metrics.cropBbox(r.buffer, r.bbox).catch(() => null);
+      childTiles.push({ spread: r.spread, buffer: tile || r.buffer, cropped: !!tile });
+    }
+    const sheetBuffer = Buffer.from(bible.sheet.base64, 'base64');
+    const charVerdict = await checkCharacterContactSheet({
+      tiles: childTiles,
+      sheet: { buffer: sheetBuffer },
+      outfitSpecText: bible.outfit ? bible.outfit.outfit : null,
+      exemptSpreads: rendered.filter(r => r.bathWater).map(r => r.spread),
+      label: 'contactQa:character',
+    });
+    let unavailable = null;
+    if (charVerdict && charVerdict.qaUnavailable) unavailable = charVerdict.qaUnavailable;
+    if (charVerdict && !charVerdict.qaUnavailable) flagged.push(...charVerdict.flagged.map(f => ({ ...f, defect: 'character_rendering' })));
+
+    // Props: one contact sheet per prop sheet, over the spreads where the
+    // prop is expected (declared or carried) — matched on the NORMALIZED
+    // value (the story's wording vs the sheet's value).
+    for (const p of (bible.props || []).filter(x => x && x.sheet)) {
+      const wantProp = normalizePropValue(p.value);
+      const spreads = new Set();
+      for (const ev of Array.isArray(evidence) ? evidence : []) {
+        if (ev && ev.visual_required === true && normalizePropValue(inertPropValue(ev.source_value)) === wantProp) {
+          spreads.add(ev.spread);
+          if (flags.propContinuityEnabled() && ev.moment_type === 'object_presence' && ev.source_field === 'object') {
+            for (const r of rendered) if (r.spread > ev.spread) spreads.add(r.spread);
+          }
+        }
+      }
+      // Prop tiles: the prop's own crop from the structured verdict's
+      // per-prop bbox (a small recurring object is only legible beside its
+      // sheet when cropped); the whole spread only as a named fallback.
+      const tiles = [];
+      for (const r of rendered.filter(x => spreads.has(x.spread))) {
+        const box = (r.propBoxes || []).find(b => b && b.bbox && normalizePropValue(b.name) === wantProp);
+        const crop = box ? await metrics.cropBbox(r.buffer, box.bbox, { pad: 0.08 }).catch(() => null) : null;
+        tiles.push({ spread: r.spread, buffer: crop || r.buffer, cropped: !!crop });
+      }
+      if (tiles.length < 2) continue;
+      const v = await checkPropContactSheet({
+        tiles,
+        propSheet: { buffer: Buffer.from(p.sheet.base64, 'base64'), specText: p.sheet.specText || null, name: p.value },
+        label: `contactQa:prop:${p.value.slice(0, 20)}`,
+      });
+      if (v && v.qaUnavailable) unavailable = unavailable || v.qaUnavailable;
+      if (v && !v.qaUnavailable) {
+        for (const f of v.flagged) {
+          // The prop's identity rides the finding so its repair can cite
+          // the exact prop sheet in the re-render's reference pack.
+          if (!flagged.some(x => x.spread === f.spread)) flagged.push({ ...f, defect: 'prop_rendering', prop: p.value });
+        }
+      }
+    }
+
+    // Deterministic outliers (opt-in metrics): a child crop far from the
+    // set's median embedding is flagged as a character break too.
+    if (flags.identityMetricsEnabled()) {
+      try {
+        const embeddings = {};
+        for (const t of childTiles) {
+          const e = await metrics.embedImage(t.buffer, { log });
+          if (e) embeddings[t.spread] = e;
+        }
+        for (const s of metrics.outlierSpreads(embeddings)) {
+          if (!flagged.some(x => x.spread === s)) flagged.push({ spread: s, defect: 'character_rendering', note: 'embedding outlier against the other spreads' });
+        }
+      } catch (err) {
+        log('warn', `embedding outlier check unavailable (${err.message})`);
+      }
+    }
+
+    if (flagged.length === 0) {
+      return unavailable ? { pass: true, checked: rendered.length, unavailable } : { pass: true, checked: rendered.length };
+    }
+    const rerendered = await applySetRepairs({
+      results, flagged, budget: CONTACT_QA_MAX_RERENDERS(), stage: 'contactQa', rerender,
+      // A prop repair is resolved against the RE-RENDER's own reference
+      // pack: the note names the prop and cites its sheet's index there
+      // (the pinned instruction, never model text).
+      noteFor: f => (f.defect === 'prop_rendering'
+        ? (refs) => `SET CONSISTENCY REPAIR — compared with the book's other spreads, this render broke prop consistency for "${inertPropValue(f.prop) || 'the prop'}". ${contactRepairNote('prop_rendering', { referenceIndex: propReferenceIndex(refs, f.prop) })} Re-render the SAME scene and action; fix ONLY the prop.`
+        : worldRepairNote('character_rendering')),
+      onProgress, log,
+    });
+    return { pass: false, checked: rendered.length, flagged, rerendered, ...(unavailable ? { unavailable } : {}) };
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+/**
  * Render a validated story's spreads (all 12, or a chosen subset) through
- * the ONE production render path (cache → render → QA → repair → marker).
- * This is the shared body of the full-book pipeline AND the workbench probe
- * (`/v13/render-spreads`) — the illustration feedback loop tunes exactly
- * what production runs, or it tunes nothing.
+ * the ONE production render path (bible → cache → candidates → QA →
+ * select → repair → marker → set gates). This is the shared body of the
+ * full-book pipeline AND the workbench probe (`/v13/render-spreads`) — the
+ * illustration feedback loop tunes exactly what production runs, or it
+ * tunes nothing.
  *
  * @param {object} params
  * @param {string} params.bookId main-app book id (GCS namespace)
@@ -497,35 +861,20 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
  * @param {object} params.profile normalized profile
  * @param {string|null} params.approvedCoverUrl identity anchor
  * @param {string|null} [params.childPhotoUrl] fallback anchor for coverless test books
+ *   (and, beside a cover, the likeness aid for the character sheet)
  * @param {string|null} [params.characterDescription]
  * @param {string} [params.textLayout] 'caption' (default) | 'half' | 'embedded'.
- *   'half' renders a text-FREE full-spread WIDE composition (subject pushed
- *   into the right half — the left half is covered by the solid text panel
- *   at page assembly), cached under 'wide-plain' so it never replays an
- *   embedded book's text-painted wide render.
  * @param {number[]|null} [params.spreads] subset of spread numbers (default: all beats)
- * @param {number[]|null} [params.rerenderSpreads] probe-only: spreads (a
- *   subset of `spreads`) forced to render FRESH while the rest replay from
- *   cache — the world gate then compares the fresh render against the
- *   replayed references and may correct it (fresh renders are the only ones
- *   it is allowed to re-render). This is the "make one spread match the
- *   rest" operation; like forceRerender it overwrites the shared cache key
- *   by design.
+ * @param {number[]|null} [params.rerenderSpreads] probe-only: spreads forced FRESH
  * @param {object|null} [params.tuning] raw illustrationTuning overlay (normalized here; kill-switch applied)
- * @param {boolean} [params.identityKeyed] fold the identity anchor (URL path
- *   + characterDescription) into the cache key so an anchor change never
- *   replays another child's renders. Always set by the probe route; a bench
- *   "create final book" dispatch sends it too (with the same anchor/seed/
- *   tuning) so the approved probe renders replay into the final book.
- *   Customer books omit it — their keys stay legacy un-salted.
- * @param {number|null} [params.seed] probe-compat render seed (cache-keyed;
- *   applying it is env-gated in the renderer)
- * @param {string|null} [params.probeNonce] workbench-only cache-key salt (variance probes re-render instead of replaying)
+ * @param {boolean} [params.identityKeyed] fold the identity anchor into the cache key
+ * @param {number|null} [params.seed] probe-compat render seed
+ * @param {string|null} [params.probeNonce] workbench-only cache-key salt
  * @param {object} [params.costTracker]
  * @param {boolean} [params.forceRerender]
  * @param {(frac: number, message: string) => void} [params.onProgress]
  * @param {(level: string, msg: string) => void} [params.log]
- * @returns {Promise<{results: Array<{spread, buffer, storageKey, url, advisories, fresh}>, aspect: string, storyHash: string, tuningTag: string, worldQa: object|null, outfitLockUsed: string, advisories: object[]}>}
+ * @returns {Promise<{results: Array, aspect: string, storyHash: string, tuningTag: string, worldQa: object|null, contactQa: object|null, outfitLockUsed: string, bible: object, bookBible: object|null, unresolved: Array, advisories: object[]}>}
  */
 async function renderStorySpreads(params) {
   const {
@@ -564,20 +913,29 @@ async function renderStorySpreads(params) {
     err.failureCode = 'missing_identity_reference';
     throw err;
   }
+  // The raw photo beside a cover is a likeness aid for the character sheet
+  // only (best-effort; a cover-anchored run never fails on the photo).
+  let childPhoto = null;
+  if (approvedCoverUrl && childPhotoUrl && childPhotoUrl !== approvedCoverUrl) {
+    try { childPhoto = await downloadPhotoAsBase64(childPhotoUrl); } catch (err) { log('warn', `child photo unavailable for the character sheet (${err.message})`); }
+  }
 
-  // The fixed per-theme world plate: resolved ONCE (like the anchor bytes)
-  // and identical on every spread of the call — full book and probe subset
-  // alike. Fail-open: null (kill-switch, or plate generation failed) means
-  // plate-less renders, never a failed run.
-  const worldPlate = await getWorldPlate({ theme, costTracker, log });
-
-  // The per-anchor OUTFIT LOCK: one vision read of the identity anchor's
-  // clothing, elected once per anchor (GCS single-winner) and pinned
-  // verbatim on every stateless render as `characterOutfit` — arming the
-  // renderer's per-garment lock machinery that was otherwise dormant.
-  // Fail-open like the plate: null means lock-less renders, never a
-  // failed run.
-  const outfitLock = await getOutfitLock({ anchorUrl: characterRefUrl, refPhoto, log });
+  // ── The Book Bible: built ONCE, before any spread renders ────────────────
+  const bibleHeartbeat = setInterval(() => onProgress(0, 'Building the book bible (character sheet, props, plan)...'), 30000);
+  let bible;
+  try {
+    onProgress(0, 'Building the book bible...');
+    bible = await buildBookBible({
+      bookId, theme, book, story, profile, ageBand: bookDef.ageBand,
+      anchorUrl: characterRefUrl, refPhoto, childPhoto, characterDescription: characterDescription || null,
+      costTracker, log,
+    });
+  } finally {
+    clearInterval(bibleHeartbeat);
+  }
+  bible.theme = theme;
+  bible.story = story;
+  const outfitLock = bible.outfit;
 
   const baseHash = storyFingerprint(story);
   let keyHash = baseHash;
@@ -585,47 +943,28 @@ async function renderStorySpreads(params) {
   // built from the pinned beats/world/companion (getBookForTag), so the
   // same manuscript under a different Catalog Studio overlay produces
   // different prompts and must never replay the other overlay's pixels.
-  // (A validated response always echoes request.versions — storyValidation
-  // step 2 — so this is absent only for legacy stories.)
   const catalogTag = story?.versions?.catalog;
   if (catalogTag) keyHash = `${keyHash}-c${fnv1a(String(catalogTag)).toString(36)}`;
   // The prop-continuity kill-switch changes scene prompts for stories
-  // carrying visual object evidence (the CONTINUITY PROP carry-through
-  // line), so a disabled revision must never replay renders painted with
-  // the carried object — nor a re-enabled one replay prop-less renders.
-  // Folded ONLY when the switch is OFF and the story is actually eligible:
-  // the default-enabled key stays byte-identical, and evidence-less
-  // stories render identical prompts in both modes so they share one key.
+  // carrying visual object evidence — folded ONLY when OFF and eligible.
   if (!flags.propContinuityEnabled() && hasCarryThroughProps(story.personalization_evidence)) {
     keyHash = `${keyHash}-p0`;
   }
-  // The shot-plan kill-switch changes EVERY scene prompt (the assigned
-  // composition block disappears), so a disabled revision must never replay
-  // planned renders — nor a re-enabled one replay plan-less renders. Folded
-  // only when OFF so the default-enabled key stays byte-identical.
+  // The shot-plan kill-switch changes EVERY scene prompt — folded only when OFF.
   if (!flags.shotPlanEnabled()) {
     keyHash = `${keyHash}-sp0`;
   }
-  if (worldPlate) {
-    // The plate is a render input: a regenerated plate (or a plate-less
-    // run after a plated one) must never replay the other's cached pixels.
-    keyHash = `${keyHash}-w${worldPlate.hash}`;
-  }
-  if (outfitLock) {
-    // The outfit spec is a render input too: a locked render must never
-    // replay a lock-less one (or one locked to different words) — the
-    // spec is model-derived text, so its content hash is the identity.
-    keyHash = `${keyHash}-o${outfitLock.hash}`;
-  }
+  // ce-9: the bible hash folds EVERY pixel input (sheet, outfit spec, prop
+  // and companion sheets, world plate, emotion plan) into one identity —
+  // any change to any fixed input re-keys every render. It replaces the
+  // ce-5/ce-7 `-w{plate}`/`-o{outfit}` folds.
+  keyHash = `${keyHash}-b${bible.hash}`;
   if (identityKeyed) {
     // Probe cache keys carry an IDENTITY fingerprint: a workbench book's
     // anchor is admin-mutable, so the same bookId/story/tag after an anchor
     // (or characterDescription) change must never replay the prior child's
     // cached image. Keyed on the anchor's PATH — a signed URL's rotating
-    // query string must not bust the cache for the same object. APPENDED to
-    // keyHash (never rebuilt from baseHash) so the plate fingerprint above
-    // survives on probes; customer full-book dispatches stay
-    // identity-un-salted (only a bench final book sends identityKeyed).
+    // query string must not bust the cache for the same object.
     const identityBasis = `${String(characterRefUrl).split('?')[0]}|${characterDescription || ''}`;
     keyHash = `${keyHash}-i${fnv1a(identityBasis).toString(36)}`;
   }
@@ -655,22 +994,32 @@ async function renderStorySpreads(params) {
   const pLimit = require('p-limit');
   const limit = pLimit(RENDER_CONCURRENCY);
   let done = 0;
+  const spreadArgs = (spread, extra = {}) => ({
+    bookId, book, theme, profile, story, storyHash,
+    spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
+    tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    ...extra,
+  });
   // allSettled, not all: one thrown spread must cost only THAT spread — the
   // probe contract reports per-spread failures, and the other renders were
   // already paid for (they stay cached either way). The full-book caller
   // still fails the run on any missing buffer below.
-  const settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
-    const r = await renderSpread({
-      bookId, book, theme, profile, story, storyHash,
-      spread: beat.spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-      tuning, worldPlate, outfitLock, shotEntry: shotPlan ? shotPlan[beat.spread] : null, seed, costTracker,
-      forceRerender: forceRerender || forceSet.has(beat.spread),
-      log,
-    });
-    done += 1;
-    onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
-    return r;
-  })));
+  // A spread's N candidates + repair passes + QA calls can take many
+  // minutes between two per-spread progress events, and the server's
+  // per-book watchdog aborts books idle >20min — a 30s heartbeat keeps a
+  // healthy render phase alive (the same pattern the set gates use).
+  const renderHeartbeat = setInterval(() => onProgress(Math.max(0.01, done / wanted.length), `Illustrating spreads (${done}/${wanted.length} done)...`), 30000);
+  let settled;
+  try {
+    settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
+      const r = await renderSpread(spreadArgs(beat.spread, { forceRerender: forceRerender || forceSet.has(beat.spread) }));
+      done += 1;
+      onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
+      return r;
+    })));
+  } finally {
+    clearInterval(renderHeartbeat);
+  }
   const results = settled.map((s, i) => {
     if (s.status === 'fulfilled') return s.value;
     const spread = wanted[i].spread;
@@ -690,10 +1039,16 @@ async function renderStorySpreads(params) {
       advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
       fresh: false,
       bathWater: false,
+      blocking: [],
+      candidates: [],
+      qa: null,
+      bbox: null,
     };
   });
 
   results.sort((a, b) => a.spread - b.spread);
+
+  const rerender = (spread, note) => renderSpread(spreadArgs(spread, { worldNote: note, forceRerender: true }));
 
   // Book-level world-consistency gate: check the set together, re-render
   // flagged FRESH spreads once (through the same full per-spread path).
@@ -701,34 +1056,54 @@ async function renderStorySpreads(params) {
     results,
     embeddedText: textLayout === 'embedded',
     planDirectiveFor: spread => (shotPlan ? renderShotDirective(shotPlan[spread]) || null : null),
-    rerender: (spread, note) => renderSpread({
-      bookId, book, theme, profile, story, storyHash,
-      spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-      tuning, worldPlate, outfitLock, shotEntry: shotPlan ? shotPlan[spread] : null,
-      worldNote: note, seed, costTracker, forceRerender: true, log,
-    }),
+    rerender,
     onProgress,
     log,
   });
+  // ce-9 contact-sheet gate: character crops vs the model sheet, prop crops
+  // vs their sheets.
+  const contactQa = await runContactSheetGate({ results, bible, evidence: story.personalization_evidence || [], rerender, onProgress, log });
 
-  // Book-level advisories: a run that renders lock-less while the outfit
-  // lock is ENABLED must say so on the callback — a silent lock-less book is
-  // indistinguishable from a locked one, which is exactly how outfit drift
-  // shipped unnoticed. (Disabled-by-kill-switch is an operator choice, not
-  // an advisory.)
-  const advisories = [];
-  if (flags.outfitLockEnabled() && !outfitLock) {
+  // Book-level advisories (the bible's own + the ce-8 lock-less warning).
+  const advisories = [...bible.advisories];
+  if (flags.outfitLockEnabled() && !outfitLock && !advisories.some(a => a.stage === 'outfitLock')) {
     advisories.push({
       stage: 'outfitLock',
       note: 'renders are NOT outfit-locked — the outfit spec could not be derived from the identity anchor; cross-spread outfit consistency relies on the reference image alone',
     });
   }
 
+  // ── Graded ship policy ──────────────────────────────────────────────────
+  // Spreads whose BLOCKING defects survived candidates + repairs. The full-
+  // book caller fails `consistency_unresolved` on these unless the opt-in
+  // CATALOG_SHIP_ON_EXHAUSTION=1 turns them into advisories; the probe
+  // reports them per spread (qa.pass=false + unresolved[]).
+  const unresolved = results
+    .filter(r => r.buffer && Array.isArray(r.blocking) && r.blocking.length > 0)
+    .map(r => ({
+      spread: r.spread,
+      defects: r.blocking,
+      candidates: (r.candidateFiles || []).map(c => ({ storageKey: c.storageKey, score: c.score, pass: c.pass })),
+    }));
+  for (const u of unresolved) {
+    for (const c of u.candidates) {
+      try { c.url = await getSignedUrl(c.storageKey, SIGNED_URL_TTL_MS); } catch { c.url = null; }
+    }
+  }
+  if (unresolved.length > 0 && flags.shipOnExhaustion()) {
+    advisories.push({ stage: 'shipPolicy', note: `shipped ${unresolved.length} spread(s) with BLOCKING residual defects (CATALOG_SHIP_ON_EXHAUSTION=1): ${unresolved.map(u => `s${u.spread}`).join(', ')}` });
+  }
+
+  const bookBible = await summarizeBible(bible);
   return {
     results, aspect, storyHash,
     tuningTag: tuning ? tuning.tag : 'none',
     worldQa,
+    contactQa,
     outfitLockUsed: outfitLock ? outfitLock.hash : 'none',
+    bible,
+    bookBible,
+    unresolved,
     advisories,
   };
 }
@@ -740,18 +1115,18 @@ async function renderStorySpreads(params) {
  *   `rerenderSpreads`/`probeNonce` — a full book always renders every beat,
  *   and the probe-only subset/force/nonce salts never apply; identityKeyed
  *   and seed DO pass through so a bench final book replays probe renders)
- * @returns {Promise<{entries: object[], previewImageUrls: string[], qaAdvisories: object[], warnings: string[], illustrationTuningUsed: string, worldQa: object|null, outfitLockUsed: string}>}
+ * @returns {Promise<{entries: object[], previewImageUrls: string[], qaAdvisories: object[], warnings: string[], illustrationTuningUsed: string, worldQa: object|null, contactQa: object|null, outfitLockUsed: string, bookBible: object|null}>}
  */
 async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
-  const { results, aspect, tuningTag, worldQa, outfitLockUsed, advisories: bookAdvisories } = await renderStorySpreads({
+  const { results, aspect, tuningTag, worldQa, contactQa, outfitLockUsed, bookBible, bible, unresolved, advisories: bookAdvisories } = await renderStorySpreads({
     ...params, spreads: null, rerenderSpreads: null, probeNonce: null,
   });
   const qaAdvisories = [...bookAdvisories, ...results.flatMap(r => r.advisories)];
-  // Residual QA defects ship with advisories, but the ABSENCE of an image is
-  // not advisory-class: a blank spread must fail the run (finished renders
-  // stay cached, so the retry re-pays only for the missing spreads).
+  // Residual advisory defects ship with advisories, but the ABSENCE of an
+  // image is not advisory-class: a blank spread must fail the run (finished
+  // renders stay cached, so the retry re-pays only for the missing spreads).
   const failed = results.filter(r => !r.buffer);
   if (failed.length > 0) {
     const missing = failed.map(r => r.spread);
@@ -764,6 +1139,21 @@ async function illustrateStory(params) {
       message: r.advisories.map(a => a.note).join('; ') || 'render failed',
       ...(r.advisories.find(a => a.detail) ? { detail: r.advisories.find(a => a.detail).detail } : {}),
     }));
+    err.bookBible = bookBible;
+    throw err;
+  }
+  // ce-9 graded ship policy: BLOCKING residuals (identity/outfit/prop/
+  // companion breaks, missing or duplicated child, painted text in caption
+  // layout, wrong embedded text, extra limbs) fail the book for review with
+  // the candidates attached — a book that visibly changes the child's
+  // clothes is a product defect, not an advisory. CATALOG_SHIP_ON_EXHAUSTION=1
+  // restores ship-with-advisory.
+  if (unresolved.length > 0 && !flags.shipOnExhaustion()) {
+    const err = new Error(`blocking consistency defects survived candidates and repairs on spread(s) ${unresolved.map(u => u.spread).join(', ')} — the book needs review (pick a candidate or re-render the spread); set CATALOG_SHIP_ON_EXHAUSTION=1 to ship with advisories instead`);
+    err.failureCode = 'consistency_unresolved';
+    err.unresolved = unresolved;
+    err.qaAdvisories = qaAdvisories.slice(0, 40);
+    err.bookBible = bookBible;
     throw err;
   }
 
@@ -789,8 +1179,13 @@ async function illustrateStory(params) {
     warnings,
     illustrationTuningUsed: tuningTag,
     worldQa: worldQa || null,
+    contactQa: contactQa || null,
     outfitLockUsed,
+    bookBible,
+    // In-memory bible (sheet bytes, outfit spec) for the pipeline's other
+    // consumers — the upsell spread and the wrap cover; never serialized.
+    bible,
   };
 }
 
-module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs };
+module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate };

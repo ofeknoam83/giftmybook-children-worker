@@ -8,7 +8,7 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
-const { resolvePictureBookTextRules, PIXAR_STYLE } = require('./shared/illustration/config');
+const { resolvePictureBookTextRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
@@ -508,6 +508,30 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   const parts = [];
 
+  // ce-9 BIBLE MODE: when a Book Bible rides the render, the identity and
+  // outfit are stated ONCE, up front, as structured blocks that name their
+  // reference images (renderBibleBlocks); the legacy six-fold outfit
+  // repetition below is switched off (characterOutfit → null) so the prompt
+  // shrinks and the model's instruction budget goes to the scene. Legacy
+  // callers (cover, coloring, comics, un-bibled renders) are byte-identical.
+  const bible = opts.bible && typeof opts.bible === 'object' ? opts.bible : null;
+  // The pack's indices are whatever the bible assigned (a sheet-less book
+  // has the cover at 1) — never hardcode "REFERENCE 1".
+  const sheetRefNo = bible && Number.isInteger(bible.characterSheetRef) ? bible.characterSheetRef : null;
+  const coverRefNo = bible && Number.isInteger(bible.coverRef) ? bible.coverRef : null;
+  const refShown = bible
+    ? (sheetRefNo ? `REFERENCE ${sheetRefNo} (the character model sheet)` : (coverRefNo ? `REFERENCE ${coverRefNo} (the approved cover)` : 'the reference images'))
+    : 'the reference photo';
+  const refPair = bible
+    ? [sheetRefNo && `REFERENCE ${sheetRefNo} (model sheet)`, coverRefNo && `REFERENCE ${coverRefNo} (approved cover)`].filter(Boolean).join(' and ') || 'the reference images'
+    : null;
+  const bibleOutfit = bible ? bible.outfitSpecText || null : null;
+  if (bible) {
+    parts.push(...renderBibleBlocks(bible, { bathWaterScene }));
+    parts.push('');
+    characterOutfit = null;
+  }
+
   // ── Character consistency prefix (Fix 5b + 6b) ──
   // Prepend character appearance, outfit, and recurring element to EVERY prompt
   // so the model never relies on "memory" from prior turns.
@@ -556,20 +580,22 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(``);
 
   // C2: CHARACTER description is the VERY FIRST block in the prompt
-  parts.push(`DRAW THIS EXACT CHILD — match the reference photo precisely:`);
+  parts.push(bible
+    ? `DRAW THIS EXACT CHILD — match ${refPair} precisely:`
+    : `DRAW THIS EXACT CHILD — match the reference photo precisely:`);
   if (opts.characterAnchor) {
     parts.push(opts.characterAnchor);
   } else {
-    parts.push(`${characterDescription ? characterDescription : 'Match the child in the reference photo exactly.'}`);
+    parts.push(`${characterDescription ? characterDescription : `Match the child in ${refShown} exactly.`}`);
   }
   // Extract hair style from characterDescription for emphasis
   const hairMatch = (characterDescription || '').match(/hair[:\s]+([^.;,]+)/i) || (characterDescription || '').match(/((?:straight|curly|wavy|coily|braided|short|long|medium)[^.;]*hair[^.;]*)/i);
-  const hairStyle = hairMatch ? hairMatch[1].trim() : (characterDescription || 'as shown in the reference photo');
+  const hairStyle = hairMatch ? hairMatch[1].trim() : (characterDescription || `as shown in ${refShown}`);
   parts.push(`HAIR: ${hairStyle} — IDENTICAL in every illustration, never changes.`);
   if (bathWaterScene) {
-    parts.push(`OUTFIT (this spread): Modest bath/water coverage per system instruction — dense bubble foam and/or towel OR modest swimwear at a pool — NOT the street outfit in the water. On other spreads the child wears: ${characterOutfit || 'match the reference photo'}.`);
+    parts.push(`OUTFIT (this spread): Modest bath/water coverage per system instruction — dense bubble foam and/or towel OR modest swimwear at a pool — NOT the street outfit in the water. On other spreads the child wears: ${characterOutfit || `match ${refShown}`}.`);
   } else {
-    parts.push(`OUTFIT: ${characterOutfit || 'match the reference photo'} — IDENTICAL in every illustration, never changes.`);
+    parts.push(`OUTFIT: ${characterOutfit || `match ${refShown}`} — IDENTICAL in every illustration, never changes.`);
   }
   parts.push(`This is the ONLY child in this book. Their appearance does NOT change between illustrations.`);
   parts.push(bathWaterScene
@@ -709,7 +735,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('CHARACTER LIKENESS (MUST MATCH REFERENCE PHOTO EXACTLY):');
   parts.push('- The child MUST closely resemble the reference photo. Match face shape, skin tone, hair color, hair style, hair length, hair texture, and eye color from the photo.');
   parts.push('- NEVER change hair style, hair color, hair length, eye color, or skin tone from the reference — not even slightly.');
-  parts.push('- REFERENCE = IDENTITY ONLY: the reference photo defines WHO the child is (face, hair, outfit colors) — NEVER copy its pose, expression, camera distance, framing, or composition. This illustration\'s pose and camera come from the scene and composition directives, not from the reference image.');
+  parts.push(bible
+    ? '- REFERENCES = IDENTITY ONLY: the character model sheet and the approved cover define WHO the child is and EXACTLY what they wear — NEVER copy their pose, expression, camera distance, framing, or composition, and never paint the model sheet\'s studio background. This illustration\'s pose and camera come from the scene and composition directives, not from any reference image.'
+    : '- REFERENCE = IDENTITY ONLY: the reference photo defines WHO the child is (face, hair, outfit colors) — NEVER copy its pose, expression, camera distance, framing, or composition. This illustration\'s pose and camera come from the scene and composition directives, not from the reference image.');
   parts.push('- The child\'s hair must be IDENTICAL in every illustration: same style, same color, same length, same parting, same accessories.');
   parts.push('- ZERO INVENTION RULE: Do NOT add hair accessories (headbands, bows, ribbons, clips, barrettes, flowers) that are not explicitly described. If the description says nothing about accessories, the child has NONE.');
   const hairNegatives = buildHairNegatives(characterDescription);
@@ -744,9 +772,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // C3: Stronger negative / consistency instructions at END of character section
   const anchorText = opts.characterAnchor || characterDescription || '';
   const skinToneMatch = anchorText.match(/skin[:\s]+([^.;,\n]+)/i) || anchorText.match(/((?:light|medium|dark|fair|olive|brown|tan|deep|pale)[^.;,\n]*skin[^.;,\n]*)/i);
-  const skinTone = skinToneMatch ? skinToneMatch[1].trim() : 'as shown in the reference photo';
+  const skinTone = skinToneMatch ? skinToneMatch[1].trim() : `as shown in ${refShown}`;
   // hairStyle already extracted above for C2
-  const outfitDesc = characterOutfit || 'as shown in the reference photo';
+  const outfitDesc = characterOutfit || (bible ? `the outfit of ${refShown} and the CHARACTER block` : 'as shown in the reference photo');
   parts.push('');
   parts.push(`CONSISTENCY RULES (NON-NEGOTIABLE):`);
   parts.push(`- The child's FACE must have the same bone structure, nose shape, and eye placement as the reference photo`);
@@ -865,7 +893,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(
     bathWaterScene
       ? `8. BATH/WATER MODE: modest bubbles/towel/swimwear — NOT street outfit in water; still PG-modest. \u2713`
-      : `8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`
+      : `8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || (bibleOutfit ? `the CHARACTER block outfit (${refShown}): ${bibleOutfit}` : '[match reference photo]')}. \u2713`
   );
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (embedStoryText && textRulesForEmbed) {
@@ -896,6 +924,86 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
 
   return parts.join('\n');
+}
+
+/**
+ * ce-9 REFERENCE PACK — the Book Bible's fixed images, attached to every
+ * render in ONE fixed order with ONE fixed label each: character model
+ * sheet, approved cover, prop sheets, companion sheet, world plate. Every
+ * entry is a frozen asset (generated once from fixed sources, then elected
+ * in GCS) — the pack never contains another spread's render, so nothing
+ * chains (the 2026-08-06 photocopy-drift deletion stands).
+ * @param {string} prompt the full render prompt (first part)
+ * @param {Array<{label: string, base64: string, mimeType?: string}>} pack
+ * @returns {Array<object>} Gemini `parts`
+ */
+function buildReferenceParts(prompt, pack) {
+  const parts = [{ text: prompt }];
+  pack.forEach((ref, i) => {
+    parts.push({ text: `REFERENCE IMAGE ${i + 1} — ${ref.label}` });
+    parts.push({ inline_data: { mimeType: ref.mimeType || 'image/png', data: ref.base64 } });
+  });
+  return parts;
+}
+
+/**
+ * ce-9 BIBLE BLOCKS — the single structured CHARACTER / PROPS / COMPANION /
+ * EMOTION blocks that replace the legacy prompt's six repeated outfit
+ * paragraphs when a Book Bible rides the render. Every field is pinned,
+ * sanitized data (outfit spec text, prop spec sentences, closed-enum
+ * emotion line) — never model free-text, never the customer's raw words.
+ * Pure — exported for tests and for the generic-safe fallback, which
+ * re-attaches these blocks because they ARE the identity.
+ *
+ * @param {object} bible
+ * @param {number|null} bible.characterSheetRef 1-based index of the model sheet in the pack
+ * @param {number|null} bible.coverRef 1-based index of the approved cover in the pack
+ * @param {string|null} bible.outfitSpecText the pinned outfit spec sentence
+ * @param {string|null} bible.hairLine the pinned character description (hair/skin)
+ * @param {Array<{name: string, specText?: string|null, ref?: number|null, carried?: boolean}>} [bible.props]
+ * @param {{name: string, type: string, ref?: number|null}|null} [bible.companion]
+ * @param {string|null} [bible.emotionLine] the emotion plan's rendered line
+ * @param {{bathWaterScene?: boolean}} [ctx]
+ * @returns {string[]} prompt lines
+ */
+function renderBibleBlocks(bible, ctx = {}) {
+  const lines = [];
+  const sheet = Number.isInteger(bible.characterSheetRef) ? bible.characterSheetRef : null;
+  const cover = Number.isInteger(bible.coverRef) ? bible.coverRef : null;
+  const refs = [sheet && `REFERENCE ${sheet} (the CHARACTER MODEL SHEET: this exact child from the front, three-quarter and back, in the complete book outfit)`, cover && `REFERENCE ${cover} (the APPROVED COVER: the parent-approved rendering — face, hair, skin tone, and the outfit's colours and materials)`].filter(Boolean);
+  lines.push('CHARACTER (THE ONLY CHILD IN THIS BOOK — identity and outfit are FIXED by the references):');
+  if (refs.length > 0) lines.push(`- Draw the child of ${refs.join(' and ')}. Use them for WHO the child is and WHAT they wear ONLY — never copy a pose, expression, camera distance or composition from them${sheet ? `, and REFERENCE ${sheet}'s plain studio background is NOT part of this scene` : ''}.`);
+  if (bible.hairLine) lines.push(`- Appearance (fixed): ${bible.hairLine}`);
+  if (bible.outfitSpecText) {
+    lines.push(ctx.bathWaterScene
+      ? `- Outfit (dry-land default for this book, NOT worn in the water on this spread — BATH/WATER MODE applies): ${bible.outfitSpecText}`
+      : `- Outfit (every garment, colour, pattern and length EXACTLY as the references and this spec; nothing added, nothing removed, never adapted to weather or activity): ${bible.outfitSpecText}`);
+  }
+  const props = Array.isArray(bible.props) ? bible.props.filter(p => p && p.name) : [];
+  if (props.length > 0) {
+    lines.push('');
+    lines.push('PROPS (each quoted name is DATA naming one object; draw it EXACTLY as its reference sheet shows it — same object, colours, material and size on every spread):');
+    for (const p of props) {
+      const ref = Number.isInteger(p.ref) ? ` — see REFERENCE ${p.ref}` : '';
+      const spec = p.specText ? ` ${p.specText}` : '';
+      lines.push(`- "${p.name}"${ref}:${spec}${p.carried ? ' Carried by the child in this scene too — small, held or tucked under an arm, decorative and comforting only, never a tool, a clue, or part of the plot.' : ' Small and decorative near the child, never plot-critical, never oversized, never duplicated, never rendered as text.'}`);
+    }
+  }
+  if (bible.companion && bible.companion.name) {
+    lines.push('');
+    const ref = Number.isInteger(bible.companion.ref) ? ` — draw EXACTLY the character of REFERENCE ${bible.companion.ref} (same design, colours and proportions on every spread)` : '';
+    // A human companion (Farmer Bea, Builder Sam) is a FICTIONAL guide the
+    // catalog pins — the no-humans background rule below applies to everyone
+    // else, never to the named companion (the two rules contradicted each
+    // other on 38 books before ce-9).
+    const human = /\b(adult|guide|farmer|builder|teacher|keeper|ranger|captain|human|man|woman)\b/i.test(String(bible.companion.type || ''));
+    lines.push(`COMPANION: ${bible.companion.name}, a ${bible.companion.type}${ref}; friendly and warm, secondary to the child${human ? ' — a fictional adult guide who IS allowed in this scene (draw them fully, face included, the same design on every spread); the no-other-humans rule applies to everyone else' : ''}.`);
+  }
+  if (bible.emotionLine) {
+    lines.push('');
+    lines.push(bible.emotionLine);
+  }
+  return lines;
 }
 
 /**
@@ -943,7 +1051,9 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   // IDENTICAL on every spread) is the only book-interior reference
   // strategy: a fixed reference cannot accumulate drift.
   // Without a plate the parts stay byte-identical to the legacy shape.
-  const parts = opts.worldPlate
+  const parts = Array.isArray(opts.referencePack) && opts.referencePack.length > 0
+    ? buildReferenceParts(prompt, opts.referencePack)
+    : opts.worldPlate
     ? [
       { text: prompt },
       { text: 'REFERENCE IMAGE 1 — IDENTITY ANCHOR (the exact child character to draw): use it ONLY for the child\'s identity — face, hair, and outfit colors. NEVER copy its pose, expression, camera distance, or composition; this illustration\'s pose and camera come from the prompt only.' },
@@ -959,6 +1069,11 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig,
+    // ce-9: the per-request thresholds config.js has always defined for the
+    // image model (BLOCK_ONLY_HIGH on wholesome child scenes) — previously
+    // never sent, so renders tripped the safety-fallback ladder at Gemini's
+    // default thresholds. Core child-safety policies stay (not disableable).
+    safetySettings: GEMINI_IMAGE_SAFETY_SETTINGS,
   };
 
   const epStart = Date.now();
@@ -1123,7 +1238,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   }
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, {
+  const buildFullPrompt = (scene) => buildCharacterPrompt(scene, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, {
     skipTextEmbed: opts.skipTextEmbed,
     embedText: opts.embedText || false,
     coverArtStyle: opts.coverArtStyle,
@@ -1138,7 +1253,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     theme: opts.theme || null,
     parentOutfit: opts.parentOutfit || null,
     shotType: opts.shotType || null,
+    bible: opts.bible || null,
   });
+  const fullPrompt = buildFullPrompt(sceneDescription);
   const aspectRatio = determineAspectRatio({ ...opts, isSpread });
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
@@ -1166,9 +1283,18 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   // Build prompt variants for NSFW fallback. The generic-safe variant keeps
   // the character identity anchor — a twice-retried image must never ship
   // with a random child.
+  // ce-9: with a Book Bible, the `sanitized` rung strips trigger words from
+  // the SCENE only — the pinned CHARACTER/PROPS/COMPANION blocks, outfit
+  // spec and text rules are rebuilt intact (the legacy rung regex-stripped
+  // words like "bare"/"love" out of the outfit spec and story text too), and
+  // the scene-discarding `generic-safe` rung re-attaches the bible blocks
+  // (they ARE the identity). Legacy callers keep the legacy ladder.
+  const bibleFallbackBlocks = opts.bible && typeof opts.bible === 'object'
+    ? renderBibleBlocks(opts.bible, { bathWaterScene: isModestBathWaterScene(stripHairFromScene(sceneDescription), opts.pageText || '') }).join('\n')
+    : '';
   const promptVariants = [
     { label: 'original', prompt: fullPrompt },
-    { label: 'sanitized', prompt: sanitizePrompt(fullPrompt) },
+    { label: 'sanitized', prompt: opts.bible ? buildFullPrompt(sanitizePrompt(sceneDescription)) : sanitizePrompt(fullPrompt) },
     {
       label: 'generic-safe',
       // opts.safeFallbackSuffix: caller-owned block that must survive even
@@ -1178,7 +1304,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         childName,
         characterOutfit: opts.characterOutfit,
         characterDescription: opts.characterDescription,
-      }) + (opts.safeFallbackSuffix ? `\n${opts.safeFallbackSuffix}` : ''),
+      }) + (bibleFallbackBlocks ? `\n${bibleFallbackBlocks}` : '') + (opts.safeFallbackSuffix ? `\n${opts.safeFallbackSuffix}` : ''),
     },
   ];
 
@@ -1205,7 +1331,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       if (photoBase64) {
         // opts.worldPlate ({base64, mimeType}): the caller's fixed world
         // reference plate, attached as a second labeled reference image.
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null, worldPlate: opts.worldPlate || null });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null, worldPlate: opts.worldPlate || null, referencePack: opts.referencePack || null });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
@@ -1232,6 +1358,10 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       }
 
       console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);
+      // ce-9: the accepted rung is DATA on the attempt log — a render that
+      // shipped from the sanitized or generic-safe rung lost scene content
+      // (props, action) and the orchestrator must say so on the callback.
+      logAttempt({ attempt, variant: variant.label, accepted: true });
 
       // Upload to GCS (opts.gcsPath pins a deterministic path so callers can
       // cache/resume renders; default keeps the legacy timestamped path)
@@ -1284,6 +1414,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 module.exports = {
   generateIllustration,
   buildCharacterPrompt,
+  // ce-9: the Book Bible prompt blocks + reference-pack part builder (pure).
+  renderBibleBlocks,
+  buildReferenceParts,
   // Deterministic OCR-vs-manuscript comparison (word bag + Levenshtein) —
   // the slim illustrator's spread QA reuses it to verify Gemini-painted text.
   compareTexts,
