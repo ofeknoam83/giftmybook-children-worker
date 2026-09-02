@@ -59,7 +59,18 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // the FULL prompt's final block with a binding-within-scope frame
 // (tuning.js + buildCharacterPrompt). Both change prompt assembly — ce-6
 // renders must never replay as ce-7.
-const STYLE_VERSION = 'ce-7';
+// ce-8: shot plan + hermetic outfit lock — every spread carries its
+// ASSIGNED composition (shotPlan.js: deterministic shot type, staging,
+// placement, embedded text side; kill-switch CATALOG_SHOT_PLAN with a
+// -sp0 cache fold when off), the renderer gained a low-angle shot type
+// and the identity-anchor "never copy its pose/composition" rule, the
+// outfit lock derives a structured full-coverage v2 spec (elected
+// completion for anchor-cropped garments, new v2/ GCS path), and per-
+// spread QA now gates shot_type_mismatch and outfit_mismatch against the
+// pinned specs while the world gate judges composition_duplicate. Scene
+// prompts and prompt assembly changed for every book — ce-7 renders must
+// never replay as ce-8.
+const STYLE_VERSION = 'ce-8';
 
 module.exports = {
   WRITER_ENGINE_VERSION,

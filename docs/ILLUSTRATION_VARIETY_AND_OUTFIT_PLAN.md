@@ -1,8 +1,19 @@
 # Illustration variety + hermetic outfit lock — plan (ce-8)
 
-> **Status: proposed.** Nothing here touches the locked writer engine, the
-> frozen catalog plots, story validation, or the deleted-for-cause
-> previous-spread chaining.
+> **Status: implemented** (this branch, `ce-8`) — Fixes 1-7 below are live:
+> the deterministic shot plan (`illustrator/shotPlan.js`, kill-switch
+> `CATALOG_SHOT_PLAN` with the `-sp0` cache fold), the renderer's
+> `low-angle` shot type + identity-anchor pose-decoupling, per-spread
+> `shot_type_mismatch` / `outfit_mismatch` QA with their repair notes, the
+> world gate's `composition_duplicate` dimension repaired against the
+> flagged spread's own plan directive, outfit lock v2 (structured
+> full-coverage spec with elected `inferred` completion, `v2/` GCS path),
+> and the lock-state surfacing (`outfitLockUsed` echo + stage `outfitLock`
+> advisory; gate thumbnails at 1024px). The validation recipe (§Order &
+> tests step 8) and the optional app-side bench wiring remain operational
+> follow-ups. Nothing here touches the locked writer engine, the frozen
+> catalog plots, story validation, or the deleted-for-cause previous-spread
+> chaining.
 
 **Trigger** (Art Bench, `jungle_6_7_footprint_trail`, embedded layout, all 12
 spreads): two set-level failures that every existing gate scores clean.

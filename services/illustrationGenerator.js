@@ -577,9 +577,17 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     : `Do not modify their hair, outfit, or any physical features.`);
   parts.push(``);
 
-  // Change 22: Per-spread continuity anchor
+  // Change 22: Per-spread continuity anchor. The "be distinct" half is
+  // grounded in the ASSIGNED composition when one rides the scene (a
+  // stateless render cannot see the other spreads, so distinctness only
+  // works as a concrete per-spread assignment — the shot plan): the scene
+  // carries a COMPOSITION (ASSIGNED FOR THIS SPREAD) block and each spread's
+  // assignment differs by construction.
   if (spreadIndex !== undefined) {
-    parts.push(`CONTINUITY: This is illustration ${spreadIndex + 1} of ${totalSpreads} for the same book. The child's face, hair, body proportions, and clothing are IDENTICAL to all other illustrations in this book. However, each spread illustrates a DIFFERENT scene and moment — the composition, background, setting, camera angle, and character pose must all be visibly distinct from every other spread.`);
+    const hasAssignedComposition = sceneDescription.includes('COMPOSITION (ASSIGNED FOR THIS SPREAD');
+    parts.push(`CONTINUITY: This is illustration ${spreadIndex + 1} of ${totalSpreads} for the same book. The child's face, hair, body proportions, and clothing are IDENTICAL to all other illustrations in this book. However, each spread illustrates a DIFFERENT scene and moment${hasAssignedComposition
+      ? ' — obey THIS spread\'s assigned composition (the COMPOSITION block in the scene below) exactly; it is what makes this spread read differently from the others.'
+      : ' — the composition, background, setting, camera angle, and character pose must all be visibly distinct from every other spread.'}`);
     parts.push(``);
   }
 
@@ -701,6 +709,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('CHARACTER LIKENESS (MUST MATCH REFERENCE PHOTO EXACTLY):');
   parts.push('- The child MUST closely resemble the reference photo. Match face shape, skin tone, hair color, hair style, hair length, hair texture, and eye color from the photo.');
   parts.push('- NEVER change hair style, hair color, hair length, eye color, or skin tone from the reference — not even slightly.');
+  parts.push('- REFERENCE = IDENTITY ONLY: the reference photo defines WHO the child is (face, hair, outfit colors) — NEVER copy its pose, expression, camera distance, framing, or composition. This illustration\'s pose and camera come from the scene and composition directives, not from the reference image.');
   parts.push('- The child\'s hair must be IDENTICAL in every illustration: same style, same color, same length, same parting, same accessories.');
   parts.push('- ZERO INVENTION RULE: Do NOT add hair accessories (headbands, bows, ribbons, clips, barrettes, flowers) that are not explicitly described. If the description says nothing about accessories, the child has NONE.');
   const hairNegatives = buildHairNegatives(characterDescription);
@@ -763,6 +772,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       parts.push('This MUST be a CLOSE-UP. Focus tightly on the character face, hands, or key detail. Fill the frame.');
     } else if (opts.shotType === 'overhead') {
       parts.push('This MUST be an OVERHEAD/BIRD\'S-EYE VIEW looking down on the scene from above.');
+    } else if (opts.shotType === 'low-angle') {
+      parts.push('This MUST be a LOW-ANGLE SHOT. The camera sits low to the ground looking slightly up at the character — the environment towers around them. Do NOT render an eye-level or overhead view.');
     }
   }
 
@@ -935,7 +946,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   const parts = opts.worldPlate
     ? [
       { text: prompt },
-      { text: 'REFERENCE IMAGE 1 — IDENTITY ANCHOR (the exact child character to draw):' },
+      { text: 'REFERENCE IMAGE 1 — IDENTITY ANCHOR (the exact child character to draw): use it ONLY for the child\'s identity — face, hair, and outfit colors. NEVER copy its pose, expression, camera distance, or composition; this illustration\'s pose and camera come from the prompt only.' },
       { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
       { text: 'REFERENCE IMAGE 2 — WORLD STYLE PLATE (this book\'s fixed world): match its palette, lighting, era, materials, and environment logic exactly. Do NOT copy its composition, and NEVER treat it as the scene to draw — it contains no characters and this illustration\'s action comes from the prompt only.' },
       { inline_data: { mimeType: opts.worldPlate.mimeType || 'image/png', data: opts.worldPlate.base64 } },
@@ -1286,4 +1297,8 @@ module.exports = {
   fetchWithTimeout,
   downloadPhotoAsBase64,
   renderStyleBlock,
+  // The BATH/WATER MODE heuristic — the slim illustrator uses it to skip
+  // the per-spread outfit check on exactly the spreads whose coverage the
+  // prompt itself changes (QA and prompt must agree on which those are).
+  isModestBathWaterScene,
 };

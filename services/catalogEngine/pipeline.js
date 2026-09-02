@@ -366,6 +366,9 @@ async function runBookPipeline(params) {
     title: bookTitle,
     spreadCount: art.entries.length,
     illustrationTuningUsed: art.illustrationTuningUsed,
+    // Which outfit-lock spec (content hash) the renders were pinned to, or
+    // 'none' — a lock-less book also carries a stage 'outfitLock' advisory.
+    outfitLockUsed: art.outfitLockUsed || 'none',
     // Book-level world-consistency verdict — ALWAYS present: null when the
     // gate did not run (kill-switch, <2 renders), so callback consumers get
     // one stable shape. Per-spread world findings already ride qaAdvisories

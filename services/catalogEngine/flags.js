@@ -40,7 +40,16 @@
  *  - CATALOG_OUTFIT_LOCK=0        — stop deriving the per-anchor outfit
  *                                   spec and arming the renderer's outfit
  *                                   lock (renders fall back to "match the
- *                                   reference photo").
+ *                                   reference photo"). Also disables the
+ *                                   per-spread outfit QA check (no pinned
+ *                                   spec means nothing to verify against).
+ *  - CATALOG_SHOT_PLAN=0          — stop assigning the deterministic
+ *                                   per-spread composition (shot type,
+ *                                   staging, placement) and its QA checks
+ *                                   (renders compose freely again; the
+ *                                   caller folds -sp0 into the render cache
+ *                                   key so planned and plan-less renders
+ *                                   never replay each other).
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -63,4 +72,5 @@ module.exports = {
   worldQaEnabled: () => !envOff('CATALOG_WORLD_QA'),
   propContinuityEnabled: () => !envOff('CATALOG_PROP_CONTINUITY'),
   outfitLockEnabled: () => !envOff('CATALOG_OUTFIT_LOCK'),
+  shotPlanEnabled: () => !envOff('CATALOG_SHOT_PLAN'),
 };

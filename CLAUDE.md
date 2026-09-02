@@ -149,18 +149,48 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   fallback via `safeFallbackSuffix`, and the cache path's version segment
   becomes `{STYLE_VERSION}+{label.hash8}` — tuned and untuned renders can
   never replay each other, and `none` keeps the legacy path byte-identical.
-  Every render also pins a per-anchor **OUTFIT LOCK** (`ce-7`,
-  `illustrator/outfitLock.js`): one vision read of the identity anchor's
-  clothing (garment-by-garment colors + accessories), elected once per
-  anchor path in GCS (`catalog-assets/outfit-locks/{anchorHash}.json`,
-  create-if-absent single-winner like the world plate, fail-open null) and
-  passed as `characterOutfit` on every stateless render — arming the
-  renderer's per-garment OUTFIT LOCK/COLOR VERIFICATION machinery that was
-  otherwise dormant (nothing supplied `characterOutfit`); the spec's
-  content hash folds into the render cache key (`-o{hash}`), kill-switch
-  `CATALOG_OUTFIT_LOCK=0`. Cross-spread outfit sameness comes from this
-  pinned spec + the anchor image + the world gate's `character_rendering`
-  check — never from aspirational "keep it identical" prompt lines.
+  Every render also pins a per-anchor **OUTFIT LOCK** (`ce-7`, hermetic
+  since `ce-8`, `illustrator/outfitLock.js`): one vision read of the
+  identity anchor's clothing as a STRUCTURED per-slot spec
+  (top/bottom/footwear/outerwear/accessories, each with color, cut, and the
+  LENGTH words drift lives in; a slot the anchor crops — the cover usually
+  crops the legs — gets ONE elected style-consistent completion marked
+  `inferred`, because an unspecified garment is per-spread freedom),
+  elected once per anchor path in GCS
+  (`catalog-assets/outfit-locks/v2/{anchorHash}.json`, create-if-absent
+  single-winner like the world plate, fail-open null) and passed as
+  `characterOutfit` on every stateless render — arming the renderer's
+  per-garment OUTFIT LOCK/COLOR VERIFICATION machinery that was otherwise
+  dormant; the spec's content hash folds into the render cache key
+  (`-o{hash}`), kill-switch `CATALOG_OUTFIT_LOCK=0`. Per-spread QA verifies
+  every render against the SAME pinned spec (`outfit_mismatch`, a fixed
+  defect string steering the repair loop; skipped on BATH/WATER spreads
+  whose coverage legitimately differs), so spreads that each pass also
+  match each other — the ce-4 TEXT_RULES pattern applied to clothing.
+  A run that renders lock-less while the switch is ON carries a stage
+  `outfitLock` advisory, and callbacks echo `outfitLockUsed`
+  (`<hash>`/`none`) beside `illustrationTuningUsed` — a lock-less book is
+  never silent. Cross-spread outfit sameness comes from this pinned spec +
+  the anchor image + the QA gates — never from aspirational "keep it
+  identical" prompt lines.
+  Composition VARIETY (`ce-8`) is pinned the same way consistency is: the
+  **shot plan** (`illustrator/shotPlan.js`) assigns every spread a
+  deterministic composition — shot type (wide/medium/close-up/overhead/
+  low-angle), staging, placement third, and (embedded) the text side —
+  rotated from CLOSED vocabularies, seeded by the story fingerprint (an
+  anchor/plate/outfit change never reshuffles cinematography), with wide
+  bookends on spreads 1/12, no adjacent shot-type repeats, full menu
+  coverage per book, and a restricted menu for band 1-3 (`half` layout
+  emits no placement — its print hint owns it). The assignment rides the
+  scene as a fixed COMPOSITION block + the renderer's `opts.shotType`
+  enforcement (dormant until ce-8, the pre-ce-7 `characterOutfit`
+  situation) and survives the NSFW fallback via `safeFallbackSuffix`; the
+  identity anchor is framed "identity ONLY — never copy its pose or
+  composition". Per-spread QA gates a clear `shot_type_mismatch`; the
+  world gate judges `composition_duplicate` (near-duplicate of another
+  spread) and its repair re-renders the flagged spread against its OWN
+  plan directive. Kill-switch `CATALOG_SHOT_PLAN=0` folds `-sp0` into the
+  render key so planned and plan-less renders never replay each other.
   World consistency (`ce-5`) attacks stateless-render drift with FIXED
   inputs, never chaining (previous-spread chaining was deleted 2026-08-06 as
   the photocopy drift source): (1) every scene prompt carries the theme's
@@ -183,10 +213,13 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   The gate judges the closed set-break vocabulary: the four world classes
   (`palette_lighting`/`era_technology`/`materials_physics`/`magic_behavior`)
   plus `character_rendering` (the child reads as a different age,
-  proportions, stylization, outfit, or hair than the other spreads) and —
+  proportions, stylization, outfit, or hair than the other spreads),
+  `composition_duplicate` (`ce-8` — the spread is a near-duplicate of
+  another: same camera distance, angle, pose, and layout; its repair
+  re-renders against that spread's own shot-plan directive) and —
   embedded layout only — `text_treatment` (text on a band/panel or in a
   different typography while the others paint it over continuous artwork);
-  only that enum ever drives a repair prompt.
+  only that enum (plus pinned plan text) ever drives a repair prompt.
   Replayed cached renders are comparison references only, NEVER re-rendered
   (their storageKey is shared with earlier captured probe rounds); every
   finding ships as a `stage: 'worldQa'` advisory, and the book-level
@@ -225,7 +258,12 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   prop-less renders never replay each other).
 - `CATALOG_OUTFIT_LOCK=0` — stop deriving the per-anchor outfit spec
   (renders fall back to "match the reference photo"; locked and lock-less
-  renders stay cache-separated by the `-o{hash}` fold).
+  renders stay cache-separated by the `-o{hash}` fold). Also disables the
+  per-spread outfit QA check.
+- `CATALOG_SHOT_PLAN=0` — stop assigning the deterministic per-spread
+  composition (shot type/staging/placement) and its QA checks (cache-keyed:
+  `-sp0` folds into the render key when disabled, so planned and plan-less
+  renders never replay each other).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),

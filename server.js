@@ -693,6 +693,13 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         renders,
         failures,
         illustrationTuningUsed: art.tuningTag,
+        // Which outfit-lock spec (content hash) pinned these renders, or
+        // 'none' — the bench must be able to SEE a lock-less round (silent
+        // lock-less renders are how outfit drift shipped unnoticed).
+        outfitLockUsed: art.outfitLockUsed,
+        // Book-level advisories (e.g. stage 'outfitLock' when the spec
+        // could not be derived) — per-spread advisories ride qa.advisories.
+        advisories: art.advisories,
         // Book-level world-consistency verdict for the probe's spreads —
         // ALWAYS present: null when the gate did not run (kill-switch, or a
         // single-spread probe with nothing to compare), so every probe
@@ -713,6 +720,8 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         renders: [],
         failures: [{ message: err.message, failureCode: err.failureCode || null }],
         illustrationTuningUsed: 'none',
+        outfitLockUsed: 'none',
+        advisories: [],
         // Same stable shape as the success payload: the gate never ran here.
         worldQa: null,
         costs: costTracker.getSummary(),

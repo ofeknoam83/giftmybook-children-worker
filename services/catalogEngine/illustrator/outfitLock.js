@@ -35,8 +35,9 @@ const flags = require('../flags');
 const OUTFIT_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const OUTFIT_TIMEOUT_MS = 60000;
-const OUTFIT_MAX_CHARS = 500;
+const OUTFIT_MAX_CHARS = 700;
 const OUTFIT_MIN_CHARS = 10;
+const SLOT_MAX_CHARS = 160;
 
 // In-process caches, keyed by the anchor's path hash. Specs are tiny, but
 // the maps stay bounded like the plate's. Failed derivations sit out a
@@ -48,12 +49,32 @@ const _specs = new Map();
 const _inFlight = new Map();
 const _failures = new Map();
 
-const OUTFIT_PROMPT = `You are extracting the OUTFIT LOCK for a children's picture book from its approved character reference image.
+// v2 (ce-8): a STRUCTURED per-slot spec instead of one free sentence. The
+// v1 prompt's "do NOT invent items that are not clearly visible" left every
+// anchor-cropped garment (the approved cover usually crops the legs)
+// UNSPECIFIED — and an unspecified garment is per-spread freedom: each
+// stateless render re-invented the pant length and the shoes, which is
+// exactly the observed drift. v2 requires every slot filled — a slot the
+// anchor does not show gets ONE elected, style-consistent completion marked
+// `inferred` (the goal is that all renders pin the SAME words, not fidelity
+// to an invisible garment) — with the length words the drift lives in
+// (sleeve length, hem reach, footwear type) mandatory where they apply.
+const OUTFIT_PROMPT = `You are extracting the OUTFIT LOCK for a children's picture book from its approved character reference image. The lock pins EXACTLY what the child wears in EVERY illustration of the book, so every slot must be specific enough for an illustrator to reproduce it identically twelve times.
 
-Describe EXACTLY what the child in the image is wearing, garment by garment, so an illustrator can reproduce it identically in every illustration: each garment with its precise color, pattern or graphic, and style, plus every visible accessory (glasses, jewelry, hair accessories, bags). Do NOT describe the child's face, hair, body, pose, or the background — clothing and visible accessories only. Do NOT invent items that are not clearly visible.
+For each slot, give the garment's precise color, pattern or graphic, style/cut, and LENGTH where it applies (sleeve length; pant or skirt cut and where the hem reaches — e.g. "full-length, reaching the ankles"; shoe type and color, plus socks if visible). Length words are mandatory for tops, bottoms, and footwear.
+
+If a slot is NOT visible in the image (for example the legs are cropped out), you MUST still fill it: elect ONE plausible completion consistent with the visible clothing and mark it "inferred". Never leave a required slot empty and never write "not visible" — the lock needs one fixed complete outfit.
+
+Do NOT describe the child's face, hair, body, pose, or the background. "outerwear" may be null and "accessories" may be an empty list when the child clearly wears none.
 
 Answer STRICT JSON only:
-{"outfit": "<one compact sentence listing every garment and accessory with its colors>"}`;
+{
+  "top": {"desc": "<color, pattern/graphic, style, sleeve length>", "visibility": "seen"|"inferred"},
+  "bottom": {"desc": "<color, style/cut, where the hem reaches>", "visibility": "seen"|"inferred"},
+  "footwear": {"desc": "<shoe type and color, socks if visible>", "visibility": "seen"|"inferred"},
+  "outerwear": {"desc": "<color, style>", "visibility": "seen"|"inferred"} | null,
+  "accessories": [{"desc": "<item and color>", "visibility": "seen"|"inferred"}]
+}`;
 
 /** @param {string} key @returns {boolean} still inside the failure cooldown */
 function inFailureCooldown(key) {
@@ -96,9 +117,11 @@ function anchorHash(anchorUrl) {
   return fnv1a(String(anchorUrl).split('?')[0]).toString(36);
 }
 
-/** Deterministic GCS path for one anchor's elected outfit spec. */
+/** Deterministic GCS path for one anchor's elected outfit spec. The `v2/`
+ * segment keeps v1's free-sentence blobs from ever being half-parsed as a
+ * structured spec (they simply stop being read; a v2 spec re-derives). */
 function outfitLockPath(hash) {
-  return `catalog-assets/outfit-locks/${hash}.json`;
+  return `catalog-assets/outfit-locks/v2/${hash}.json`;
 }
 
 /**
@@ -119,9 +142,66 @@ function cleanOutfit(value) {
 }
 
 /**
+ * Sanitize one slot description into inert pinned prompt data: control
+ * chars/newlines collapse, quotes/backticks strip (the spec is later quoted
+ * into the QA prompt as `"…"`), length-capped. Null when nothing survives.
+ * @param {*} value
+ * @returns {string|null}
+ */
+function cleanSlotDesc(value) {
+  if (typeof value !== 'string') return null;
+  const cleaned = value
+    .replace(/[\u0000-\u001F\u007F]+/g, ' ')
+    .replace(/["'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, SLOT_MAX_CHARS);
+  return cleaned.length >= 3 ? cleaned : null;
+}
+
+/** @param {*} slot @returns {{desc: string, visibility: string}|null} */
+function cleanSlot(slot) {
+  const desc = cleanSlotDesc(slot?.desc);
+  if (!desc) return null;
+  const visibility = slot?.visibility === 'inferred' ? 'inferred' : 'seen';
+  return { desc, visibility };
+}
+
+/**
+ * Validate + sanitize the model's structured answer and render the pinned
+ * spec sentence. top/bottom/footwear are REQUIRED (the whole point of v2 is
+ * that no garment slot stays unspecified); outerwear/accessories optional.
+ * @param {*} json the model's parsed JSON
+ * @returns {{spec: object, outfit: string}|null} null when unusable
+ */
+function renderOutfitSpec(json) {
+  if (!json || typeof json !== 'object') return null;
+  const top = cleanSlot(json.top);
+  const bottom = cleanSlot(json.bottom);
+  const footwear = cleanSlot(json.footwear);
+  if (!top || !bottom || !footwear) return null;
+  const outerwear = json.outerwear ? cleanSlot(json.outerwear) : null;
+  const accessories = (Array.isArray(json.accessories) ? json.accessories : [])
+    .map(cleanSlot)
+    .filter(Boolean)
+    .slice(0, 6);
+  const spec = { top, bottom, footwear, ...(outerwear ? { outerwear } : {}), accessories };
+  const parts = [
+    `Top: ${top.desc}.`,
+    `Bottom: ${bottom.desc}.`,
+    `Footwear: ${footwear.desc}.`,
+    ...(outerwear ? [`Outerwear: ${outerwear.desc}.`] : []),
+    ...(accessories.length > 0 ? [`Accessories: ${accessories.map(a => a.desc).join('; ')}.`] : []),
+  ];
+  const outfit = cleanOutfit(parts.join(' '));
+  return outfit ? { spec, outfit } : null;
+}
+
+/**
  * One vision call: read the outfit off the anchor image.
  * @param {{base64: string, mimeType: string}} refPhoto
- * @returns {Promise<string>} sanitized outfit sentence
+ * @returns {Promise<{spec: object, outfit: string}>} sanitized structured
+ *   spec + the rendered sentence that gets pinned on renders
  */
 async function deriveOutfit(refPhoto) {
   const apiKey = getNextApiKey();
@@ -138,7 +218,7 @@ async function deriveOutfit(refPhoto) {
             { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
           ],
         }],
-        generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+        generationConfig: { temperature: 0, maxOutputTokens: 512, responseMimeType: 'application/json' },
       }),
     },
     OUTFIT_TIMEOUT_MS,
@@ -147,9 +227,9 @@ async function deriveOutfit(refPhoto) {
   const data = await resp.json();
   const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
   const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
-  const outfit = cleanOutfit(json?.outfit);
-  if (!outfit) throw new Error('outfit vision returned no usable spec');
-  return outfit;
+  const rendered = renderOutfitSpec(json);
+  if (!rendered) throw new Error('outfit vision returned no usable spec');
+  return rendered;
 }
 
 /**
@@ -190,12 +270,14 @@ async function getOutfitLock({ anchorUrl, refPhoto, log = () => {} }) {
           return null;
         }
         log('info', `outfit lock for anchor ${key} not cached — deriving (${path})`);
-        const outfit = await deriveOutfit(refPhoto);
+        const derived = await deriveOutfit(refPhoto);
         // Create-if-absent elects ONE winning spec per anchor; losers adopt
         // the winner so every instance pins the same words (and the same
         // cache-key hash) — a forked description would fork the render key.
-        let elected = outfit;
-        const body = Buffer.from(JSON.stringify({ outfit, derivedAt: new Date().toISOString() }));
+        // The structured slots ride the blob for diagnostics; the rendered
+        // sentence is what gets pinned (and hashed).
+        let elected = derived.outfit;
+        const body = Buffer.from(JSON.stringify({ spec: derived.spec, outfit: derived.outfit, derivedAt: new Date().toISOString() }));
         const { created } = await uploadBufferIfAbsent(body, path, 'application/json');
         if (!created) {
           const winner = await downloadBuffer(path);
@@ -225,4 +307,4 @@ async function getOutfitLock({ anchorUrl, refPhoto, log = () => {} }) {
   }
 }
 
-module.exports = { getOutfitLock, outfitLockPath, anchorHash, cleanOutfit };
+module.exports = { getOutfitLock, outfitLockPath, anchorHash, cleanOutfit, renderOutfitSpec };
