@@ -132,12 +132,13 @@ pass (the deleted art director stays deleted):
   (the renderer's existing enum + one new value, see Fix 2).
 - `placement`: `left-third` | `right-third` (the existing off-center rule,
   now VARIED deterministically instead of freely re-chosen by the model).
-- `staging`: a closed list of pose-energy directives compatible with any
-  beat (e.g. "crouched low, seen from behind over the shoulder", "standing
-  and pointing ahead", "walking mid-stride", "leaning in close, face filling
-  the frame", "side by side with the companion, both looking at the same
-  spot"). The ACTION stays the beat's; staging only picks HOW the fixed
-  action is framed.
+- `staging`: a closed list of camera/orientation/framing directives
+  compatible with any beat (e.g. "seen from behind, the camera looking past
+  them into the scene", "framed through natural foreground scenery", "tight
+  on the child's expression, the background softly out of focus"). Entries
+  never prescribe motion, posture, or interaction — the ACTION stays the
+  beat's; staging only picks HOW the fixed action is framed (a guard test
+  bans motion/interaction verbs from the vocabulary).
 - `embedded` layout only: `textSide` — pinned OPPOSITE the child's third,
   reinforcing the existing one-block-one-side rule while making the text
   side vary across the book instead of landing wherever the model prefers.
@@ -267,8 +268,9 @@ other — no cross-spread reads required.
   (quoted as data) and answers `outfit_mismatch` — "true only on a CLEAR
   break: a different garment, a different color family, a missing or added
   item, or a visibly different pant/sleeve length; lighting shifts and
-  minor fold/shading differences pass." An optional `outfit_note` string
-  stays diagnostics-only (advisories), never reaching a prompt.
+  minor fold/shading differences pass." The verdict is the boolean alone —
+  there is deliberately NO free-text note field: per-spread defects are
+  joined into the repair prompt, so only fixed strings exist there.
 - The defect feeds `repairNote` with a fixed corrective line + the pinned
   spec (already-inert pinned data, the same trust level as `expectedText`)
   and rides the existing per-spread repair budget.
@@ -283,7 +285,8 @@ other — no cross-spread reads required.
 - A run that renders lock-less while `CATALOG_OUTFIT_LOCK` is enabled
   appends ONE book-level advisory (`stage: 'outfitLock'`, "renders are not
   outfit-locked — spec derivation failed") to `qaAdvisories`, and the probe
-  callback echoes `outfitLockUsed: <hash8|none>` beside
+  callback echoes `outfitLockUsed: <hash|none>` (the spec's fnv1a content
+  hash in base36 — the same value folded into the render cache key) beside
   `illustrationTuningUsed`. Silent lock-less books are how ce-7 shipped a
   hole unnoticed.
 - Bump `WORLD_QA_THUMB_WIDTH` 768 → 1024 so the gate's
@@ -320,8 +323,9 @@ other — no cross-spread reads required.
   rotation over a closed vocabulary; no per-book creative calls, no
   unbounded prompt text.
 - **No model free-text in prompts** — new defects extend the closed enums;
-  repair prompts are built from pinned template text only; `outfit_note`
-  and gate `note`s stay diagnostics.
+  repair prompts are built from pinned template text only; the world gate's
+  free-text `note` stays diagnostics (per-spread verdicts carry no
+  free-text field at all).
 - **No aspirational lines as mechanism** — "be distinct" / "keep identical"
   sentences survive only as reinforcement of a concrete pinned spec.
 
@@ -333,7 +337,7 @@ other — no cross-spread reads required.
 2. Renderer: `low-angle` enum + anchor pose-decoupling line + composition
    block and `opts.shotType` plumbing from `renderSpread`;
    `safeFallbackSuffix` fold; prompt-assembly tests.
-3. `spreadQa.js`: `shot_type_mismatch` + `outfit_mismatch` (+`outfit_note`)
+3. `spreadQa.js`: `shot_type_mismatch` + `outfit_mismatch`
    fields — required-boolean gating ONLY when the corresponding input was
    pinned (a malformed verdict still fails open with `qaUnavailable`, never
    fails a book); `repairNote` lines for both; tests incl. malformed
