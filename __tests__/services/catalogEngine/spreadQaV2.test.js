@@ -250,7 +250,7 @@ test('a fully hidden face and an undeclared personal object are ADVISORY with fi
   const r2 = await checkSpreadRenderV2(IMG, fullOpts());
   expect(r2.defects).not.toContain('face hidden: the child is rendered fully from behind');
   const note = repairNoteV2(['face hidden: the child is rendered fully from behind', 'undeclared personal object in the scene'], null, {});
-  expect(note).toContain('FACE REPAIR: turn the child so their face is clearly visible');
+  expect(note).toContain('FACE REPAIR: turn the child\'s head or body so their face is at least partly visible');
   expect(note).toContain('PROP DISCIPLINE REPAIR: remove every personal object');
 });
 

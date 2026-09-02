@@ -190,8 +190,10 @@ function renderShotDirective(entry) {
     `- STAGING: the child is ${entry.staging} — performing exactly the ACTION described above.`,
     // ce-10: fixed on every assignment — a picture-book reader (and the
     // identity/emotion QA) needs the face; a staging must never be executed
-    // as a full back view.
-    '- FACE: the child\'s face stays clearly visible (front, three-quarter, or profile view) — never render the child fully from behind with the face hidden.',
+    // as a full back view. Phrased as "at least partly visible" so it never
+    // fights the assigned shot type (an overhead view is neither front,
+    // three-quarter, nor profile, yet legitimately shows the face).
+    '- FACE: keep the child\'s face at least partly visible in this framing — never render the child fully from behind with the face hidden.',
   ];
   if (entry.placement) {
     lines.push(`- PLACEMENT: position the child in the ${entry.placement === 'left-third' ? 'LEFT' : 'RIGHT'} third of the frame.`);

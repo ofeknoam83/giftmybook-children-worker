@@ -353,8 +353,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   Bench judges' recurring findings into fixed engine rules: (1) FACE
   VISIBILITY — the shot plan's staging vocabulary no longer contains a full
   back view (`seen from behind` gained a face-visible head turn), every
-  composition directive pins a fixed FACE line (front/three-quarter/profile,
-  never fully from behind), and QA v2 reports `face_fully_hidden` (advisory
+  composition directive pins a fixed FACE line (at least partly visible,
+  never fully from behind — phrased so it never fights the assigned shot
+  type, e.g. overhead), and QA v2 reports `face_fully_hidden` (advisory
   `face hidden: …` + its own repair note); (2) PROP DISCIPLINE — the
   personal-object set is CLOSED: scene prompts and the bible PROPS block
   forbid invented toys/gadgets/trinkets beyond declared props + the beat's

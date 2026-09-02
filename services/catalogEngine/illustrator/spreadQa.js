@@ -732,7 +732,7 @@ For each prop report presence ("present"|"absent") and look ("match" when it loo
   // ce-10: a full back view hides the identity the sheet check needs and the
   // emotion the reader needs — the prompts forbid it, QA reports it (soft,
   // advisory-class: a lone hidden face shades selection, never fails a book).
-  sections.push('FACE VISIBILITY: the child\'s face should be at least partly visible (front, three-quarter, or profile view). Report whether the child is rendered fully from behind with NO part of the face visible.');
+  sections.push('FACE VISIBILITY: the child\'s face should be at least partly visible in the framing. Report whether the child is rendered fully from behind with NO part of the face visible.');
   fields.push('"face_fully_hidden": true|false, // the child is seen fully from behind — no part of the face is visible');
   sections.push('CHILD BOUNDING BOX: give the child hero\'s bounding box in the RENDER as fractions of the image width/height (x, y of the top-left corner; w, h), or null when the child is absent.');
   fields.push('"child_bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null,');
@@ -1069,7 +1069,7 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
     notes.push(`EMOTION REPAIR: the child's face and body language must clearly read as ${qaData(opts.emotion.intensity, 10)} ${qaData(opts.emotion.emotion, 20)}${opts.emotion.cue ? ` — ${qaData(opts.emotion.cue, 160)}` : ''}; never a blank or generic smile. Keep the scene otherwise identical.`);
   }
   if (defects.some(d => d.startsWith('face hidden'))) {
-    notes.push('FACE REPAIR: turn the child so their face is clearly visible — a front, three-quarter, or profile view, never fully from behind. Keep the scene, action, and assigned composition otherwise identical.');
+    notes.push('FACE REPAIR: turn the child\'s head or body so their face is at least partly visible — never fully from behind. Keep the scene, action, and assigned composition otherwise identical.');
   }
   if (defects.some(d => d.startsWith('undeclared personal object'))) {
     notes.push('PROP DISCIPLINE REPAIR: remove every personal object (toy, gadget, trinket) that is not a declared prop of this book or required by the story moment — the child carries ONLY what the scene names. Keep the scene otherwise identical.');
