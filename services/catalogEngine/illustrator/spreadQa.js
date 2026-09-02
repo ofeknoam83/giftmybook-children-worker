@@ -17,37 +17,40 @@
  * Cross-spread sameness is enforced upstream by pinning the identical
  * TEXT_RULES spec on every stateless render; QA checks each render against
  * that same fixed spec, so spreads that each pass also match each other.
+ *
+ * ce-8 extends the same pinned-spec pattern to two more dimensions: when
+ * the spread's ASSIGNED shot type (shotPlan.js) rides the render, QA gates
+ * a clear shot-type mismatch (`shot_type_mismatch`); when the outfit lock's
+ * spec rides it, QA gates a clear garment-level break against that spec
+ * (`outfit_mismatch` — skipped on BATH/WATER spreads, whose coverage
+ * legitimately differs). Both defects are FIXED strings (defects are joined
+ * into the repair prompt, so model free-text never enters one).
  */
 
 const sharp = require('sharp');
 const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustrationGenerator');
+const { SHOT_TYPE_QA_DESCRIPTIONS } = require('./shotPlan');
 
 const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-const QA_PROMPT = `You are checking one interior illustration of a children's picture book.
-The book's ONE child hero must appear exactly once; the art must contain no
-readable text; the medium must be premium 3D CGI (like a modern animated
-feature film still), never flat 2D, watercolor, or a photograph.
-
-Answer STRICT JSON only:
-{
-  "readable_text": true|false,   // any readable words, letters, or numbers painted in the image
-  "child_absent": true|false,    // no child hero visible at all
-  "multiple_children": true|false, // two or more distinct child heroes (ignore background adults/animals; a reflection or photo-within-scene of the same child is fine)
-  "flat_or_photo_style": true|false // flat 2D / painterly / watercolor / line art, OR a live-action photograph look
-}`;
-
 /**
- * Embedded-layout variant of the QA prompt: the story text is REQUIRED in
- * the art, and the model transcribes what it can read so the caller can
- * verify it against the manuscript. `expectedText` is validated story prose
- * (storyValidation ran before any render), quoted as data.
- * @param {string} expectedText
+ * Build the per-spread QA prompt. The base checks are layout-aware
+ * (caption forbids painted text; embedded requires + transcribes it); the
+ * SHOT and OUTFIT checks appear only when a pinned spec rides the render —
+ * both are verified against the SAME fixed spec on every spread, so renders
+ * that each pass also match each other (the ce-4 TEXT_RULES pattern).
+ * `expectedText` and `outfitSpec` are pinned validated/sanitized data,
+ * quoted into the prompt as data.
+ * @param {{expectedText: string|null, shotType: string|null, outfitSpec: string|null}} opts
  * @returns {string}
  */
-function embeddedQaPrompt(expectedText) {
-  return `You are checking one interior illustration of a children's picture book.
+function buildSpreadQaPrompt({ expectedText, shotType, outfitSpec }) {
+  const sections = [];
+  const fields = [];
+
+  if (expectedText) {
+    sections.push(`You are checking one interior illustration of a children's picture book.
 The book's ONE child hero must appear exactly once; the story text below
 MUST be painted into the artwork, crisp and readable; the medium must be
 premium 3D CGI (like a modern animated feature film still), never flat 2D,
@@ -67,29 +70,71 @@ color — mixed typefaces, mixed sizes/weights, or mixed colors within the
 text are a typography defect.
 
 STORY TEXT THAT MUST APPEAR IN THE IMAGE:
-"${expectedText}"
+"${expectedText}"`);
+    fields.push(
+      '"readable_text": true|false,   // any readable words visible in the image',
+      '"visible_text": "…",           // the exact text you can read in the image, verbatim ("" if none)',
+      '"text_split_both_sides": true|false, // text appears in separate blocks on BOTH the left and right sides of the image',
+      '"text_on_band": true|false,    // text sits on a blank, solid, or lightened band/strip/panel (letterbox) instead of being painted over the artwork',
+      '"text_lines_misaligned": true|false, // any text line is tilted, arched, or wavy; the lines do not share one straight left margin; or the line spacing is visibly uneven',
+      '"text_style_inconsistent": true|false, // the painted text mixes more than one font family, size, weight, or fill color',
+    );
+  } else {
+    sections.push(`You are checking one interior illustration of a children's picture book.
+The book's ONE child hero must appear exactly once; the art must contain no
+readable text; the medium must be premium 3D CGI (like a modern animated
+feature film still), never flat 2D, watercolor, or a photograph.`);
+    fields.push('"readable_text": true|false,   // any readable words, letters, or numbers painted in the image');
+  }
+
+  if (shotType && SHOT_TYPE_QA_DESCRIPTIONS[shotType]) {
+    sections.push(`This spread was ASSIGNED a specific shot type. The image must read as
+${SHOT_TYPE_QA_DESCRIPTIONS[shotType]}.
+Flag a mismatch ONLY when the image CLEARLY reads as a different shot type
+than assigned (for example a close-up delivered as a full wide scene) —
+borderline framing passes.`);
+    fields.push('"shot_type_mismatch": true|false, // the image clearly reads as a DIFFERENT shot type than the assigned one');
+  }
+
+  if (outfitSpec) {
+    sections.push(`The child's outfit is LOCKED for the whole book to exactly this spec:
+"${outfitSpec}"
+Check it garment by garment, but judge ONLY the garments and body regions
+actually VISIBLE in this framing: a close-up, partial view, or composition
+that crops a garment out of the frame is NOT a missing item — never flag a
+garment you cannot see. Flag a mismatch ONLY on a CLEAR break among the
+visible garments: a different garment, a different color family, an added
+item, a garment clearly absent from a body region that IS in view, or a
+visibly different pant/sleeve length than specified. Scene lighting shifts
+and minor fold/shading differences pass.`);
+    fields.push('"outfit_mismatch": true|false, // a VISIBLE garment clearly breaks the locked outfit spec above (garments cropped out of frame never count)');
+  }
+
+  fields.push(
+    '"child_absent": true|false,    // no child hero visible at all',
+    '"multiple_children": true|false, // two or more distinct child heroes (ignore background adults/animals; a reflection or photo-within-scene of the same child is fine)',
+    '"flat_or_photo_style": true|false // flat 2D / painterly / watercolor / line art, OR a live-action photograph look',
+  );
+
+  return `${sections.join('\n\n')}
 
 Answer STRICT JSON only:
 {
-  "readable_text": true|false,   // any readable words visible in the image
-  "visible_text": "…",           // the exact text you can read in the image, verbatim ("" if none)
-  "text_split_both_sides": true|false, // text appears in separate blocks on BOTH the left and right sides of the image
-  "text_on_band": true|false,    // text sits on a blank, solid, or lightened band/strip/panel (letterbox) instead of being painted over the artwork
-  "text_lines_misaligned": true|false, // any text line is tilted, arched, or wavy; the lines do not share one straight left margin; or the line spacing is visibly uneven
-  "text_style_inconsistent": true|false, // the painted text mixes more than one font family, size, weight, or fill color
-  "child_absent": true|false,    // no child hero visible at all
-  "multiple_children": true|false, // two or more distinct child heroes (ignore background adults/animals; a reflection or photo-within-scene of the same child is fine)
-  "flat_or_photo_style": true|false // flat 2D / painterly / watercolor / line art, OR a live-action photograph look
+  ${fields.join('\n  ')}
 }`;
 }
 
 /**
  * Run the QA check on one rendered spread.
  * @param {Buffer} imageBuffer
- * @param {{label?: string, expectedText?: string|null}} [opts]
+ * @param {{label?: string, expectedText?: string|null, shotType?: string|null, outfitSpec?: string|null}} [opts]
  *   `expectedText` set = embedded layout: the story text must be painted in
  *   the art and is verified against the manuscript; null/absent = caption
- *   layout: any painted text is the defect.
+ *   layout: any painted text is the defect. `shotType` set = the spread's
+ *   assigned composition (shotPlan.js) is verified against the render.
+ *   `outfitSpec` set = the pinned outfit lock is verified garment-by-garment
+ *   (the caller omits it on BATH/WATER spreads, whose coverage legitimately
+ *   differs).
  * @returns {Promise<{pass: boolean, defects: string[], qaUnavailable?: string}>}
  *   pass=true also on QA infra errors (never block on the checker itself),
  *   but such a pass carries `qaUnavailable` so the spread ships with an
@@ -99,6 +144,12 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
   const label = opts.label || 'spreadQa';
   const expectedText = typeof opts.expectedText === 'string' && opts.expectedText.trim()
     ? opts.expectedText.trim()
+    : null;
+  const shotType = typeof opts.shotType === 'string' && SHOT_TYPE_QA_DESCRIPTIONS[opts.shotType]
+    ? opts.shotType
+    : null;
+  const outfitSpec = typeof opts.outfitSpec === 'string' && opts.outfitSpec.trim()
+    ? opts.outfitSpec.trim()
     : null;
   try {
     const apiKey = getNextApiKey();
@@ -111,7 +162,7 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
           contents: [{
             role: 'user',
             parts: [
-              { text: expectedText ? embeddedQaPrompt(expectedText) : QA_PROMPT },
+              { text: buildSpreadQaPrompt({ expectedText, shotType, outfitSpec }) },
               { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } },
             ],
           }],
@@ -133,6 +184,11 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
     // it still counts, it just can't be accuracy-checked.)
     const FIELDS = ['readable_text', 'child_absent', 'multiple_children', 'flat_or_photo_style'];
     if (expectedText) FIELDS.push('text_split_both_sides', 'text_on_band', 'text_lines_misaligned', 'text_style_inconsistent');
+    // The shot/outfit fields are required booleans ONLY when the
+    // corresponding spec was pinned — a verdict without them on a bare
+    // render is complete, and a malformed one still fails open.
+    if (shotType) FIELDS.push('shot_type_mismatch');
+    if (outfitSpec) FIELDS.push('outfit_mismatch');
     if (!json || typeof json !== 'object' || !FIELDS.every(f => typeof json[f] === 'boolean')) {
       console.warn(`[${label}] QA returned a malformed verdict — passing without QA`);
       return { pass: true, defects: [], qaUnavailable: 'vision QA returned a malformed verdict' };
@@ -141,6 +197,10 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
       json.child_absent && 'child hero missing from the scene',
       json.multiple_children && 'duplicated child hero',
       json.flat_or_photo_style && 'style break: flat/2D or photographic medium',
+      // Fixed defect strings only: defects are joined into the repair
+      // prompt, so no model free-text (there is no outfit_note by design).
+      shotType && json.shot_type_mismatch && `composition break: does not read as the assigned ${shotType} shot`,
+      outfitSpec && json.outfit_mismatch && 'outfit differs from the locked outfit spec',
     ].filter(Boolean);
     if (expectedText) {
       // Embedded layout: the painted text is REQUIRED, must match, and must
@@ -185,8 +245,10 @@ const WORLD_QA_MAX_IMAGES = 12;
 // World judging reads low-frequency features (palette, lighting, era,
 // materials), so the gate sends downscaled JPEG thumbnails: twelve
 // full-size base64 PNGs can blow the API's inline-request limit and fail
-// the gate open exactly on the biggest books.
-const WORLD_QA_THUMB_WIDTH = 768;
+// the gate open exactly on the biggest books. 1024 (up from 768) so the
+// character-rendering judgment can actually resolve garments across wide
+// spreads while staying far under the inline limit as JPEG.
+const WORLD_QA_THUMB_WIDTH = 1024;
 
 /**
  * Downscale one render for the multi-image gate call. Falls back to the
@@ -211,11 +273,15 @@ async function qaThumbnail(buffer) {
  * @param {boolean} [embeddedText] embedded layout: also judge how each
  *   spread integrates its painted story text (band vs over-artwork, one
  *   typography) — meaningless for text-free caption/half renders
+ * @param {number[]} [outfitExemptSpreads] BATH/WATER spreads whose clothing
+ *   coverage legitimately differs (bubble foam, towel, or swimwear by the
+ *   renderer's own BATH/WATER MODE) — the gate must never read their
+ *   different coverage as an outfit break
  * @returns {string}
  */
-function worldQaPrompt(spreads, embeddedText = false) {
+function worldQaPrompt(spreads, embeddedText = false, outfitExemptSpreads = []) {
   const textDim = embeddedText
-    ? `\n3. TEXT TREATMENT — every spread integrates its painted story text the
+    ? `\n4. TEXT TREATMENT — every spread integrates its painted story text the
 same way: painted directly over continuous artwork (never sitting on a
 blank, solid, or lightened band, strip, or panel), in one consistent
 typography (the same font, size, and color family across the set).`
@@ -235,16 +301,29 @@ objects, and the environment.
 2. CHARACTER RENDERING — the ONE child hero reads as the SAME rendering of
 the SAME child on every spread: the same apparent age, the same face and
 body proportions, the same stylization level, the same outfit, and the same
-hair.${textDim}
+hair.${outfitExemptSpreads.length > 0 ? `
+NOTE: spread(s) ${outfitExemptSpreads.join(', ')} are bath/water scenes —
+their clothing coverage legitimately differs (bubble foam, a towel, or
+swimwear instead of the book's outfit). NEVER flag an outfit difference
+involving these spreads; judge their character rendering on age,
+proportions, stylization, and hair only.` : ''}
+3. COMPOSITION VARIETY — each spread is its own picture. Flag a spread
+under this dimension ONLY when it is a NEAR-DUPLICATE of another spread in
+the set: the same camera distance AND the same camera angle AND the same
+child pose AND the same overall layout, so alike that the two pages could
+be swapped without a reader noticing. Normal compositional variation across
+a book NEVER flags here.${textDim}
 
-DO NOT flag differences in scene, action, location within the world, camera
-angle, composition, pose, or time of day that the story moment explains —
-those are supposed to differ. Flag a spread only when it clearly BREAKS the
-set: a different palette/lighting family, an era or technology that
-contradicts the others, materials or physics behaving differently, magic
-appearing/behaving unlike the rest of the book, the child rendered as a
-visibly different age, with different proportions or stylization, or in a
-different outfit or hair than the other spreads${textBreak}.
+For the WORLD and CHARACTER RENDERING dimensions, DO NOT flag differences
+in scene, action, location within the world, camera angle, composition,
+pose, or time of day that the story moment explains — those are supposed to
+differ (and under COMPOSITION VARIETY they are exactly what should differ).
+Flag a spread only when it clearly BREAKS the set: a different
+palette/lighting family, an era or technology that contradicts the others,
+materials or physics behaving differently, magic appearing/behaving unlike
+the rest of the book, the child rendered as a visibly different age, with
+different proportions or stylization, or in a different outfit or hair than
+the other spreads, a near-duplicate composition of another spread${textBreak}.
 
 Answer STRICT JSON only:
 {
@@ -252,7 +331,7 @@ Answer STRICT JSON only:
   "flagged": [                      // ONLY spreads that clearly break the set ([] if consistent)
     {
       "spread": <number>,
-      "defect": "palette_lighting"|"era_technology"|"materials_physics"|"magic_behavior"|"character_rendering"${textEnum}|"other",
+      "defect": "palette_lighting"|"era_technology"|"materials_physics"|"magic_behavior"|"character_rendering"|"composition_duplicate"${textEnum}|"other",
       "note": "ONE specific sentence: what breaks and what the other spreads establish"
     }
   ]
@@ -260,14 +339,17 @@ Answer STRICT JSON only:
 }
 
 /** Closed vocabulary of set-break classes the gate can act on. */
-const WORLD_DEFECTS = new Set(['palette_lighting', 'era_technology', 'materials_physics', 'magic_behavior', 'character_rendering', 'text_treatment', 'other']);
+const WORLD_DEFECTS = new Set(['palette_lighting', 'era_technology', 'materials_physics', 'magic_behavior', 'character_rendering', 'composition_duplicate', 'text_treatment', 'other']);
 
 /**
  * Run the book-level world-consistency check across one run's renders.
  * @param {Array<{spread: number, buffer: Buffer}>} entries
- * @param {{label?: string, embeddedText?: boolean}} [opts]
+ * @param {{label?: string, embeddedText?: boolean, outfitExemptSpreads?: number[]}} [opts]
  *   `embeddedText` = the renders carry Gemini-painted story text, so the
  *   gate also judges TEXT TREATMENT consistency across the set.
+ *   `outfitExemptSpreads` = BATH/WATER spreads whose coverage legitimately
+ *   differs — never flagged for outfit differences (mirrors the per-spread
+ *   outfit check's exemption).
  * @returns {Promise<{pass: boolean, flagged: Array<{spread: number, note: string}>, qaUnavailable?: string}|null>}
  *   null when fewer than 2 entries (consistency needs a comparison — a
  *   single-spread probe correctly skips the gate). Infra errors pass with
@@ -279,7 +361,11 @@ async function checkWorldConsistency(entries, opts = {}) {
   if (!Array.isArray(entries) || entries.length < 2) return null;
   const subset = entries.slice(0, WORLD_QA_MAX_IMAGES);
   try {
-    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread), embeddedText) }];
+    // Only exemptions for spreads actually in this check ride the prompt.
+    const inCheck = new Set(subset.map(e => e.spread));
+    const outfitExempt = (Array.isArray(opts.outfitExemptSpreads) ? opts.outfitExemptSpreads : [])
+      .filter(s => inCheck.has(s));
+    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread), embeddedText, outfitExempt) }];
     for (const e of subset) {
       const thumb = await qaThumbnail(e.buffer);
       parts.push({ text: `SPREAD ${e.spread}:` });
@@ -355,6 +441,7 @@ const WORLD_REPAIR_INSTRUCTIONS = {
   materials_physics: 'Match the book\'s established materials and physical laws exactly — surfaces, weights, and every interaction behave as they do on the other spreads.',
   magic_behavior: 'Match the book\'s established magical behavior exactly — magic appears and behaves only as it does on the other spreads.',
   character_rendering: 'Render the child EXACTLY as the reference character and the book\'s other spreads: the same apparent age, the same face and body proportions, the same stylization level, the same outfit, and the same hair.',
+  composition_duplicate: 'This render duplicates another spread\'s composition. Re-compose with a clearly different camera distance, camera angle, and child pose — the same scene and action, a visibly different picture.',
   text_treatment: 'Paint the story text directly OVER continuous artwork — no blank, solid, or lightened band, strip, or panel anywhere; the illustration must fill the entire canvas edge to edge — as ONE block on ONE side, in the book\'s one fixed font, size, and color, exactly as the other spreads do.',
   other: 'Match the fixed world established by the other spreads exactly.',
 };
@@ -362,11 +449,19 @@ const WORLD_REPAIR_INSTRUCTIONS = {
 /**
  * Corrective prompt suffix for a world-consistency gate re-render, built
  * ONLY from the closed defect vocabulary (unknown values map to 'other').
+ * For `composition_duplicate` the caller may pass the flagged spread's own
+ * ASSIGNED composition directive (shotPlan.js template text — pinned, never
+ * model output), which the repair then re-renders against; without one the
+ * fixed generic re-compose instruction applies.
  * @param {string} defect one of WORLD_DEFECTS
+ * @param {{planDirective?: string|null}} [opts]
  * @returns {string}
  */
-function worldRepairNote(defect) {
-  const fix = WORLD_REPAIR_INSTRUCTIONS[defect] || WORLD_REPAIR_INSTRUCTIONS.other;
+function worldRepairNote(defect, opts = {}) {
+  const base = WORLD_REPAIR_INSTRUCTIONS[defect] || WORLD_REPAIR_INSTRUCTIONS.other;
+  const fix = defect === 'composition_duplicate' && opts.planDirective
+    ? `${base} Obey THIS spread's assigned composition exactly:\n${opts.planDirective}\n`
+    : base;
   return `WORLD CONSISTENCY REPAIR — compared with the book's other spreads, this render broke the set's established consistency. ${fix} Re-render the SAME scene and action, obeying the WORLD LAWS above and the world reference. Fix ONLY the flagged consistency break; keep the scene otherwise identical.`;
 }
 
@@ -450,9 +545,12 @@ async function checkWorldPlate(imageBuffer, opts = {}) {
  * @param {string[]} defects
  * @param {string|null} [expectedText] embedded layout: the exact story text
  *   the repair must paint into the art
+ * @param {{shotType?: string|null, outfitSpec?: string|null}} [opts] the
+ *   pinned specs the failing checks were judged against — the repair prompt
+ *   restates them verbatim (pinned data, same trust level as expectedText)
  * @returns {string}
  */
-function repairNote(defects, expectedText = null) {
+function repairNote(defects, expectedText = null, opts = {}) {
   const notes = [];
   for (const d of defects) {
     if (d.includes('painted text')) notes.push('ABSOLUTELY NO text, letters, numbers, signage, or lettering anywhere in the image.');
@@ -474,6 +572,12 @@ function repairNote(defects, expectedText = null) {
     if (d.includes('missing from the scene')) notes.push('The child hero MUST be clearly visible and central to the action.');
     if (d.includes('duplicated')) notes.push('Exactly ONE instance of the child hero — no twins, no second child.');
     if (d.includes('style break')) notes.push('Premium 3D CGI feature-film render only — never flat 2D, watercolor, line art, or a photograph.');
+    if (d.includes('does not read as the assigned') && opts.shotType && SHOT_TYPE_QA_DESCRIPTIONS[opts.shotType]) {
+      notes.push(`COMPOSITION REPAIR: re-render the SAME scene and action as ${SHOT_TYPE_QA_DESCRIPTIONS[opts.shotType]}. Fix ONLY the framing; keep the scene otherwise identical.`);
+    }
+    if (d.includes('outfit differs') && opts.outfitSpec) {
+      notes.push(`OUTFIT REPAIR: the child MUST wear EXACTLY this outfit — every garment, color, pattern, and length as specified, nothing added, nothing removed: "${opts.outfitSpec}". Fix ONLY the clothing; keep the scene otherwise identical.`);
+    }
   }
   return `CRITICAL REPAIR — the previous render failed QA (${defects.join('; ')}). ${notes.join(' ')}`;
 }

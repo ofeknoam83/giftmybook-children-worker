@@ -156,3 +156,69 @@ describe('worldRepairNote', () => {
     expect(worldRepairNote(undefined)).toContain('Match the fixed world established by the other spreads exactly.');
   });
 });
+
+describe('composition variety (ce-8: composition_duplicate)', () => {
+  test('the gate prompt carries the near-duplicate dimension and the enum value', async () => {
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2));
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('COMPOSITION VARIETY');
+    expect(prompt).toContain('NEAR-DUPLICATE');
+    expect(prompt).toContain('composition_duplicate');
+    // The world/character DO-NOT-flag carve-out survives, scoped to those dims.
+    expect(prompt).toContain('For the WORLD and CHARACTER RENDERING dimensions, DO NOT flag');
+  });
+
+  test('composition_duplicate is in vocabulary for EVERY layout (unlike text_treatment)', async () => {
+    const flaggedVerdict = geminiJson({
+      consistent: false,
+      flagged: [{ spread: 4, defect: 'composition_duplicate', note: 'spreads 4 and 6 are the same crouch-by-the-mud mid-shot' }],
+    });
+    fetchWithTimeout.mockResolvedValue(flaggedVerdict);
+    const plain = await checkWorldConsistency(entries(4, 6));
+    expect(plain.flagged).toEqual([{ spread: 4, defect: 'composition_duplicate', note: 'spreads 4 and 6 are the same crouch-by-the-mud mid-shot' }]);
+    const embedded = await checkWorldConsistency(entries(4, 6), { embeddedText: true });
+    expect(embedded.flagged.map(f => f.defect)).toEqual(['composition_duplicate']);
+  });
+
+  test('worldRepairNote re-renders against the spread\'s OWN plan directive when given', () => {
+    const directive = 'COMPOSITION (ASSIGNED FOR THIS SPREAD — each spread of this book is assigned a DIFFERENT composition; obey this one exactly):\n- SHOT TYPE: CLOSE-UP';
+    const note = worldRepairNote('composition_duplicate', { planDirective: directive });
+    expect(note).toContain('duplicates another spread\'s composition');
+    expect(note).toContain('Obey THIS spread\'s assigned composition exactly:');
+    expect(note).toContain('SHOT TYPE: CLOSE-UP');
+  });
+
+  test('without a plan directive the fixed generic re-compose instruction applies', () => {
+    const note = worldRepairNote('composition_duplicate');
+    expect(note).toContain('clearly different camera distance, camera angle, and child pose');
+    expect(note).not.toContain('Obey THIS spread');
+    // Other defect classes never pick up a directive.
+    const world = worldRepairNote('palette_lighting', { planDirective: 'SHOT TYPE: WIDE' });
+    expect(world).not.toContain('SHOT TYPE');
+  });
+});
+
+describe('bath/water outfit exemption (mirrors the per-spread outfit check)', () => {
+  test('exempt spreads ride the gate prompt as an explicit never-flag-outfit note', async () => {
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2, 3), { outfitExemptSpreads: [2] });
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('spread(s) 2 are bath/water scenes');
+    expect(prompt).toMatch(/NEVER flag an outfit difference\s+involving these spreads/);
+    expect(prompt).toMatch(/age,\s+proportions, stylization, and hair only/);
+  });
+
+  test('without exemptions (and for spreads not in the check) the note is absent', async () => {
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2));
+    let prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).not.toContain('bath/water scenes');
+    // An exemption for a spread outside this check never reaches the prompt.
+    fetchWithTimeout.mockClear();
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2), { outfitExemptSpreads: [9] });
+    prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).not.toContain('bath/water scenes');
+  });
+});

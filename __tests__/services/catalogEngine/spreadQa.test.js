@@ -250,3 +250,92 @@ describe('repairNote', () => {
     expect(note).not.toContain('EXACTLY as written');
   });
 });
+
+describe('assigned shot type (ce-8: shotType pinned by the shot plan)', () => {
+  const cleanShot = { ...cleanBooleans, readable_text: false, shot_type_mismatch: false };
+
+  test('the QA prompt states the assigned shot and the borderline-passes rule', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict(cleanShot));
+    const qa = await checkSpreadRender(IMG, { shotType: 'close-up' });
+    expect(qa.pass).toBe(true);
+    const prompt = sentPrompt();
+    expect(prompt).toContain('ASSIGNED a specific shot type');
+    expect(prompt).toContain('fills most of the frame');
+    expect(prompt).toContain('borderline framing passes');
+    expect(prompt).toContain('shot_type_mismatch');
+  });
+
+  test('a clear shot-type mismatch is a defect with a FIXED string', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanShot, shot_type_mismatch: true }));
+    const qa = await checkSpreadRender(IMG, { shotType: 'close-up' });
+    expect(qa.pass).toBe(false);
+    expect(qa.defects).toEqual(['composition break: does not read as the assigned close-up shot']);
+  });
+
+  test('a verdict missing shot_type_mismatch is malformed WHEN a shot is pinned, complete when none is', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanBooleans, readable_text: false }));
+    const pinned = await checkSpreadRender(IMG, { shotType: 'wide' });
+    expect(pinned.qaUnavailable).toContain('malformed');
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanBooleans, readable_text: false }));
+    const bare = await checkSpreadRender(IMG);
+    expect(bare.qaUnavailable).toBeUndefined();
+  });
+
+  test('an unknown shotType value is ignored (no field required, no prompt block)', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanBooleans, readable_text: false }));
+    const qa = await checkSpreadRender(IMG, { shotType: 'dutch-tilt' });
+    expect(qa.pass).toBe(true);
+    expect(qa.qaUnavailable).toBeUndefined();
+    expect(sentPrompt()).not.toContain('shot_type_mismatch');
+  });
+});
+
+describe('locked outfit (ce-8: the pinned spec is verified per spread)', () => {
+  const SPEC = 'Top: red short-sleeved t-shirt. Bottom: full-length blue jeans reaching the ankles. Footwear: white sneakers.';
+  const cleanOutfitV = { ...cleanBooleans, readable_text: false, outfit_mismatch: false };
+
+  test('the QA prompt quotes the spec as data and asks garment-by-garment', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict(cleanOutfitV));
+    const qa = await checkSpreadRender(IMG, { outfitSpec: SPEC });
+    expect(qa.pass).toBe(true);
+    const prompt = sentPrompt();
+    expect(prompt).toContain(`"${SPEC}"`);
+    expect(prompt).toContain('garment by garment');
+    expect(prompt).toContain('outfit_mismatch');
+    // Crop exemption: a close-up/medium plan legitimately crops garments
+    // out of frame — the check must never read that as a missing item.
+    expect(prompt).toMatch(/never flag a\s+garment you cannot see/);
+    expect(prompt).toContain('cropped out of frame');
+  });
+
+  test('a clear outfit break is a defect with a FIXED string (no model free-text)', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanOutfitV, outfit_mismatch: true }));
+    const qa = await checkSpreadRender(IMG, { outfitSpec: SPEC });
+    expect(qa.pass).toBe(false);
+    expect(qa.defects).toEqual(['outfit differs from the locked outfit spec']);
+  });
+
+  test('a verdict missing outfit_mismatch is malformed only when a spec is pinned', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanBooleans, readable_text: false }));
+    const pinned = await checkSpreadRender(IMG, { outfitSpec: SPEC });
+    expect(pinned.qaUnavailable).toContain('malformed');
+  });
+
+  test('repairNote restates the pinned specs verbatim for shot and outfit defects', () => {
+    const note = repairNote(
+      ['composition break: does not read as the assigned wide shot', 'outfit differs from the locked outfit spec'],
+      null,
+      { shotType: 'wide', outfitSpec: SPEC },
+    );
+    expect(note).toContain('COMPOSITION REPAIR');
+    expect(note).toContain('head-to-toe');
+    expect(note).toContain('OUTFIT REPAIR');
+    expect(note).toContain(`"${SPEC}"`);
+    expect(note).toContain('keep the scene otherwise identical');
+  });
+
+  test('repairNote emits no shot/outfit lines without the pinned specs (defect strings alone are not enough)', () => {
+    const note = repairNote(['outfit differs from the locked outfit spec']);
+    expect(note).not.toContain('OUTFIT REPAIR');
+  });
+});

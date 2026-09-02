@@ -11,6 +11,7 @@ jest.mock('../../../services/illustrationGenerator', () => ({
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'b64', mimeType: 'image/jpeg' }),
   fetchWithTimeout: jest.fn().mockRejectedValue(new Error('offline test')),
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
+  isModestBathWaterScene: jest.fn().mockReturnValue(false),
 }));
 jest.mock('../../../services/gcsStorage', () => ({
   downloadBuffer: jest.fn(),
@@ -20,7 +21,7 @@ jest.mock('../../../services/gcsStorage', () => ({
   getSignedUrl: jest.fn().mockResolvedValue('https://signed.example/render.png'),
 }));
 
-const { generateIllustration, fetchWithTimeout } = require('../../../services/illustrationGenerator');
+const { generateIllustration, fetchWithTimeout, isModestBathWaterScene } = require('../../../services/illustrationGenerator');
 const { downloadBuffer } = require('../../../services/gcsStorage');
 const { renderStorySpreads, illustrateStory } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
@@ -252,7 +253,9 @@ describe('bounded spread-QA repair loop (CATALOG_SPREAD_QA_MAX_REPAIRS)', () => 
         content: {
           parts: [{
             text: JSON.stringify({
-              readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, ...over,
+              // shot_type_mismatch is required since ce-8 (the shot plan is
+              // ON by default, so every render carries an assigned shot).
+              readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false, ...over,
             }),
           }],
         },
@@ -329,7 +332,7 @@ describe('per-spread force re-render (rerenderSpreads)', () => {
     advisories: [], tuningTag: 'none', renderHash: fnv1a(bytes.toString('base64')).toString(36),
   }));
   const cleanSpreadVerdict = JSON.stringify({
-    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false,
+    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false,
   });
   const geminiText = text => ({
     ok: true,
@@ -481,10 +484,26 @@ describe('bench final book: identityKeyed + seed replay the approved probe rende
 });
 
 describe('outfit lock arms the renderer and rides the cache key', () => {
-  const outfitJson = spec => ({
+  // v2 (ce-8): the derivation answers a STRUCTURED per-slot spec; the lock
+  // pins the rendered sentence built from it.
+  const outfitJson = () => ({
     ok: true,
-    json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ outfit: spec }) }] } }] }),
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              top: { desc: 'red short-sleeved t-shirt with a white cat graphic', visibility: 'seen' },
+              bottom: { desc: 'full-length blue jeans reaching the ankles', visibility: 'inferred' },
+              footwear: { desc: 'white low-top sneakers', visibility: 'inferred' },
+              accessories: [],
+            }),
+          }],
+        },
+      }],
+    }),
   });
+  const RENDERED_SPEC = 'Top: red short-sleeved t-shirt with a white cat graphic. Bottom: full-length blue jeans reaching the ankles. Footwear: white low-top sneakers.';
 
   beforeEach(() => {
     delete process.env.CATALOG_OUTFIT_LOCK; // re-enable (default ON)
@@ -496,34 +515,40 @@ describe('outfit lock arms the renderer and rides the cache key', () => {
   });
 
   test('the derived spec reaches every render as characterOutfit and folds -o into the key', async () => {
-    const spec = 'red t-shirt with a white cat graphic, blue jeans, white sneakers';
     fetchWithTimeout.mockImplementation(async (url, opts) => {
       const body = JSON.parse(opts.body);
       const prompt = body.contents[0].parts[0].text || '';
-      if (prompt.includes('OUTFIT LOCK')) return outfitJson(spec);
+      if (prompt.includes('OUTFIT LOCK')) return outfitJson();
       throw new Error('offline test'); // QA stays offline — irrelevant here
     });
     generateIllustration.mockClear();
-    const { results } = await renderStorySpreads(baseParams({
+    const { results, outfitLockUsed, advisories } = await renderStorySpreads(baseParams({
       childPhotoUrl: 'https://photos.example/outfit-child-A.png?sig=1',
     }));
     expect(results[0].storageKey).toContain('-o');
     for (const call of generateIllustration.mock.calls) {
-      expect(call[3].characterOutfit).toBe(spec);
+      expect(call[3].characterOutfit).toBe(RENDERED_SPEC);
     }
+    // The callback echo carries the lock's content hash; a locked run has
+    // no lock-less advisory.
+    expect(outfitLockUsed).not.toBe('none');
+    expect(advisories).toEqual([]);
   });
 
-  test('a derivation failure fails open — lock-less renders on the un-folded key', async () => {
+  test('a derivation failure fails open — lock-less renders on the un-folded key, LOUDLY', async () => {
     // fetch stays offline for everything (the afterEach default).
     fetchWithTimeout.mockRejectedValue(new Error('offline test'));
     generateIllustration.mockClear();
-    const { results } = await renderStorySpreads(baseParams({
+    const { results, outfitLockUsed, advisories } = await renderStorySpreads(baseParams({
       spreadNos: [1], spreads: [1],
       childPhotoUrl: 'https://photos.example/outfit-child-B.png?sig=1',
     }));
     expect(results[0].buffer).not.toBeNull();
     expect(results[0].storageKey).not.toContain('-o');
     expect(generateIllustration.mock.calls[0][3].characterOutfit).toBeUndefined();
+    // Never silent: a lock-less run with the switch ON says so on the callback.
+    expect(outfitLockUsed).toBe('none');
+    expect(advisories).toEqual([expect.objectContaining({ stage: 'outfitLock' })]);
   });
 
   test('CATALOG_OUTFIT_LOCK=0 disables derivation entirely', async () => {
@@ -531,11 +556,14 @@ describe('outfit lock arms the renderer and rides the cache key', () => {
     fetchWithTimeout.mockImplementation(async () => {
       throw new Error('no call expected for the outfit');
     });
-    const { results } = await renderStorySpreads(baseParams({
+    const { results, outfitLockUsed, advisories } = await renderStorySpreads(baseParams({
       spreadNos: [1], spreads: [1],
       childPhotoUrl: 'https://photos.example/outfit-child-C.png?sig=1',
     }));
     expect(results[0].storageKey).not.toContain('-o');
+    // Disabled-by-kill-switch is an operator choice, not an advisory.
+    expect(outfitLockUsed).toBe('none');
+    expect(advisories).toEqual([]);
   });
 });
 
@@ -575,5 +603,85 @@ describe('QA marker integrity (renderHash)', () => {
     expect(results[0].buffer).toEqual(png);
     expect(results[0].advisories.some(a => a.note?.includes('UNCHECKED'))).toBe(true);
     expect(results[0].advisories.some(a => a.note === 'stale verdict')).toBe(false);
+  });
+});
+
+describe('shot plan rides the render path (ce-8)', () => {
+  const cleanVerdict = JSON.stringify({
+    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false,
+  });
+  const geminiText = text => ({
+    ok: true,
+    json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
+  });
+
+  afterEach(() => {
+    delete process.env.CATALOG_SHOT_PLAN;
+    fetchWithTimeout.mockRejectedValue(new Error('offline test'));
+  });
+
+  test('every render carries its ASSIGNED composition: scene block, opts.shotType, and the NSFW fallback suffix', async () => {
+    generateIllustration.mockClear();
+    const { results } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));
+    expect(results[0].buffer).not.toBeNull();
+    for (const call of generateIllustration.mock.calls) {
+      const [scene, , , opts] = call;
+      expect(scene).toContain('COMPOSITION (ASSIGNED FOR THIS SPREAD');
+      expect(typeof opts.shotType).toBe('string');
+      expect(opts.safeFallbackSuffix).toContain('COMPOSITION (ASSIGNED FOR THIS SPREAD');
+    }
+    // Spread 1 is the wide establishing bookend by contract.
+    expect(generateIllustration.mock.calls[0][3].shotType).toBe('wide');
+  });
+
+  test('CATALOG_SHOT_PLAN=0 renders plan-less on a -sp0 folded key (never replaying planned renders)', async () => {
+    const planned = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    process.env.CATALOG_SHOT_PLAN = '0';
+    generateIllustration.mockClear();
+    const plainless = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    expect(plainless.results[0].storageKey).toContain('-sp0');
+    expect(planned.results[0].storageKey).not.toContain('-sp0');
+    const [scene, , , opts] = generateIllustration.mock.calls[0];
+    expect(scene).not.toContain('COMPOSITION (ASSIGNED FOR THIS SPREAD');
+    expect(opts.shotType).toBeUndefined();
+  });
+
+  test('a composition_duplicate gate finding re-renders the flagged spread against its OWN plan directive', async () => {
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      if (prompt.includes('CROSS-SPREAD CONSISTENCY')) {
+        return geminiText(JSON.stringify({
+          consistent: false,
+          flagged: [{ spread: 3, defect: 'composition_duplicate', note: 'spreads 1 and 3 read as the same mid-shot' }],
+        }));
+      }
+      return geminiText(cleanVerdict);
+    });
+    generateIllustration.mockClear();
+    const { worldQa } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));
+    expect(worldQa.rerendered).toEqual([3]);
+    const repairScene = generateIllustration.mock.calls.at(-1)[0];
+    expect(repairScene).toContain('duplicates another spread\'s composition');
+    expect(repairScene).toContain('Obey THIS spread\'s assigned composition exactly:');
+    expect(repairScene).toContain('COMPOSITION (ASSIGNED FOR THIS SPREAD');
+  });
+
+  test('bath/water spreads reach the world gate as outfit-exempt', async () => {
+    isModestBathWaterScene.mockImplementation(scene => scene.includes('Scene 3 of 12'));
+    let gatePrompt = null;
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      if (prompt.includes('CROSS-SPREAD CONSISTENCY')) {
+        gatePrompt = prompt;
+        return geminiText(JSON.stringify({ consistent: true, flagged: [] }));
+      }
+      return geminiText(cleanVerdict);
+    });
+    try {
+      await renderStorySpreads(baseParams());
+      expect(gatePrompt).toContain('spread(s) 3 are bath/water scenes');
+    } finally {
+      isModestBathWaterScene.mockReset().mockReturnValue(false);
+    }
   });
 });
