@@ -79,6 +79,12 @@
  *                                   and scored before selection (1-3, default 2).
  *  - CATALOG_DRIFT_MAX_REPAIRS=N  — (ce-9) extra corrective passes reserved
  *                                   for drift-class defects (0-4, default 2).
+ *  - CATALOG_RENDER_CONCURRENCY=N — spreads rendered in parallel (1-8,
+ *                                   default 6 — the refactor plan's key-pool
+ *                                   sizing; each spread slot fans out into
+ *                                   CATALOG_RENDER_CANDIDATES concurrent
+ *                                   image calls). Also bounds the set gates'
+ *                                   parallel corrective re-renders.
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -125,4 +131,5 @@ module.exports = {
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 2, 1, 3),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 2, 0, 4),
+  renderConcurrency: () => envInt('CATALOG_RENDER_CONCURRENCY', 6, 1, 8),
 };
