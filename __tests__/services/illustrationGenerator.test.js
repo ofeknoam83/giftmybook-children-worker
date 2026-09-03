@@ -127,10 +127,17 @@ describe('ce-15: the text block has a FOOTPRINT, a no-panel rule that names the 
 
   test('the no-panel rule names the panels the model reaches for, and says the scene is the only backdrop', () => {
     const prompt = build();
-    expect(prompt).toContain('The ONLY thing behind the letters is the scene itself');
+    expect(prompt).toContain('The ONLY thing behind the letters is the untouched scene');
     for (const word of ['card', 'plaque', 'sign', 'board', 'parchment', 'scroll', 'banner']) expect(prompt).toContain(word);
-    expect(prompt).toContain('a panel or band behind the text will be REJECTED');
+    expect(prompt).toContain('a blurred or darkened zone is a soft panel and will be REJECTED');
     expect(prompt).not.toContain('a horizontal text band across the image will be REJECTED');
+    // ce-17: the scene under the letters stays sharp — no haze zone, legibility from a thin outline only.
+    expect(prompt).toContain('NEVER blur, fog, soften, darken, lighten, desaturate, or empty the area behind or around the text');
+    expect(prompt).toContain("Legibility comes ONLY from the letters' own thin dark outline");
+    expect(prompt).toContain('thin, tight dark outline hugging each letter');
+    expect(prompt).not.toContain('whisper-soft dark contact shadow');
+    expect(prompt).not.toContain('gentle depth haze');
+    expect(prompt.slice(prompt.indexOf('TEXT — FINAL CHECK'))).toContain('blur, fog, glow, or darkening');
   });
 
   test('a typography reference index is cited as TYPE ONLY; without one the line is absent', () => {

@@ -116,9 +116,11 @@ const SPREAD_QA_MAX_REPAIRS = () => {
 /**
  * ce-15: the embedded sibling of the half-layout print hint — the column
  * the story text is painted over (the shot plan's side + the TEXT_RULES
- * geometry the renderer states) is asked for as continuous CALM scenery,
- * so small letters are legible WITHOUT the card/board/panel the model
- * otherwise reaches for. Fixed template text over pinned numbers; rides
+ * geometry the renderer states) is asked for as the scene's simpler areas
+ * at FULL sharpness (ce-17: "calm scenery / gentle depth haze" was read as
+ * "blur the column" — every page shipped a soft haze panel), so small
+ * letters are legible WITHOUT the card/board/panel/blur the model otherwise
+ * reaches for. Fixed template text over pinned numbers; rides
  * the scene and the generic-safe fallback suffix. Pure — exported for tests.
  * @param {'left'|'right'|null} side the assigned text side (null → no hint)
  * @param {object} rules resolvePictureBookTextRules(childAge)
@@ -131,7 +133,7 @@ function renderTextColumnHint(side, rules) {
   const top = rules.topPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const bottom = rules.bottomPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const xRange = side === 'left' ? `x from ${edge}% to ${active}%` : `x from ${100 - active}% to ${100 - edge}%`;
-  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Keep that column continuous CALM scenery — sky, water, a plain wall, soft foliage, gentle depth haze — with no faces, no companion, no props, no signage, and no busy detail or strong contrast edges inside it, so the small letters stay legible WITHOUT any card, board, panel, or band behind them. The scenery must continue through the column edge to edge (a calm area is scenery, not a blank zone); the child and all key action live outside the column.`;
+  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin dark outline, not from treating the background. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
 }
 
 /** Corrective world-gate re-renders allowed per run (cost bound). */

@@ -484,6 +484,22 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   naming the field retries once without it, the seed's pattern; folded
   into the render key as `-is{size}`) — more pixels per glyph is what
   keeps small painted text crisp at print. STYLE_VERSION `ce-16`.
+  **The text sits INSIDE the picture (`ce-17`, 2026-09-03)**: the first
+  ce-16 round shipped a blurred, darkened haze zone behind every text
+  block — the ce-15 column hint's "calm scenery … gentle depth haze … no
+  busy detail" read as "blur the column", and the typography anchor then
+  copied page 1's haze book-wide. Every text rule now demands the scene
+  under and around the letters at FULL sharpness, colour, and detail
+  (TEXT INTEGRATION, the REMINDER, the FINAL CHECK, the column hint —
+  "the scene's simpler areas at full sharpness, never blur, fog, soften,
+  darken, lighten, desaturate, or empty it" — and the typography
+  reference's label), legibility comes only from a thin, tight dark
+  outline (`TEXT_RULES.fontColor` drops the "soft contact shadow"), and QA
+  v2 gains `text_backdrop_treated` (required with embedded text; `qa-9`):
+  a blurred, fogged, softened, darkened, lightened, desaturated, or
+  emptied area behind the text is the BLOCKING `embedded story text sits
+  on a treated backdrop` with its own repair note, and the world gate's
+  TEXT TREATMENT dimension names it too. STYLE_VERSION `ce-17`.
   Three false-positive guards landed the same day (each could fail a
   full book `consistency_unresolved` on its own): `compareTexts`
   normalizes glyphs before comparing (curly↔straight quotes, NFD-stripped
