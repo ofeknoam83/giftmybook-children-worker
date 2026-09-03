@@ -86,6 +86,15 @@
  *                                   image calls). Also bounds the set gates'
  *                                   parallel corrective re-renders.
  *
+ *  - CATALOG_TEXT_ANCHOR=0        — (ce-15) stop electing the book's own
+ *                                   first painted page as the TYPOGRAPHY
+ *                                   REFERENCE for its other embedded
+ *                                   spreads (they render on the text rules
+ *                                   alone; the caller folds -ta0 into the
+ *                                   render cache key so anchored and
+ *                                   anchor-less renders never replay each
+ *                                   other).
+ *
  *  - CATALOG_GIFT_VIDEO=0          — (gv-1) disable the gift-video endpoints
  *                                   (`/v13/generate-video` answers 503).
  *  - CATALOG_VIDEO_PROVIDERS=a,b   — (gv-1) the providers an admin may select
@@ -155,6 +164,9 @@ module.exports = {
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 2, 1, 3),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 2, 0, 4),
   renderConcurrency: () => envInt('CATALOG_RENDER_CONCURRENCY', 6, 1, 8),
+  // ce-15 — the typography anchor (the book's first painted page as the
+  // type reference for its other embedded spreads)
+  textAnchorEnabled: () => !envOff('CATALOG_TEXT_ANCHOR'),
   // gv-1 — the gift video (docs/GIFT_VIDEO_PLAN.md §5.3)
   giftVideoEnabled: () => !envOff('CATALOG_GIFT_VIDEO'),
   videoProviders: () => String(process.env.CATALOG_VIDEO_PROVIDERS || 'replicate')

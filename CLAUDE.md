@@ -177,7 +177,8 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   A run that renders lock-less while the switch is ON carries a stage
   `outfitLock` advisory, and callbacks echo `outfitLockUsed`
   (`<hash>`/`none`) beside `illustrationTuningUsed` — a lock-less book is
-  never silent. Cross-spread outfit sameness comes from this pinned spec +
+  never silent. Since `ce-15` they also echo `typographyAnchorUsed`
+  (`s{spread}.{hash8}`/`none`). Cross-spread outfit sameness comes from this pinned spec +
   the anchor image + the QA gates — never from aspirational "keep it
   identical" prompt lines.
   Composition VARIETY (`ce-8`) is pinned the same way consistency is: the
@@ -422,6 +423,49 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   the painted text again: cap height ≈ 1.5% of the image height (line
   pitch ≈ 2.8%; the 3–8 tier nearer 1.3%), "about a third of the usual AI
   caption size — when unsure, go smaller".
+  **Painted text held to a footprint and a reference (`ce-15`,
+  2026-09-03)**: an Art Bench round showed the painted font size varying
+  two to three times between spreads of one book and one spread painting
+  its text on a solid beige panel — after four prompt-only style versions,
+  because a percentage of the frame is not something an image model
+  perceives and nothing measured the result. (1) The FONT SIZE rule is now
+  followed by the block's FOOTPRINT in the model's own terms
+  (`expectedTextBlock` in `shared/illustration/textBlock.js`: the widest
+  pre-wrapped row × `TEXT_RULES.charWidthPercent` → "this block is about
+  X% of the width wide", rows × `linePitchPercent` → "Y% of the height
+  tall"; the type never grows to fill the column), restated in the
+  checklist and in a `TEXT — FINAL CHECK` block that is the prompt's last
+  fixed block before any tuning. (2) `generateIllustration` now forwards
+  the shot plan's `textSide` (since ce-13 the builder read it but the
+  renderer never passed it — every production render got the "pick a
+  single side" wording) and the typography reference index. (3) The
+  no-panel rule names what the model reaches for — card, plaque, sign,
+  board, parchment, scroll, banner, box, any flat/lightened/darkened plane
+  — and the scene carries a TEXT COLUMN hint (`renderTextColumnHint`, the
+  half layout's proven technique): the assigned column is continuous CALM
+  scenery so small letters are legible without a panel. (4) **The
+  typography anchor** (`illustrator/textAnchor.js`, kill-switch
+  `CATALOG_TEXT_ANCHOR=0`): the text-side HALF of one painted page of the
+  story (a crop at full height — never a whole sibling frame; the
+  2026-08-06 photocopy-drift deletion stands) rides every other spread's
+  reference pack as the LAST entry, labeled TYPE ONLY ("each row of your
+  text as tall as one of its rows"). It is elected ONCE per story and
+  pinned beside the renders as ONE json object (`typo-anchor.wide.json`:
+  the crop with its spread, side and hash; create-if-absent, single
+  winner) — every later run reuses the pin whatever its subset (a bench
+  probe on spreads 4–6 pins page 4 and the final book anchors on page 4
+  too, so approved probe renders stay replayable); only a run with NO pin
+  renders its first spread alone before the fan-out to elect it;
+  `forceRerender` re-elects. The pinned page keeps its plain cache key
+  and every other spread folds the crop's hash (`-ta{hash8}`, `-ta0` when
+  off); callbacks echo `typographyAnchorUsed` (`s{spread}.{hash8}` or
+  `none`, with a stage `typographyAnchor` advisory when an embedded run
+  has none). (5) The
+  ruler (`qa-7`): QA v2 holds the judged `text_bbox` to the same footprint
+  — ≥ 1.6× too wide or tall is BLOCKING `embedded story text too large`
+  (the smaller candidate wins; a residual never ships), ≥ 1.3× the
+  advisory `oversized`; the repair note restates the footprint and cites
+  the reference. STYLE_VERSION `ce-15`, QA_VERSION `qa-7`.
   Three false-positive guards landed the same day (each could fail a
   full book `consistency_unresolved` on its own): `compareTexts`
   normalizes glyphs before comparing (curly↔straight quotes, NFD-stripped
@@ -464,6 +508,11 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   composition (shot type/staging/placement) and its QA checks (cache-keyed:
   `-sp0` folds into the render key when disabled, so planned and plan-less
   renders never replay each other).
+- `CATALOG_TEXT_ANCHOR=0` — (ce-15) stop electing the book's first painted
+  embedded spread as the TYPOGRAPHY REFERENCE for its other spreads (they
+  render on the text rules alone; cache-keyed: `-ta0` folds into the
+  render key when disabled, so anchored and anchor-less renders never
+  replay each other).
 - `CATALOG_CHARACTER_SHEET=0` — (ce-9) no character model sheet (renders
   anchor on the cover alone; the outfit spec derives from the cover again).
 - `CATALOG_SHEET_REQUIRED=0` — (ce-9) a book whose sheet cannot be built

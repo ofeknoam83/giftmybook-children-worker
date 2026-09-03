@@ -277,7 +277,7 @@ async function buildBookBible(p) {
  * @param {{base64: string, mimeType: string}} ctx.refPhoto the anchor bytes
  * @param {string[]} ctx.propValues prop values present on this spread (declared first, then carried)
  * @param {boolean} ctx.companionOnSpread
- * @returns {{pack: Array<{label: string, base64: string, mimeType: string, kind: string}>, refs: {characterSheetRef: number|null, coverRef: number|null, props: Object<string, number>, companionRef: number|null, worldPlateRef: number|null}}}
+ * @returns {{pack: Array<{label: string, base64: string, mimeType: string, kind: string}>, refs: {characterSheetRef: number|null, coverRef: number|null, props: Object<string, number>, companionRef: number|null, worldPlateRef: number|null, typographyRef: number|null}}}
  */
 function buildReferencePack(bible, ctx) {
   const pack = [];
@@ -285,7 +285,7 @@ function buildReferencePack(bible, ctx) {
   // `__proto__` or `constructor`, so the per-value index is a prototype-
   // less map and membership is an own-property check — an inherited key
   // must never make a sheet look "already attached".
-  const refs = { characterSheetRef: null, coverRef: null, props: Object.create(null), companionRef: null, worldPlateRef: null };
+  const refs = { characterSheetRef: null, coverRef: null, props: Object.create(null), companionRef: null, worldPlateRef: null, typographyRef: null };
   const push = (entry) => { pack.push(entry); return pack.length; };
   if (bible.sheet) {
     refs.characterSheetRef = push({ kind: 'characterSheet', label: 'CHARACTER MODEL SHEET (identity AND the complete outfit of the ONE child in this book — front, three-quarter, back): draw this exact child in this exact outfit. Use it ONLY for who the child is and what they wear; never copy a pose, expression or the plain studio background.', base64: bible.sheet.base64, mimeType: bible.sheet.mimeType || 'image/png' });
@@ -309,6 +309,16 @@ function buildReferencePack(bible, ctx) {
   }
   if (bible.worldPlate) {
     refs.worldPlateRef = push({ kind: 'worldPlate', label: 'WORLD STYLE PLATE (this book\'s fixed world): match its palette, lighting, era, materials, and environment logic exactly. Do NOT copy its composition, and NEVER treat it as the scene to draw — it contains no characters and this illustration\'s action comes from the prompt only.', base64: bible.worldPlate.base64, mimeType: bible.worldPlate.mimeType || 'image/png' });
+  }
+  // ce-15: the book's OWN typography reference — the text-side half of the
+  // first painted embedded spread (a crop at full height, never a whole
+  // sibling frame: the 2026-08-06 photocopy-drift deletion stands) —
+  // attached LAST so the "match this type" instruction sits beside the
+  // text rules it serves. TYPE ONLY by label.
+  if (ctx.typographyAnchor && ctx.typographyAnchor.base64) {
+    const a = ctx.typographyAnchor;
+    const side = a.side === 'right' ? 'RIGHT' : 'LEFT';
+    refs.typographyRef = push({ kind: 'typography', label: `TYPOGRAPHY REFERENCE (page ${a.spread} of THIS book, already painted — the ${side} half of that page at full height): match its story text's typeface, weight, colour, shadow, and SIZE relative to the page height EXACTLY (each row of your text as tall as one of its rows), painted over open scenery the same way. TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`, base64: a.base64, mimeType: a.mimeType || 'image/png' });
   }
   return { pack, refs };
 }

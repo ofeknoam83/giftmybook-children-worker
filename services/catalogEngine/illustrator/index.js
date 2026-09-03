@@ -50,6 +50,9 @@ const { renderWorldCardBlock } = require('../worldCards');
 const { STYLE_VERSION, QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
+const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
+const { expectedTextBlock } = require('../../shared/illustration/textBlock');
+const { resolvePictureBookTextRules } = require('../../shared/illustration/config');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Spreads rendered in parallel (each slot fans out into
@@ -110,6 +113,27 @@ const SPREAD_QA_MAX_REPAIRS = () => {
   return Number.isInteger(n) && n >= 0 && n <= 4 ? n : 2;
 };
 
+/**
+ * ce-15: the embedded sibling of the half-layout print hint — the column
+ * the story text is painted over (the shot plan's side + the TEXT_RULES
+ * geometry the renderer states) is asked for as continuous CALM scenery,
+ * so small letters are legible WITHOUT the card/board/panel the model
+ * otherwise reaches for. Fixed template text over pinned numbers; rides
+ * the scene and the generic-safe fallback suffix. Pure — exported for tests.
+ * @param {'left'|'right'|null} side the assigned text side (null → no hint)
+ * @param {object} rules resolvePictureBookTextRules(childAge)
+ * @returns {string} '' without a side
+ */
+function renderTextColumnHint(side, rules) {
+  if (side !== 'left' && side !== 'right' || !rules) return '';
+  const edge = rules.edgePaddingPercent;
+  const active = rules.activeSideMaxPercent;
+  const top = rules.topPaddingPercent ?? rules.cornerVerticalPaddingPercent;
+  const bottom = rules.bottomPaddingPercent ?? rules.cornerVerticalPaddingPercent;
+  const xRange = side === 'left' ? `x from ${edge}% to ${active}%` : `x from ${100 - active}% to ${100 - edge}%`;
+  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Keep that column continuous CALM scenery — sky, water, a plain wall, soft foliage, gentle depth haze — with no faces, no companion, no props, no signage, and no busy detail or strong contrast edges inside it, so the small letters stay legible WITHOUT any card, board, panel, or band behind them. The scenery must continue through the column edge to edge (a calm area is scenery, not a blank zone); the child and all key action live outside the column.`;
+}
+
 /** Corrective world-gate re-renders allowed per run (cost bound). */
 const WORLD_QA_MAX_RERENDERS = () => {
   const n = Number(process.env.CATALOG_WORLD_QA_MAX_RERENDERS);
@@ -168,7 +192,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, ageBand, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, ageBand, typographyAnchor = null, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -206,7 +230,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const halfHint = textLayout === 'half'
     ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
     : '';
-  const sceneWithLayout = halfHint ? `${sceneWithShot}${halfHint}` : sceneWithShot;
+  // ce-15: the embedded sibling of the half hint (renderTextColumnHint).
+  const textRules = embedText ? resolvePictureBookTextRules(profile?.age) : null;
+  const columnHint = embedText ? renderTextColumnHint(shotEntry ? shotEntry.textSide : null, textRules) : '';
+  const sceneWithLayout = `${sceneWithShot}${halfHint}${columnHint}`;
   // BATH/WATER MODE spreads deliberately change the child's coverage — the
   // pinned outfit spec must not be enforced against them (the renderer's own
   // heuristic decides, so QA and prompt agree on which spreads those are).
@@ -230,6 +257,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     refPhoto,
     propValues: [...declaredProps, ...carriedProps],
     companionOnSpread: companionPresent,
+    // ce-15: the book's own first painted page (text-side crop) as the
+    // TYPOGRAPHY REFERENCE — only on spreads other than the anchor itself.
+    typographyAnchor: embedText && typographyAnchor && typographyAnchor.base64 ? typographyAnchor : null,
   });
   const promptBible = buildPromptBible(bible, refs, {
     spread, declaredProps, carriedProps, companionOnSpread: companionPresent, characterDescription: characterDescription || null,
@@ -272,6 +302,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // gate all agree on where the words live.
     ...(shotEntry ? { shotType: shotEntry.shotType } : {}),
     ...(shotEntry && shotEntry.textSide ? { textSide: shotEntry.textSide } : {}),
+    // ce-15: the pack index of the TYPOGRAPHY REFERENCE (the renderer's
+    // text rules cite it: "match REFERENCE IMAGE N").
+    ...(Number.isInteger(refs.typographyRef) ? { typographyRef: refs.typographyRef } : {}),
     bookId,
     costTracker,
     // The identity anchor bytes still ride (the renderer's with-photo
@@ -294,7 +327,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // directive is closed-vocabulary template text (shotPlan.js), the note
     // maps a closed enum, the tuning is admin-approved and sanitized
     // (tuning.js).
-    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), shotDirective, worldNoteText, tuningBlock].filter(Boolean).join('\n') || null,
+    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), shotDirective, columnHint.trim(), worldNoteText, tuningBlock].filter(Boolean).join('\n') || null,
     // Workbench probes may pin a seed for tighter A/B; applying it stays
     // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
     // retry-without on seed-rejecting models). The seed also rides the
@@ -307,6 +340,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // every candidate, repair, and replay re-check of this spread.
   const qaOpts = {
     expectedText: embedText ? spreadText : null,
+    // qa-7: the block's footprint — the ruler the judged text bbox is held to.
+    expectedBlock: embedText ? (({ widthPercent, heightPercent }) => ({ widthPercent, heightPercent }))(expectedTextBlock(spreadText, textRules)) : null,
     shotType: shotEntry ? shotEntry.shotType : null,
     outfitSpec: outfitSpecText,
     bathWater,
@@ -329,6 +364,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     shotType: qaOpts.shotType,
     outfitSpec: outfitSpecText,
     sheetRef: refs.characterSheetRef,
+    expectedBlock: qaOpts.expectedBlock,
+    typographyRef: Number.isInteger(refs.typographyRef) ? refs.typographyRef : null,
     props: qaOpts.props.map(p => ({ name: p.name, specText: p.specText, ref: refs.props[p.name] || null })),
     companion: qaOpts.companion ? { name: qaOpts.companion.name, ref: refs.companionRef } : null,
     beat: qaOpts.beat,
@@ -1038,10 +1075,43 @@ async function renderStorySpreads(params) {
   const pLimit = require('p-limit');
   const limit = pLimit(RENDER_CONCURRENCY());
   let done = 0;
+  // ce-15: the TYPOGRAPHY ANCHOR — the text-side half of one painted page
+  // of THIS story is the type reference every other spread renders
+  // against. It is elected ONCE per story and pinned (textAnchor.js); an
+  // earlier run's pin is reused whatever this run's subset is (a bench
+  // probe on spreads 4–6 pins page 4, and the final book anchors on page
+  // 4 too, so the approved probe renders stay replayable). Only a run
+  // with NO pin renders its first spread alone before the fan-out to
+  // elect it. The pinned page keeps its plain cache key (its key cannot
+  // depend on its own crop); every other spread folds the crop's hash
+  // (`-ta{hash8}`). With the kill-switch off every embedded key folds
+  // `-ta0`, so anchored and anchor-less renders never replay each other.
+  const tuningTag = tuning ? tuning.tag : 'none';
+  const anchorEnabled = textLayout === 'embedded' && flags.textAnchorEnabled();
+  const anchorOff = textLayout === 'embedded' && !flags.textAnchorEnabled();
+  const anchorAdvisories = [];
+  const anchorPinKey = anchorEnabled ? anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)) : null;
+  const toAnchorRef = (e) => ({ spread: e.spread, side: e.side, base64: e.bytes.toString('base64'), mimeType: 'image/png', hash: e.hash, pinned: e.pinned });
+  const pinned = anchorEnabled && !forceRerender ? await readPinnedTypographyAnchor(anchorPinKey) : null;
+  let typographyAnchor = pinned ? toAnchorRef(pinned) : null;
+  if (typographyAnchor) log('info', `Typography anchor: pinned page ${typographyAnchor.spread} reused (${typographyAnchor.hash})`);
+  // The run's anchor spread: the pinned page, else (no pin yet) this run's
+  // first spread — rendered alone first so its crop can be elected.
+  const electNow = anchorEnabled && !typographyAnchor && wanted.length > 1;
+  let anchorSpreadNo = typographyAnchor ? typographyAnchor.spread : (electNow ? wanted[0].spread : null);
+  const hashFor = (spread) => {
+    if (anchorOff) return `${storyHash}-ta0`;
+    if (typographyAnchor && spread !== anchorSpreadNo) return `${storyHash}-ta${typographyAnchor.hash.slice(0, 8)}`;
+    return storyHash;
+  };
+  // Every spread renders WITH the reference once one exists — the pinned
+  // page too when it is re-rendered (its own earlier text is the best
+  // possible type reference for it); only the fold above skips it.
   const spreadArgs = (spread, extra = {}) => ({
-    bookId, book, theme, profile, story, storyHash,
+    bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
     tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    ...(typographyAnchor ? { typographyAnchor } : {}),
     ...extra,
   });
   // allSettled, not all: one thrown spread must cost only THAT spread — the
@@ -1056,12 +1126,34 @@ async function renderStorySpreads(params) {
   const renderHeartbeat = setInterval(() => onProgress(Math.max(0.01, done / wanted.length), `Illustrating spreads (${done}/${wanted.length} done)...`), 30000);
   let settled;
   try {
-    settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
+    const renderOne = async (beat) => {
       const r = await renderSpread(spreadArgs(beat.spread, { forceRerender: forceRerender || forceSet.has(beat.spread) }));
       done += 1;
       onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
       return r;
-    })));
+    };
+    let anchorSettled = null;
+    if (electNow) {
+      onProgress(0.01, `Illustrating spread ${anchorSpreadNo} first (the book's typography anchor)...`);
+      [anchorSettled] = await Promise.allSettled([renderOne(wanted[0])]);
+      const anchorBuffer = anchorSettled.status === 'fulfilled' && anchorSettled.value ? anchorSettled.value.buffer : null;
+      const side = shotPlan && shotPlan[anchorSpreadNo] ? shotPlan[anchorSpreadNo].textSide : null;
+      const elected = side
+        ? await electTypographyAnchor({ buffer: anchorBuffer, side, spread: anchorSpreadNo, pinKey: anchorPinKey, reelect: !!forceRerender, log })
+        : null;
+      if (elected) {
+        // A lost create race adopts the winner — possibly another page,
+        // elected by a concurrent run of a different subset.
+        typographyAnchor = toAnchorRef(elected);
+        anchorSpreadNo = elected.spread;
+        log('info', `Typography anchor: page ${elected.spread} (${elected.side} half, ${elected.pinned ? 'pinned' : 'elected'} ${elected.hash})`);
+      } else {
+        anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo} ${side ? 'produced no usable render to crop' : 'has no assigned text side'}; the other spreads render on the text rules alone` });
+      }
+    }
+    const rest = electNow ? wanted.slice(1) : wanted;
+    settled = await Promise.allSettled(rest.map(beat => limit(() => renderOne(beat))));
+    if (anchorSettled) settled = [anchorSettled, ...settled];
   } finally {
     clearInterval(renderHeartbeat);
   }
@@ -1080,7 +1172,7 @@ async function renderStorySpreads(params) {
     return {
       spread,
       buffer: null,
-      storageKey: renderCachePath(bookId, storyHash, spread, cacheAspect, tuning ? tuning.tag : 'none'),
+      storageKey: renderCachePath(bookId, hashFor(spread), spread, cacheAspect, tuningTag),
       url: null,
       advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
       fresh: false,
@@ -1115,7 +1207,7 @@ async function renderStorySpreads(params) {
   if (contactQa) log('info', `Contact gate done in ${Math.round((Date.now() - contactGateStart) / 1000)}s (${contactQa.rerendered?.length || 0} re-render(s))`);
 
   // Book-level advisories (the bible's own + the ce-8 lock-less warning).
-  const advisories = [...bible.advisories];
+  const advisories = [...bible.advisories, ...anchorAdvisories];
   if (flags.outfitLockEnabled() && !outfitLock && !advisories.some(a => a.stage === 'outfitLock')) {
     advisories.push({
       stage: 'outfitLock',
@@ -1151,6 +1243,10 @@ async function renderStorySpreads(params) {
     worldQa,
     contactQa,
     outfitLockUsed: outfitLock ? outfitLock.hash : 'none',
+    // ce-15: which page's painted text the other spreads were held to
+    // (`s{spread}.{hash8}`), or 'none' — an anchor-less embedded run also
+    // carries a stage 'typographyAnchor' advisory.
+    typographyAnchorUsed: typographyAnchor ? `s${typographyAnchor.spread}.${typographyAnchor.hash.slice(0, 8)}` : 'none',
     bible,
     bookBible,
     unresolved,
@@ -1170,7 +1266,7 @@ async function renderStorySpreads(params) {
 async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
-  const { results, aspect, tuningTag, worldQa, contactQa, outfitLockUsed, bookBible, bible, unresolved, advisories: bookAdvisories } = await renderStorySpreads({
+  const { results, aspect, tuningTag, worldQa, contactQa, outfitLockUsed, typographyAnchorUsed, bookBible, bible, unresolved, advisories: bookAdvisories } = await renderStorySpreads({
     ...params, spreads: null, rerenderSpreads: null, probeNonce: null,
   });
   const qaAdvisories = [...bookAdvisories, ...results.flatMap(r => r.advisories)];
@@ -1231,6 +1327,7 @@ async function illustrateStory(params) {
     worldQa: worldQa || null,
     contactQa: contactQa || null,
     outfitLockUsed,
+    typographyAnchorUsed,
     bookBible,
     // In-memory bible (sheet bytes, outfit spec) for the pipeline's other
     // consumers — the upsell spread and the wrap cover; never serialized.
@@ -1238,4 +1335,4 @@ async function illustrateStory(params) {
   };
 }
 
-module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate };
+module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, renderTextColumnHint };

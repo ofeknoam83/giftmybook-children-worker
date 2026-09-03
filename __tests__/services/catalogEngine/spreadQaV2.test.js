@@ -342,3 +342,60 @@ test('repairNoteV2 restates only pinned data for the ce-9 defect classes, keepin
   expect(note).toContain('Exactly ONE instance of the child hero');
   expect(OUTFIT_SLOTS).toEqual(['top', 'bottom', 'footwear', 'outerwear', 'accessories']);
 });
+
+describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'s footprint', () => {
+  const { textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO } = require('../../../services/catalogEngine/illustrator/spreadQa');
+  const TEXT = 'Aaron checked the ground nearby first. No cracked earth, no steep drop, no thorny patch blocked the way.';
+  const block = { widthPercent: 18, heightPercent: 11.2 }; // a 4-row block at the fixed size
+  const textOpts = (over = {}) => ({ label: 't', expectedText: TEXT, expectedBlock: block, ...over });
+  const textVerdict = (bbox) => cleanVerdict({
+    readable_text: true, visible_text: TEXT,
+    text_split_both_sides: false, text_on_band: false, text_in_center_gutter: false,
+    text_lines_misaligned: false, text_style_inconsistent: false, text_bbox: bbox,
+  });
+
+  test('textSizeRatio is the max of the width and height ratios, null without a bbox or footprint', () => {
+    expect(textSizeRatio({ x: 0.07, y: 0.3, w: 0.18, h: 0.112 }, block)).toBe(1);
+    expect(textSizeRatio({ x: 0.07, y: 0.3, w: 0.36, h: 0.112 }, block)).toBe(2); // re-broken longer rows
+    expect(textSizeRatio({ x: 0.07, y: 0.3, w: 0.18, h: 0.224 }, block)).toBe(2); // a bigger face
+    expect(textSizeRatio(null, block)).toBeNull();
+    expect(textSizeRatio({ x: 0, y: 0, w: 0.2, h: 0.2 }, null)).toBeNull();
+    expect(TEXT_TOO_LARGE_RATIO).toBeGreaterThan(TEXT_OVERSIZED_RATIO);
+  });
+
+  test('a block at twice its footprint is BLOCKING "too large"; 1.4× is the advisory "oversized"; on-footprint is clean', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.36, h: 0.22 })));
+    const big = await checkSpreadRenderV2(IMG, textOpts());
+    expect(big.blocking).toEqual([expect.stringMatching(/^embedded story text too large \(about 2× the book's fixed size\)/)]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.25, h: 0.12 })));
+    const over = await checkSpreadRenderV2(IMG, textOpts());
+    expect(over.blocking).toEqual([]);
+    expect(over.advisory).toEqual([expect.stringMatching(/^embedded story text oversized \(about 1\.4×/)]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.17, h: 0.11 })));
+    const ok = await checkSpreadRenderV2(IMG, textOpts());
+    expect(ok.pass).toBe(true);
+  });
+
+  test('no footprint or no bbox ⇒ no size verdict (fail-open); the fold check is untouched', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.36, h: 0.22 })));
+    const noBlock = await checkSpreadRenderV2(IMG, textOpts({ expectedBlock: null }));
+    expect(noBlock.defects).toEqual([]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict(null)));
+    const noBbox = await checkSpreadRenderV2(IMG, textOpts());
+    expect(noBbox.defects).toEqual([]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.4, y: 0.3, w: 0.2, h: 0.11 })));
+    const fold = await checkSpreadRenderV2(IMG, textOpts());
+    expect(fold.blocking).toEqual(['embedded story text crosses the page fold (center gutter)']);
+  });
+
+  test('the repair note restates the footprint and cites the typography reference, never a percentage of the frame alone', () => {
+    const note = repairNoteV2(['embedded story text too large (about 2× the book\'s fixed size)'], TEXT, { expectedBlock: block, typographyRef: 4 });
+    expect(note).toContain('painted far too LARGE');
+    expect(note).toContain('about 18% of the image width wide and 11.2% of its height tall');
+    expect(note).toContain('REFERENCE IMAGE 4');
+    expect(note).toContain('Fix ONLY the text size');
+    const bare = repairNoteV2(['embedded story text oversized (about 1.4× the book\'s fixed size)'], TEXT, {});
+    expect(bare).toContain('painted far too LARGE');
+    expect(bare).not.toContain('REFERENCE IMAGE');
+  });
+});
