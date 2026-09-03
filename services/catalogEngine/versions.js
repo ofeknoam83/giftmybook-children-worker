@@ -141,7 +141,17 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // CATALOG_EMBEDDED_IMAGE_SIZE (opt-in) requests a larger output size so
 // small glyphs stay crisp. Prompt text changed — ce-15 renders must never
 // replay as ce-16.
-const STYLE_VERSION = 'ce-16';
+// ce-17: the text sits INSIDE the picture — the first ce-16 round shipped a
+// blurred, darkened haze zone behind every text block (the ce-15 column
+// hint's "calm scenery … gentle depth haze … no busy detail" read as "blur
+// the column", and the typography anchor copied page 1's haze book-wide).
+// Every text rule now demands the scene under and around the letters at
+// FULL sharpness, colour and detail (legibility from a thin outline only),
+// the column hint asks for the scene's simpler areas at full sharpness, the
+// fontColor spec drops the "soft shadow" for a tight outline, and the
+// typography reference's label says the same. Prompt text changed — ce-16
+// renders must never replay as ce-17.
+const STYLE_VERSION = 'ce-17';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
@@ -180,7 +190,15 @@ const STYLE_VERSION = 'ce-16';
  * exposes `textSizeRatio` for selection. Markers written under qa-7 were
  * measured against the larger footprint — replays re-check.
  */
-const QA_VERSION = 'qa-8';
+/**
+ * qa-9 (ce-17): the v2 verdict gains `text_backdrop_treated` (required with
+ * embedded text) — a blurred, fogged, softened, darkened, lightened,
+ * desaturated, or emptied area behind the text is the BLOCKING 'embedded
+ * story text sits on a treated backdrop', the soft cousin of the band; the
+ * world gate's TEXT TREATMENT dimension names it too. qa-8 markers never
+ * judged it — replays re-check.
+ */
+const QA_VERSION = 'qa-9';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

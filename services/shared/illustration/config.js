@@ -126,7 +126,7 @@ const TEXT_RULES = {
   // ONE fixed fill color for the whole book — per-scene retinting is exactly
   // the cross-spread drift parents notice. Readability on any background
   // comes from the mandatory soft dark shadow/outline, never from recoloring.
-  fontColor: 'ONE fixed text color for the ENTIRE book: soft warm ivory (a slightly warm off-white), with a whisper-soft dark contact shadow or thin dark outline for readability. The SAME fill color and the SAME shadow treatment on every spread — never retint, recolor, or restyle the text to match an individual scene’s palette or lighting.',
+  fontColor: 'ONE fixed text color for the ENTIRE book: soft warm ivory (a slightly warm off-white), with a thin, tight dark outline hugging each letter for readability — never a wide glow, blurred halo, drop-shadow cloud, or darkened patch behind the block. The SAME fill color and the SAME thin outline on every spread — never retint, recolor, or restyle the text to match an individual scene’s palette or lighting.',
   // ce-13: a CONCRETE small size. "Modest subtitle" came out as caption
   // scale (cap height ~4% of the image) and long lines that crossed the
   // page fold; the size is now stated as a measure the model can hit, and
@@ -143,7 +143,7 @@ const TEXT_RULES = {
   charWidthPercent: 0.45,
   linePitchPercent: 2.1,
   // Extra guidance for prompt builders and system instruction (not always concatenated in old paths).
-  textIntegration: 'The caption is part of the same cinematic 3D frame: same color grade, same atmospheric haze, same exposure logic. No floating UI bar, no sharp rectangular panel behind lines, no sticker-like cutout with mismatched brightening, no highlighter blocks. If there is depth fog, letters soften very slightly at the micro-edges. Readability is mandatory, but the text must "live in" the light of the world, not sit on top as a separate layer of flat graphic design. **Typography and fill color** stay stable book-wide; only the soft shadow/haze around the glyphs may blend with the scene — never the font, size, or fill color.',
+  textIntegration: 'The caption is part of the same cinematic 3D frame: same color grade, same atmospheric haze, same exposure logic. No floating UI bar, no sharp rectangular panel behind lines, no sticker-like cutout with mismatched brightening, no highlighter blocks. The scenery under and around the letters stays exactly as sharp, bright, and detailed as the rest of the frame — never blurred, fogged, darkened, or emptied to make room for the text. Readability is mandatory, but the text must "live in" the light of the world, not sit on top as a separate layer of flat graphic design. **Typography and fill color** stay stable book-wide; only the thin outline around the glyphs may pick up the scene\'s light — never the font, size, or fill color.',
 };
 
 /**

@@ -841,7 +841,10 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     const [scene, , , opts] = generateIllustration.mock.calls[0];
     expect(scene).toContain('COMPOSITION FOR PRINT (TEXT COLUMN)');
     expect(scene).toMatch(/painted over the (LEFT|RIGHT) column/);
-    expect(scene).toContain('WITHOUT any card, board, panel, or band behind them');
+    // ce-17: the column is the scene at full sharpness — never a haze zone.
+    expect(scene).toContain('NEVER blur, fog, soften, darken, lighten, desaturate, or empty it');
+    expect(scene).toContain('their own thin dark outline');
+    expect(scene).not.toContain('gentle depth haze');
     expect(opts.safeFallbackSuffix).toContain('COMPOSITION FOR PRINT (TEXT COLUMN)');
     const caption = await (async () => { generateIllustration.mockClear(); await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] })); return generateIllustration.mock.calls[0][0]; })();
     expect(caption).not.toContain('TEXT COLUMN');

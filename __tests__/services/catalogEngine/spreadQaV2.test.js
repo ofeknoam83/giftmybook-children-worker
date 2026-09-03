@@ -197,7 +197,7 @@ test('the props field is STRICT: a shorter list, an untyped flag, or a reordered
 
 test('with embedded text expected, a readable_text:true verdict without a transcript is malformed; a transcript is compared', async () => {
   const opts = { ...fullOpts(), expectedText: 'The cow says moo.' };
-  const textFields = { text_split_both_sides: false, text_on_band: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
+  const textFields = { text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
   fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, visible_text: '', ...textFields })));
   expect((await checkSpreadRenderV2(IMG, opts)).qaUnavailable).toMatch(/malformed/);
   fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, ...textFields })));
@@ -214,7 +214,7 @@ test('with embedded text expected, a readable_text:true verdict without a transc
 
 test('text on the page fold is BLOCKING — judged boolean OR a text bbox straddling the middle tenth (ce-12)', async () => {
   const opts = { ...fullOpts(), expectedText: 'The cow says moo.' };
-  const textFields = { text_split_both_sides: false, text_on_band: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
+  const textFields = { text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
   const embedded = (over = {}) => cleanVerdict({ readable_text: true, visible_text: 'The cow says moo.', ...textFields, ...over });
 
   // The judge's boolean alone flags it.
@@ -350,7 +350,7 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
   const textOpts = (over = {}) => ({ label: 't', expectedText: TEXT, expectedBlock: block, ...over });
   const textVerdict = (bbox) => cleanVerdict({
     readable_text: true, visible_text: TEXT,
-    text_split_both_sides: false, text_on_band: false, text_in_center_gutter: false,
+    text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
     text_lines_misaligned: false, text_style_inconsistent: false, text_bbox: bbox,
   });
 
@@ -406,5 +406,40 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
     const bare = repairNoteV2(['embedded story text oversized (about 1.4× the book\'s fixed size)'], TEXT, {});
     expect(bare).toContain('painted far too LARGE');
     expect(bare).not.toContain('REFERENCE IMAGE');
+  });
+});
+
+describe('qa-9 (ce-17): a blurred, fogged, or darkened zone behind the text is a soft panel — BLOCKING like a band', () => {
+  const TEXT = 'Aaron checked the ground nearby first. No cracked earth, no steep drop, no thorny patch blocked the way.';
+  const opts = () => ({ label: 't', expectedText: TEXT, expectedBlock: { widthPercent: 13.5, heightPercent: 8.4 } });
+  const verdict = (over = {}) => cleanVerdict({
+    readable_text: true, visible_text: TEXT,
+    text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
+    text_lines_misaligned: false, text_style_inconsistent: false, text_bbox: { x: 0.07, y: 0.3, w: 0.13, h: 0.08 },
+    ...over,
+  });
+
+  test('the prompt asks for the field and demands a sharp scene behind the text; a treated backdrop is blocking with its own repair note', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict({ text_backdrop_treated: true })));
+    const r = await checkSpreadRenderV2(IMG, opts());
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('"text_backdrop_treated": true|false');
+    expect(prompt).toContain('as sharp, bright, and detailed as the rest of the image');
+    expect(r.blocking).toEqual([expect.stringMatching(/^embedded story text sits on a treated backdrop/)]);
+    expect(classifyDefects(r.defects).blocking).toHaveLength(1);
+    const note = repairNoteV2(r.defects, TEXT, {});
+    expect(note).toContain('Remove the blur, fog, glow, darkening, or lightening');
+    expect(note).toContain('as SHARP, bright, and detailed as the rest of the image');
+  });
+
+  test('the field is REQUIRED with embedded text: a verdict without it is malformed (fail-open, never a silent pass); clean stays clean', async () => {
+    const missing = verdict();
+    delete missing.text_backdrop_treated;
+    fetchWithTimeout.mockResolvedValueOnce(answer(missing));
+    const r = await checkSpreadRenderV2(IMG, opts());
+    expect(r.qaUnavailable).toBeTruthy();
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    const ok = await checkSpreadRenderV2(IMG, opts());
+    expect(ok.pass).toBe(true);
   });
 });
