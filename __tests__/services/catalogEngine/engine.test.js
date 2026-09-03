@@ -6,7 +6,7 @@
 
 const { normalizeProfile, usableDetails, matchKey, ProfileError } = require('../../../services/catalogEngine/profile');
 const { selectBooks, scoreBook, pickSlate } = require('../../../services/catalogEngine/selection');
-const { validateStoryResponse, validateEvidence, checkBeatAnchors, containsTerm } = require('../../../services/catalogEngine/storyValidation');
+const { validateStoryResponse, validateEvidence, checkBeatAnchors, checkDoubledWords, containsTerm } = require('../../../services/catalogEngine/storyValidation');
 const { buildStoryRequest, buildUserPrompt, isRepairable } = require('../../../services/catalogEngine/writer');
 const { loadAugments, augmentsFor, coverageReport } = require('../../../services/catalogEngine/augments');
 const { getBook } = require('../../../services/catalogEngine/catalog');
@@ -211,6 +211,28 @@ describe('story validation (deterministic 10-step)', () => {
     const v = validateStoryResponse({ ...f });
     expect(v.errors).toEqual([]);
     expect(v.ok).toBe(true);
+  });
+
+  test('verbatim-required strings with internal doubles are masked from 5c — never an unrepairable conflict', () => {
+    // Other checks demand these strings LITERALLY (name, evidence value):
+    // flagging a double inside one would make the story unfixable — the
+    // repair could not both delete the repetition and keep the literal.
+    const objectStory = {
+      spreads: [{ spread: 1, text: 'Emma hugged her choo choo train and smiled at the animals.' }],
+      personalization_evidence: [{ spread: 1, source_field: 'object', source_value: 'choo choo train' }],
+    };
+    expect(checkDoubledWords(objectStory, { profile: { name: 'Emma' } })).toEqual([]);
+    const doubledName = {
+      spreads: [{ spread: 1, text: 'Jo Jo laughed at the friendly hens.' }],
+      personalization_evidence: [],
+    };
+    expect(checkDoubledWords(doubledName, { profile: { name: 'Jo Jo' } })).toEqual([]);
+    // A genuine typo outside every mask still fails.
+    const typo = {
+      spreads: [{ spread: 7, text: 'Which part should she check check next?' }],
+      personalization_evidence: [],
+    };
+    expect(checkDoubledWords(typo, { profile: { name: 'Jo Jo' } })).toHaveLength(1);
   });
 
   test('evidence in name-only mode (no map) fails', () => {

@@ -121,9 +121,12 @@ function escapeRegExp(s) {
 function companionOnSpread(beat, spreadText, companion) {
   if (!companion?.name) return false;
   const hay = `${beat?.beat || ''}\n${spreadText || ''}`;
-  if (new RegExp(`\\b${escapeRegExp(companion.name)}\\b`).test(hay)) return true;
+  // Unicode lookarounds, not \b: companion naming is overlay-patchable and
+  // \b is ASCII-only — an accented name ("José") would never match at all.
+  const bounded = (term, flags) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term)}(?![\\p{L}\\p{N}])`, flags);
+  if (bounded(companion.name, 'u').test(hay)) return true;
   const type = String(companion.type || '').trim();
-  return !!type && new RegExp(`\\b${escapeRegExp(type)}\\b`, 'i').test(hay);
+  return !!type && bounded(type, 'iu').test(hay);
 }
 
 /**

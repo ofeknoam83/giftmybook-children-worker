@@ -92,21 +92,34 @@ function checkBeatAnchors({ response, book, theme }) {
  * bounds, paints faithfully into embedded art, and matches its own OCR.
  * Case-insensitive whole-word match; repetition across punctuation stays
  * legal ("plink, plink, plink", "No, no!", "choo-choo") — a DELIBERATE
- * repeat must be punctuated. The book's exact refrain text is masked out
- * first: a (possibly overlay-patched) refrain is required VERBATIM on its
- * spreads, so a double inside it must never create a conflict the repair
- * pass cannot resolve.
+ * repeat must be punctuated. Every VERBATIM-REQUIRED string is masked out
+ * first — the exact refrain, the child's name, the theme's world and
+ * companion names, and every evidence source_value: those strings are
+ * customer/overlay data other checks demand LITERALLY (a child named
+ * "Jo Jo" or a comfort object "choo choo train" is required in the text
+ * as written), so a double inside one must never create a conflict the
+ * repair pass cannot resolve — deleting the repetition would fail the
+ * name/refrain/evidence check instead.
  * @param {object} response
- * @param {object} book catalog book definition (refrain source)
+ * @param {{book?: object, theme?: object, profile?: object}} ctx masking sources
  * @returns {string[]} errors
  */
-function checkDoubledWords(response, book) {
+function checkDoubledWords(response, { book, theme, profile } = {}) {
   const errors = [];
-  const refrain = book?.refrain?.text || null;
+  const masks = [
+    book?.refrain?.text,
+    profile?.name,
+    theme?.world_name,
+    theme?.companion?.name,
+    ...(response.personalization_evidence || []).map(ev => ev?.source_value),
+  ].map(v => String(v ?? '').trim()).filter(v => v.length > 0)
+    // Longer masks first so "choo choo train" is removed before any
+    // shorter mask could split it and leave half a double behind.
+    .sort((a, b) => b.length - a.length);
   const re = /(?<![\p{L}\p{N}'’])([\p{L}\p{N}'’]+)[ \t]+\1(?![\p{L}\p{N}'’])/giu;
   for (const s of response.spreads || []) {
     let text = String(s.text || '');
-    if (refrain) text = text.split(refrain).join('\n');
+    for (const m of masks) text = text.split(m).join('\n');
     const seen = new Set();
     for (const m of text.matchAll(re)) {
       const word = m[1].toLowerCase();
@@ -188,7 +201,7 @@ function validateStoryResponse({ response, request, book, ageBand, map, theme, s
   }
   if (theme) errors.push(...checkBeatAnchors({ response, book, theme }));
   // 5c. Accidental doubled words (repairable; skipped for stored pairs).
-  if (!skipDoubledWordCheck) errors.push(...checkDoubledWords(response, book));
+  if (!skipDoubledWordCheck) errors.push(...checkDoubledWords(response, { book, theme, profile }));
 
   // 6. Age bounds — resolved by the request's PINNED engine version, so a
   // stored pair generated under an older age engine keeps re-validating

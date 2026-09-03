@@ -92,10 +92,12 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   identity/version echo → 12 ordered spreads → exact title equality → refrain
   exact text + placement → accidental doubled words (5c, 2026-09-03:
   "check check" satisfied every earlier check and painted faithfully into
-  embedded art; whitespace-only immediate repeats fail REPAIRABLY, the
-  book's exact refrain is masked first, punctuated deliberate repeats
-  — "plink, plink" — stay legal, and stored pairs skip the check so
-  already-sold books keep printing) → exact-age word bounds → evidence-vs-map legality →
+  embedded art; whitespace-only immediate repeats fail REPAIRABLY, every
+  VERBATIM-REQUIRED string is masked first — refrain, child name, world +
+  companion names, evidence source_values, so a child named "Jo Jo" or a
+  "choo choo train" object never creates an unrepairable conflict —
+  punctuated deliberate repeats — "plink, plink" — stay legal, and stored
+  pairs skip the check so already-sold books keep printing) → exact-age word bounds → evidence-vs-map legality →
   evidence-to-spread text alignment (a literal evidence value may occur ONLY
   on spreads its evidence declares — every path, first-pass included, holds
   the same invariant) → callback-before-introduction + caps → banned
