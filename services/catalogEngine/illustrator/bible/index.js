@@ -135,78 +135,99 @@ async function buildBookBible(p) {
   const advisories = [];
   const aHash = anchorHash(p.anchorUrl);
 
-  // 1. Character model sheet (required by default).
-  let sheet = null;
-  if (flags.characterSheetEnabled()) {
-    try {
-      sheet = await getCharacterSheet({
-        anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, childPhoto: p.childPhoto || null,
-        profile: p.profile, characterDescription: p.characterDescription || null,
-        costTracker: p.costTracker, log,
-      });
-      for (const a of (sheet && sheet.advisories) || []) advisories.push(a);
-    } catch (err) {
-      if (flags.sheetRequired()) {
-        const e = new Error(`character model sheet could not be built (${err.message}) — the book needs review rather than rendering on the cover alone`);
-        e.failureCode = err.failureCode || 'identity_kit_failed';
-        e.advisories = err.advisories || [];
-        throw e;
-      }
-      log('warn', `character sheet unavailable (${err.message}) — rendering on the cover alone`);
-      advisories.push({ stage: 'characterSheet', note: `renders are NOT anchored on a character model sheet (${err.message}); identity and outfit rely on the cover alone` });
-    }
-  }
+  // The component families are independent — nothing chains except the
+  // outfit spec deriving FROM the sheet — so a cold anchor builds them
+  // CONCURRENTLY and pays for the slowest family, not the sum (a warm
+  // anchor's families are GCS-elected reads either way). Each branch
+  // collects its own advisories; they are appended in the fixed
+  // sheet → outfit → props order below so the manifest and callbacks stay
+  // byte-stable. Only the identity branch may throw (identity_kit_failed);
+  // every other family is fail-open by contract.
 
-  // 2. Outfit spec — from the SHEET when there is one (every slot seen),
-  //    else the ce-8 cover-derived lock (inferred slots) with an advisory.
-  let outfit = null;
-  if (sheet) {
-    outfit = await getOutfitLock({
-      anchorUrl: p.anchorUrl,
-      refPhoto: { base64: sheet.base64, mimeType: sheet.mimeType },
-      source: 'sheet', sourceHash: sheet.hash, log,
-    });
-    if (!outfit) advisories.push({ stage: 'outfitLock', note: 'outfit spec could not be derived from the character sheet — falling back to the cover-derived lock' });
-  }
-  if (!outfit) {
-    outfit = await getOutfitLock({ anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, log });
-    if (!outfit && flags.outfitLockEnabled()) {
-      advisories.push({ stage: 'outfitLock', note: 'renders are NOT outfit-locked — the outfit spec could not be derived from the identity anchor; cross-spread outfit consistency relies on the reference images alone' });
+  // 1+2. Character model sheet (required by default) and the outfit spec —
+  //      from the SHEET when there is one (every slot seen), else the ce-8
+  //      cover-derived lock (inferred slots) with an advisory.
+  const identityTask = (async () => {
+    const notes = [];
+    let sheet = null;
+    if (flags.characterSheetEnabled()) {
+      try {
+        sheet = await getCharacterSheet({
+          anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, childPhoto: p.childPhoto || null,
+          profile: p.profile, characterDescription: p.characterDescription || null,
+          costTracker: p.costTracker, log,
+        });
+        for (const a of (sheet && sheet.advisories) || []) notes.push(a);
+      } catch (err) {
+        if (flags.sheetRequired()) {
+          const e = new Error(`character model sheet could not be built (${err.message}) — the book needs review rather than rendering on the cover alone`);
+          e.failureCode = err.failureCode || 'identity_kit_failed';
+          e.advisories = err.advisories || [];
+          throw e;
+        }
+        log('warn', `character sheet unavailable (${err.message}) — rendering on the cover alone`);
+        notes.push({ stage: 'characterSheet', note: `renders are NOT anchored on a character model sheet (${err.message}); identity and outfit rely on the cover alone` });
+      }
     }
-  }
+    let outfit = null;
+    if (sheet) {
+      outfit = await getOutfitLock({
+        anchorUrl: p.anchorUrl,
+        refPhoto: { base64: sheet.base64, mimeType: sheet.mimeType },
+        source: 'sheet', sourceHash: sheet.hash, log,
+      });
+      if (!outfit) notes.push({ stage: 'outfitLock', note: 'outfit spec could not be derived from the character sheet — falling back to the cover-derived lock' });
+    }
+    if (!outfit) {
+      outfit = await getOutfitLock({ anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, log });
+      if (!outfit && flags.outfitLockEnabled()) {
+        notes.push({ stage: 'outfitLock', note: 'renders are NOT outfit-locked — the outfit spec could not be derived from the identity anchor; cross-spread outfit consistency relies on the reference images alone' });
+      }
+    }
+    return { sheet, outfit, notes };
+  })();
 
   // 3. Prop + companion sheets (optional, fail-open).
-  let props = [];
-  let companion = null;
-  if (flags.propSheetsEnabled()) {
-    try {
-      const r = await getBibleProps({ evidence: p.story?.personalization_evidence || [], theme: p.theme, costTracker: p.costTracker, log });
-      props = (r && r.props) || [];
-      companion = (r && r.companion) || null;
-      for (const a of (r && r.advisories) || []) advisories.push(a);
-    } catch (err) {
-      log('warn', `prop sheets unavailable (${err.message}) — props ride as nouns`);
-      advisories.push({ stage: 'propSheet', note: `prop sheets unavailable (${err.message}); props ride as nouns only` });
+  const propsTask = (async () => {
+    const notes = [];
+    let props = [];
+    let companion = null;
+    if (flags.propSheetsEnabled()) {
+      try {
+        const r = await getBibleProps({ evidence: p.story?.personalization_evidence || [], theme: p.theme, costTracker: p.costTracker, log });
+        props = (r && r.props) || [];
+        companion = (r && r.companion) || null;
+        for (const a of (r && r.advisories) || []) notes.push(a);
+      } catch (err) {
+        log('warn', `prop sheets unavailable (${err.message}) — props ride as nouns`);
+        notes.push({ stage: 'propSheet', note: `prop sheets unavailable (${err.message}); props ride as nouns only` });
+      }
     }
-  }
+    return { props, companion, notes };
+  })();
 
-  // 4. World plate (ce-5, unchanged; fail-open).
-  const worldPlate = await getWorldPlate({ theme: p.theme, costTracker: p.costTracker, log });
+  // 4. World plate (ce-5, unchanged; fail-open inside getWorldPlate).
+  const plateTask = getWorldPlate({ theme: p.theme, costTracker: p.costTracker, log });
 
   // 5. Emotion plan (closed enum; fail-open to null) — ELECTED in GCS per
   //    story so every instance and retry pins the SAME plan: the classifier
   //    refinement is fail-open and only cached in-process, and the plan's
   //    hash rides the render cache key, so an un-elected plan would fork
   //    the key across instances (orphaning bench-approved renders).
-  let emotion = null;
-  if (flags.emotionPlanEnabled()) {
+  const emotionTask = (async () => {
+    if (!flags.emotionPlanEnabled()) return null;
     try {
-      emotion = await electEmotionPlan({ book: p.book, story: p.story, ageBand: p.ageBand, log });
+      return await electEmotionPlan({ book: p.book, story: p.story, ageBand: p.ageBand, log });
     } catch (err) {
       log('warn', `emotion plan unavailable (${err.message}) — rendering without one`);
-      emotion = null;
+      return null;
     }
-  }
+  })();
+
+  const [identity, propsResult, worldPlate, emotion] = await Promise.all([identityTask, propsTask, plateTask, emotionTask]);
+  const { sheet, outfit } = identity;
+  const { props, companion } = propsResult;
+  advisories.push(...identity.notes, ...propsResult.notes);
 
   const manifest = {
     styleVersion: STYLE_VERSION,

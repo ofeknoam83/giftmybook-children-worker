@@ -52,7 +52,11 @@ const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const RENDER_CONCURRENCY = 4;
+// Spreads rendered in parallel (each slot fans out into
+// CATALOG_RENDER_CANDIDATES concurrent image calls) — env-tunable
+// (CATALOG_RENDER_CONCURRENCY, default 6 per the refactor plan's key-pool
+// sizing; was a hardcoded 4). Also bounds the set gates' parallel repairs.
+const RENDER_CONCURRENCY = () => flags.renderConcurrency();
 
 /**
  * Fingerprint of one rendered image's bytes — written into its `.qa.json`
@@ -613,7 +617,13 @@ function planWorldRepairs(results, flagged, budget) {
  */
 async function applySetRepairs({ results, flagged, budget, stage, rerender, noteFor, onProgress, log }) {
   const plan = planWorldRepairs(results, flagged, budget);
-  const rerendered = [];
+  // Findings and skip notes land first, in plan order (deterministic); the
+  // eligible re-renders then run CONCURRENTLY under the render-phase limit —
+  // each targets its own results index, and up to budget serial full-spread
+  // cycles per gate was the run's dominant wall-clock tail. Repair spends
+  // are already fixed by planWorldRepairs, so parallelism changes nothing
+  // about cost or which spreads re-render.
+  const eligible = [];
   for (const f of plan) {
     const idx = results.findIndex(r => r.spread === f.spread && r.buffer);
     if (idx === -1) continue;
@@ -623,6 +633,12 @@ async function applySetRepairs({ results, flagged, budget, stage, rerender, note
       entry.advisories.push({ stage, spread: f.spread, note: `shipped without set re-render (${f.skipReason})` });
       continue;
     }
+    eligible.push({ f, idx, entry });
+  }
+  const pLimit = require('p-limit');
+  const limit = pLimit(RENDER_CONCURRENCY());
+  const rerendered = [];
+  await Promise.all(eligible.map(({ f, idx, entry }) => limit(async () => {
     log('warn', `Spread ${f.spread} broke set consistency (${f.defect}: ${f.note}) — one corrective re-render`);
     onProgress(1, `Set repair: re-rendering spread ${f.spread}...`);
     try {
@@ -650,8 +666,10 @@ async function applySetRepairs({ results, flagged, budget, stage, rerender, note
       });
       entry.advisories.push({ stage, spread: f.spread, note: `set re-render errored (${err.message}); shipped the flagged render` });
     }
-  }
-  return rerendered;
+  })));
+  // Concurrent completions land in arbitrary order — the reported list is
+  // spread-ordered like everything else in the callback.
+  return rerendered.sort((a, b) => a - b);
 }
 
 /**
@@ -921,6 +939,9 @@ async function renderStorySpreads(params) {
   }
 
   // ── The Book Bible: built ONCE, before any spread renders ────────────────
+  // Phase timings are logged so a slow run names its slow phase — "the whole
+  // book took 40 minutes" alone is not diagnosable from the worker logs.
+  const phaseStart = Date.now();
   const bibleHeartbeat = setInterval(() => onProgress(0, 'Building the book bible (character sheet, props, plan)...'), 30000);
   let bible;
   try {
@@ -933,6 +954,7 @@ async function renderStorySpreads(params) {
   } finally {
     clearInterval(bibleHeartbeat);
   }
+  log('info', `Book bible ready in ${Math.round((Date.now() - phaseStart) / 1000)}s`);
   bible.theme = theme;
   bible.story = story;
   const outfitLock = bible.outfit;
@@ -992,7 +1014,7 @@ async function renderStorySpreads(params) {
   // dropped inside renderSpread), everything else replays as usual.
   const forceSet = new Set(Array.isArray(rerenderSpreads) ? rerenderSpreads : []);
   const pLimit = require('p-limit');
-  const limit = pLimit(RENDER_CONCURRENCY);
+  const limit = pLimit(RENDER_CONCURRENCY());
   let done = 0;
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash,
@@ -1008,6 +1030,7 @@ async function renderStorySpreads(params) {
   // minutes between two per-spread progress events, and the server's
   // per-book watchdog aborts books idle >20min — a 30s heartbeat keeps a
   // healthy render phase alive (the same pattern the set gates use).
+  const renderPhaseStart = Date.now();
   const renderHeartbeat = setInterval(() => onProgress(Math.max(0.01, done / wanted.length), `Illustrating spreads (${done}/${wanted.length} done)...`), 30000);
   let settled;
   try {
@@ -1020,6 +1043,7 @@ async function renderStorySpreads(params) {
   } finally {
     clearInterval(renderHeartbeat);
   }
+  log('info', `Render phase (${wanted.length} spread(s), concurrency ${RENDER_CONCURRENCY()}) done in ${Math.round((Date.now() - renderPhaseStart) / 1000)}s`);
   const results = settled.map((s, i) => {
     if (s.status === 'fulfilled') return s.value;
     const spread = wanted[i].spread;
@@ -1052,6 +1076,7 @@ async function renderStorySpreads(params) {
 
   // Book-level world-consistency gate: check the set together, re-render
   // flagged FRESH spreads once (through the same full per-spread path).
+  const worldGateStart = Date.now();
   const worldQa = await runWorldConsistencyGate({
     results,
     embeddedText: textLayout === 'embedded',
@@ -1060,9 +1085,12 @@ async function renderStorySpreads(params) {
     onProgress,
     log,
   });
+  if (worldQa) log('info', `World gate done in ${Math.round((Date.now() - worldGateStart) / 1000)}s (${worldQa.rerendered?.length || 0} re-render(s))`);
   // ce-9 contact-sheet gate: character crops vs the model sheet, prop crops
   // vs their sheets.
+  const contactGateStart = Date.now();
   const contactQa = await runContactSheetGate({ results, bible, evidence: story.personalization_evidence || [], rerender, onProgress, log });
+  if (contactQa) log('info', `Contact gate done in ${Math.round((Date.now() - contactGateStart) / 1000)}s (${contactQa.rerendered?.length || 0} re-render(s))`);
 
   // Book-level advisories (the bible's own + the ce-8 lock-less warning).
   const advisories = [...bible.advisories];

@@ -687,6 +687,35 @@ describe('shot plan rides the render path (ce-8)', () => {
     expect(repairScene).toContain('COMPOSITION (ASSIGNED FOR THIS SPREAD');
   });
 
+  test('multiple flagged spreads re-render CONCURRENTLY and report spread-ordered', async () => {
+    // Set repairs used to run one full re-render cycle at a time — the
+    // dominant wall-clock tail of a many-spread run. They now share the
+    // render-phase concurrency limit; the reported list stays deterministic
+    // (spread order) regardless of which repair finishes first.
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      if (prompt.includes('CROSS-SPREAD CONSISTENCY')) {
+        return geminiText(JSON.stringify({
+          consistent: false,
+          flagged: [
+            { spread: 3, defect: 'palette_lighting', note: 'colder palette than the rest' },
+            { spread: 1, defect: 'character_rendering', note: 'child reads older' },
+          ],
+        }));
+      }
+      return geminiText(cleanVerdict);
+    });
+    generateIllustration.mockClear();
+    const { worldQa, results } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));
+    expect(worldQa.rerendered).toEqual([1, 3]);
+    // 2 base renders + 2 corrective re-renders, each flagged spread repaired
+    // against its own defect note.
+    expect(generateIllustration).toHaveBeenCalledTimes(4);
+    for (const r of results) expect(r.fresh).toBe(true);
+    expect(results.find(r => r.spread === 1).advisories.some(a => a.stage === 'worldQa' && a.note.includes('child reads older'))).toBe(true);
+    expect(results.find(r => r.spread === 3).advisories.some(a => a.stage === 'worldQa' && a.note.includes('colder palette'))).toBe(true);
+  });
+
   test('bath/water spreads reach the world gate as outfit-exempt', async () => {
     isModestBathWaterScene.mockImplementation(scene => scene.includes('Scene 3 of 12'));
     let gatePrompt = null;
