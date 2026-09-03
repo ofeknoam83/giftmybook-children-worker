@@ -232,6 +232,23 @@ test('an unknown emotion value, an HTTP failure, and an exception all fail open 
   expect(body.contents[0].parts[0].text).not.toContain('EMOTION:');
 });
 
+test('embedded band/split placement is BLOCKING-class; the ce-4 typography findings stay advisory (qa-4)', () => {
+  // A white text panel breaks the embedded layout's full-bleed contract as
+  // surely as garbled text — it used to ship as a mere advisory.
+  const r = classifyDefects([
+    'embedded story text sits on a blank band instead of over the artwork',
+    'embedded story text split across both sides of the image',
+    'embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)',
+  ]);
+  expect(r.blocking).toEqual([
+    'embedded story text sits on a blank band instead of over the artwork',
+    'embedded story text split across both sides of the image',
+  ]);
+  expect(r.advisory).toEqual([
+    'embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)',
+  ]);
+});
+
 test('a fully hidden face and an undeclared personal object are ADVISORY with fixed strings and their own repair notes (ce-10)', async () => {
   fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ face_fully_hidden: true, undeclared_object: true })));
   const r = await checkSpreadRenderV2(IMG, fullOpts());
