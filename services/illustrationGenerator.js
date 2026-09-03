@@ -1107,6 +1107,13 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   if (opts.aspectRatio) {
     generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
   }
+  // ce-16: opt-in output size ('1K'|'2K'|'4K') — more pixels per glyph is
+  // the one lever that keeps SMALL painted text crisp at print. Support
+  // varies by model: a 400 naming the field retries once without it (the
+  // seed's pattern below).
+  if (opts.imageSize) {
+    generationConfig.imageConfig = { ...(generationConfig.imageConfig || {}), imageSize: opts.imageSize };
+  }
   // Optional deterministic seed (env-gated, default OFF — support varies by
   // model; a seed-rejecting 400 below retries once without it).
   const seedEnabled = opts.seed != null && process.env.BOOK_PIPELINE_V3_RENDER_SEED === '1';
@@ -1161,6 +1168,10 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
       if (seedEnabled && resp.status === 400 && /seed/i.test(errBody)) {
         console.warn(`[illustrationGenerator] model rejected generationConfig.seed — retrying once without it: ${errBody.slice(0, 120)}`);
         return callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, { ...opts, seed: null });
+      }
+      if (opts.imageSize && resp.status === 400 && /image_?size/i.test(errBody)) {
+        console.warn(`[illustrationGenerator] model rejected imageConfig.imageSize — retrying once without it: ${errBody.slice(0, 120)}`);
+        return callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, { ...opts, imageSize: null });
       }
       const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
       if (isNsfw) {
@@ -1408,7 +1419,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       if (photoBase64) {
         // opts.worldPlate ({base64, mimeType}): the caller's fixed world
         // reference plate, attached as a second labeled reference image.
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null, worldPlate: opts.worldPlate || null, referencePack: opts.referencePack || null });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null, worldPlate: opts.worldPlate || null, referencePack: opts.referencePack || null, imageSize: opts.imageSize || null });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;

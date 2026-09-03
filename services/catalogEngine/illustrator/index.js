@@ -156,7 +156,10 @@ const CONTACT_QA_MAX_RERENDERS = () => {
 function needsRepair(qa) {
   if (!qa || qa.qaUnavailable) return false;
   if (Array.isArray(qa.blocking) && qa.blocking.length > 0) return true;
-  return (qa.advisory || []).some(d => d.startsWith('embedded story text'));
+  // ce-16: the 'oversized' advisory (1.25–1.5× the footprint) shades
+  // selection only — the judged bbox is too rough on small blocks to spend
+  // repair renders on; 'too large' (≥ 1.5×) is blocking and repairs.
+  return (qa.advisory || []).some(d => d.startsWith('embedded story text') && !d.startsWith('embedded story text oversized'));
 }
 
 /**
@@ -192,7 +195,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, ageBand, typographyAnchor = null, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, ageBand, typographyAnchor = null, candidateCount = null, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -305,6 +308,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // ce-15: the pack index of the TYPOGRAPHY REFERENCE (the renderer's
     // text rules cite it: "match REFERENCE IMAGE N").
     ...(Number.isInteger(refs.typographyRef) ? { typographyRef: refs.typographyRef } : {}),
+    // ce-16: opt-in output size for embedded renders (CATALOG_EMBEDDED_IMAGE_SIZE) —
+    // more pixels per glyph is what keeps SMALL painted text crisp at print.
+    ...(embedText && flags.embeddedImageSize() ? { imageSize: flags.embeddedImageSize() } : {}),
     bookId,
     costTracker,
     // The identity anchor bytes still ride (the renderer's with-photo
@@ -433,7 +439,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // (the pre-ce-9 flow); every repair pass renders beside it (`.r{p}c{k}`)
   // so a rejected repair never overwrites the better pixels the key holds,
   // and every scored candidate keeps its own bytes for the failure payload.
-  const nCandidates = flags.renderCandidates();
+  // ce-16: the caller may widen the candidate count (the typography anchor
+  // page renders CATALOG_TEXT_ANCHOR_CANDIDATES — the whole book copies it).
+  const nCandidates = Number.isInteger(candidateCount) && candidateCount >= 1 ? Math.min(candidateCount, 4) : flags.renderCandidates();
   let fresh = false;
   let checkerUnavailable = false;
   const candidateLog = [];
@@ -1035,6 +1043,11 @@ async function renderStorySpreads(params) {
   if (!flags.shotPlanEnabled()) {
     keyHash = `${keyHash}-sp0`;
   }
+  // ce-16: an output-size override changes every embedded pixel — folded
+  // only when set, so default and sized renders never replay each other.
+  if (textLayout === 'embedded' && flags.embeddedImageSize()) {
+    keyHash = `${keyHash}-is${flags.embeddedImageSize().toLowerCase()}`;
+  }
   // ce-9: the bible hash folds EVERY pixel input (sheet, outfit spec, prop
   // and companion sheets, world plate, emotion plan) into one identity —
   // any change to any fixed input re-keys every render. It replaces the
@@ -1126,8 +1139,8 @@ async function renderStorySpreads(params) {
   const renderHeartbeat = setInterval(() => onProgress(Math.max(0.01, done / wanted.length), `Illustrating spreads (${done}/${wanted.length} done)...`), 30000);
   let settled;
   try {
-    const renderOne = async (beat) => {
-      const r = await renderSpread(spreadArgs(beat.spread, { forceRerender: forceRerender || forceSet.has(beat.spread) }));
+    const renderOne = async (beat, extra = {}) => {
+      const r = await renderSpread(spreadArgs(beat.spread, { forceRerender: forceRerender || forceSet.has(beat.spread), ...extra }));
       done += 1;
       onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
       return r;
@@ -1135,7 +1148,9 @@ async function renderStorySpreads(params) {
     let anchorSettled = null;
     if (electNow) {
       onProgress(0.01, `Illustrating spread ${anchorSpreadNo} first (the book's typography anchor)...`);
-      [anchorSettled] = await Promise.allSettled([renderOne(wanted[0])]);
+      // The anchor page decides the whole book's type size: it renders more
+      // candidates than the rest so a small one exists to elect.
+      [anchorSettled] = await Promise.allSettled([renderOne(wanted[0], { candidateCount: flags.textAnchorCandidates() })]);
       const anchorBuffer = anchorSettled.status === 'fulfilled' && anchorSettled.value ? anchorSettled.value.buffer : null;
       const side = shotPlan && shotPlan[anchorSpreadNo] ? shotPlan[anchorSpreadNo].textSide : null;
       const elected = side

@@ -466,6 +466,24 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   (the smaller candidate wins; a residual never ships), ≥ 1.3× the
   advisory `oversized`; the repair note restates the footprint and cites
   the reference. STYLE_VERSION `ce-15`, QA_VERSION `qa-7`.
+  **Smaller painted text (`ce-16`, 2026-09-03)**: the owner's call after
+  ce-15 — the pinned spec steps down ~27% (cap height 1.5% → 1.1% of the
+  image height, line pitch 2.8% → 2.1%, footprint 0.6% → 0.45% of the
+  width per character; the 3–8 tier to 0.95% / 1.9% / 0.38%; "about a
+  QUARTER of the usual caption size"), and the machinery pushes toward it
+  instead of merely permitting it: the typography anchor page renders
+  `CATALOG_TEXT_ANCHOR_CANDIDATES` (default 3, clamped 1-4) so a small
+  page exists to elect, QA v2 exposes `textSizeRatio` and `select.js`
+  charges `textSizeExcess` (-40 × the excess over the footprint) so the
+  smaller painted block wins between otherwise-equal candidates, the ruler
+  tightens to ≥ 1.5× blocking / ≥ 1.25× advisory (`qa-8`; the `oversized`
+  advisory shades selection only — `needsRepair` no longer spends repair
+  renders on it, the judged bbox being too rough on small blocks), and
+  `CATALOG_EMBEDDED_IMAGE_SIZE` (OPT-IN, `1K`|`2K`|`4K`) requests a larger
+  output size on embedded renders through `imageConfig.imageSize` (a 400
+  naming the field retries once without it, the seed's pattern; folded
+  into the render key as `-is{size}`) — more pixels per glyph is what
+  keeps small painted text crisp at print. STYLE_VERSION `ce-16`.
   Three false-positive guards landed the same day (each could fail a
   full book `consistency_unresolved` on its own): `compareTexts`
   normalizes glyphs before comparing (curly↔straight quotes, NFD-stripped
@@ -513,6 +531,12 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   render on the text rules alone; cache-keyed: `-ta0` folds into the
   render key when disabled, so anchored and anchor-less renders never
   replay each other).
+- `CATALOG_TEXT_ANCHOR_CANDIDATES=N` — (ce-16) candidates rendered for the
+  typography anchor page (default 3, clamped 1-4); the whole book copies
+  the elected page's type size.
+- `CATALOG_EMBEDDED_IMAGE_SIZE=2K` — (ce-16, OPT-IN) request this output
+  size (`1K`|`2K`|`4K`) on embedded renders; a model that rejects the field
+  renders at its default. Cache-keyed (`-is{size}`).
 - `CATALOG_CHARACTER_SHEET=0` — (ce-9) no character model sheet (renders
   anchor on the cover alone; the outfit spec derives from the cover again).
 - `CATALOG_SHEET_REQUIRED=0` — (ce-9) a book whose sheet cannot be built

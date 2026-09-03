@@ -360,13 +360,15 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
     expect(textSizeRatio({ x: 0.07, y: 0.3, w: 0.18, h: 0.224 }, block)).toBe(2); // a bigger face
     expect(textSizeRatio(null, block)).toBeNull();
     expect(textSizeRatio({ x: 0, y: 0, w: 0.2, h: 0.2 }, null)).toBeNull();
-    expect(TEXT_TOO_LARGE_RATIO).toBeGreaterThan(TEXT_OVERSIZED_RATIO);
+    expect(TEXT_TOO_LARGE_RATIO).toBe(1.5);
+    expect(TEXT_OVERSIZED_RATIO).toBe(1.25);
   });
 
   test('a block at twice its footprint is BLOCKING "too large"; 1.4× is the advisory "oversized"; on-footprint is clean', async () => {
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.36, h: 0.22 })));
     const big = await checkSpreadRenderV2(IMG, textOpts());
     expect(big.blocking).toEqual([expect.stringMatching(/^embedded story text too large \(about 2× the book's fixed size\)/)]);
+    expect(big.textSizeRatio).toBe(2);
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.25, h: 0.12 })));
     const over = await checkSpreadRenderV2(IMG, textOpts());
     expect(over.blocking).toEqual([]);
@@ -374,6 +376,12 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.17, h: 0.11 })));
     const ok = await checkSpreadRenderV2(IMG, textOpts());
     expect(ok.pass).toBe(true);
+    expect(ok.textSizeRatio).toBeLessThanOrEqual(1); // 0.98 rounds to 1.0
+    // 1.3× is now the advisory band (qa-8 tightened 1.6/1.3 → 1.5/1.25).
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.234, h: 0.11 })));
+    const mild = await checkSpreadRenderV2(IMG, textOpts());
+    expect(mild.blocking).toEqual([]);
+    expect(mild.advisory).toEqual([expect.stringMatching(/^embedded story text oversized \(about 1\.3×/)]);
   });
 
   test('no footprint or no bbox ⇒ no size verdict (fail-open); the fold check is untouched', async () => {
@@ -383,6 +391,7 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict(null)));
     const noBbox = await checkSpreadRenderV2(IMG, textOpts());
     expect(noBbox.defects).toEqual([]);
+    expect(noBbox.textSizeRatio).toBeNull();
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.4, y: 0.3, w: 0.2, h: 0.11 })));
     const fold = await checkSpreadRenderV2(IMG, textOpts());
     expect(fold.blocking).toEqual(['embedded story text crosses the page fold (center gutter)']);

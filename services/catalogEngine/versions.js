@@ -131,7 +131,17 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // illustrator/textAnchor.js) as the TYPOGRAPHY REFERENCE for every other
 // embedded spread. Prompt assembly and the reference pack changed — ce-14
 // renders must never replay as ce-15.
-const STYLE_VERSION = 'ce-15';
+// ce-16: SMALLER painted text — the owner's call after ce-15: the pinned
+// spec steps down ~27% (cap height 1.5% → 1.1% of the image height, line
+// pitch 2.8% → 2.1%, footprint 0.6% → 0.45% of the width per character;
+// the 3–8 tier to 0.95% / 1.9% / 0.38%), the FONT SIZE prose says "about a
+// QUARTER of the usual caption size", the typography anchor page renders
+// CATALOG_TEXT_ANCHOR_CANDIDATES (default 3) so a small page exists to
+// elect, candidate selection now prefers the smaller measured block, and
+// CATALOG_EMBEDDED_IMAGE_SIZE (opt-in) requests a larger output size so
+// small glyphs stay crisp. Prompt text changed — ce-15 renders must never
+// replay as ce-16.
+const STYLE_VERSION = 'ce-16';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
@@ -164,7 +174,13 @@ const STYLE_VERSION = 'ce-15';
  * advisory 'embedded story text oversized'. Markers written under qa-6
  * never measured size — replays re-check.
  */
-const QA_VERSION = 'qa-7';
+/**
+ * qa-8 (ce-16): the ruler's footprint shrank with the spec and its
+ * thresholds tightened (too large ≥ 1.5×, oversized ≥ 1.25×); the verdict
+ * exposes `textSizeRatio` for selection. Markers written under qa-7 were
+ * measured against the larger footprint — replays re-check.
+ */
+const QA_VERSION = 'qa-8';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

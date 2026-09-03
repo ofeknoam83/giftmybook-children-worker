@@ -131,16 +131,17 @@ const TEXT_RULES = {
   // scale (cap height ~4% of the image) and long lines that crossed the
   // page fold; the size is now stated as a measure the model can hit, and
   // it must fit the narrow column with many short lines rather than grow.
-  fontSize: 'SMALL book body type — the running text of a printed picture book, NOT a caption, subtitle, or headline: cap height about 1.5% of the image height (roughly one sixty-fifth of the height), line pitch about 2.8% of the height — the size of a paperback\'s running text held at arm\'s length. Crisp and sharp, never faint or blurry, but visibly SMALL on the art — about a THIRD of the size AI-painted captions usually come out; if the text would read comfortably from across a room, it is too big. When unsure, go SMALLER, never larger. At this size a line holds only a few words, so the text wraps into MANY short lines inside its narrow column; the block never grows wider to fit. The SAME small size on every spread of this book.',
+  fontSize: 'SMALL book body type — the running text of a printed picture book, NOT a caption, subtitle, or headline: cap height about 1.1% of the image height (roughly one ninetieth of the height), line pitch about 2.1% of the height — the size of a paperback\'s running text held at arm\'s length. Crisp and sharp, never faint or blurry, but visibly SMALL on the art — about a QUARTER of the size AI-painted captions usually come out; if the text would read comfortably from across a room, it is too big. When unsure, go SMALLER, never larger. At this size a line holds only a few words, so the text wraps into MANY short lines inside its narrow column; the block never grows wider to fit. The SAME small size on every spread of this book.',
   // ce-15: the FOOTPRINT numbers — the renderer turns them into a concrete
   // per-spread block size ("this block is about X% of the width wide and
   // Y% of the height tall"; a model perceives the width of its own block
   // far better than a percentage of the frame) and the QA turns them into
   // a ruler on the judged text bbox. Derived from the cap height above:
-  // em ≈ cap / 0.71 ≈ 2.1% of the height ≈ 1.2% of a 16:9 width; an
-  // average character advances ≈ 0.5 em.
-  charWidthPercent: 0.6,
-  linePitchPercent: 2.8,
+  // em ≈ cap / 0.71 ≈ 1.55% of the height ≈ 0.87% of a 16:9 width; an
+  // average character advances ≈ 0.5 em. ce-16 stepped the whole spec
+  // down ~27% (cap 1.5% → 1.1%): the owner wants the painted text smaller.
+  charWidthPercent: 0.45,
+  linePitchPercent: 2.1,
   // Extra guidance for prompt builders and system instruction (not always concatenated in old paths).
   textIntegration: 'The caption is part of the same cinematic 3D frame: same color grade, same atmospheric haze, same exposure logic. No floating UI bar, no sharp rectangular panel behind lines, no sticker-like cutout with mismatched brightening, no highlighter blocks. If there is depth fog, letters soften very slightly at the micro-edges. Readability is mandatory, but the text must "live in" the light of the world, not sit on top as a separate layer of flat graphic design. **Typography and fill color** stay stable book-wide; only the soft shadow/haze around the glyphs may blend with the scene — never the font, size, or fill color.',
 };
@@ -186,11 +187,11 @@ function resolvePictureBookTextRules(childAge) {
     edgePaddingPercent: 8,
     // Taller multi-line stacks need more lift from the bottom crop zone.
     bottomPaddingPercent: 42,
-    // The compact tier's footprint (cap ≈ 1.3%, pitch ≈ 2.6%).
-    charWidthPercent: 0.52,
-    linePitchPercent: 2.6,
+    // The compact tier's footprint (cap ≈ 0.95%, pitch ≈ 1.9%).
+    charWidthPercent: 0.38,
+    linePitchPercent: 1.9,
     fontSize:
-      `${TEXT_RULES.fontSize} **Compact read-aloud tier (ages 3–8, longer lines):** step the same small body type down one further notch (cap height nearer 1.3% of the image height) so a 10–12-line block fits inside the text column box with generous empty space around it — still crisp and sharp, never faint, never poster or title scale. Hold this **same** compact size on every spread.`,
+      `${TEXT_RULES.fontSize} **Compact read-aloud tier (ages 3–8, longer lines):** step the same small body type down one further notch (cap height nearer 0.95% of the image height) so a 10–12-line block fits inside the text column box with generous empty space around it — still crisp and sharp, never faint, never poster or title scale. Hold this **same** compact size on every spread.`,
     typographyConsistency:
       `${TEXT_RULES.typographyConsistency} This book uses the **compact read-aloud** size tier — match that slightly smaller baseline on every spread; do not drift back to a larger "little kid" caption scale.`,
   };

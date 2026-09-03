@@ -46,7 +46,7 @@ describe('embedded text is typeset BY PROMPT (ce-13): pre-wrapped lines, a concr
     expect(prompt).toContain('NO letter may come within 15% of the image width of the centerline');
     expect(prompt).toContain(`exactly ${n} short lines`);
     expect(prompt).toContain(lines.join('\n'));
-    expect(prompt).toContain('cap height about 1.5% of the image height');
+    expect(prompt).toContain('cap height about 1.1% of the image height');
     expect(prompt).toContain('When unsure, go SMALLER, never larger.');
     expect(prompt).toContain(`The whole ${n}-line block below must fit INSIDE the text column box`);
     // The right side and the "pick a side" fallback are distinct wordings.
@@ -100,8 +100,11 @@ describe('ce-15: the text block has a FOOTPRINT, a no-panel rule that names the 
     expect(base.lines).toEqual(lines);
     expect(base.widestChars).toBe(Math.max(...lines.map(l => l.length)));
     expect(base.lineCount).toBe(lines.length);
-    expect(base.widthPercent).toBe(Math.round(base.widestChars * 0.6 * 10) / 10);
-    expect(base.heightPercent).toBe(Math.round(lines.length * 2.8 * 10) / 10);
+    expect(base.widthPercent).toBe(Math.round(base.widestChars * TEXT_RULES.charWidthPercent * 10) / 10);
+    expect(base.heightPercent).toBe(Math.round(lines.length * TEXT_RULES.linePitchPercent * 10) / 10);
+    // ce-16: the spec stepped down — a 30-character row is under a sixth of the width.
+    expect(TEXT_RULES.charWidthPercent).toBe(0.45);
+    expect(TEXT_RULES.linePitchPercent).toBe(2.1);
     // A 30-character row is well under a quarter of the width at every tier.
     expect(30 * TEXT_RULES.charWidthPercent).toBeLessThan(25);
     const compact = expectedTextBlock(STORY, resolvePictureBookTextRules(5));
@@ -186,6 +189,47 @@ describe('ce-15: generateIllustration forwards the assigned text side and the ty
     expect(prompt).toContain('TEXT — FINAL CHECK');
     expect(parts.filter(p => p.inline_data)).toHaveLength(2);
     expect(parts.some(p => typeof p.text === 'string' && p.text.startsWith('REFERENCE IMAGE 2 — TYPOGRAPHY REFERENCE'))).toBe(true);
+  });
+});
+
+describe('ce-16: an opt-in output size rides the Gemini image call and falls back once when the model rejects it', () => {
+  const STORY = 'Aaron checked the ground nearby first.';
+  const renderOpts = (over = {}) => ({
+    bookId: 'b1', childName: 'Aaron', isSpread: true, spreadIndex: 3, totalSpreads: 12, embedText: true, pageText: STORY, childAge: 7,
+    aspectRatio: '16:9', textSide: 'left', childPhotoUrl: 'https://p/x.png', _cachedPhotoBase64: 'YmFzZTY0', _cachedPhotoMime: 'image/jpeg',
+    ...over,
+  });
+
+  test('imageSize is sent inside imageConfig beside the aspect ratio, and omitted when not set', async () => {
+    const bodies = [];
+    const realFetch = global.fetch;
+    global.fetch = jest.fn(async (url, init) => { bodies.push(JSON.parse(init.body)); throw new Error('offline test'); });
+    try {
+      await expect(generateIllustration('scene', 'https://p/x.png', 'pixar_premium', renderOpts({ imageSize: '2K' }))).rejects.toThrow();
+      expect(bodies[0].generationConfig.imageConfig).toEqual({ aspectRatio: '16:9', imageSize: '2K' });
+      bodies.length = 0;
+      await expect(generateIllustration('scene', 'https://p/x.png', 'pixar_premium', renderOpts())).rejects.toThrow();
+      expect(bodies[0].generationConfig.imageConfig).toEqual({ aspectRatio: '16:9' });
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  test('a 400 naming the field retries once without it (the seed pattern) — the model\'s default size, never a failed render', async () => {
+    const bodies = [];
+    const realFetch = global.fetch;
+    global.fetch = jest.fn(async (url, init) => {
+      bodies.push(JSON.parse(init.body));
+      if (bodies.length === 1) return { ok: false, status: 400, text: async () => 'Invalid JSON payload: unknown field "image_size"' };
+      throw new Error('offline test');
+    });
+    try {
+      await expect(generateIllustration('scene', 'https://p/x.png', 'pixar_premium', renderOpts({ imageSize: '2K' }))).rejects.toThrow();
+    } finally {
+      global.fetch = realFetch;
+    }
+    expect(bodies[0].generationConfig.imageConfig.imageSize).toBe('2K');
+    expect(bodies[1].generationConfig.imageConfig).toEqual({ aspectRatio: '16:9' });
   });
 });
 
