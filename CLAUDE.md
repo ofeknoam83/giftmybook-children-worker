@@ -472,7 +472,12 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   illustrationTuningUsed, costs}` (+dispatchId echo). Renders a SUBSET of an
   existing validated story's spreads through the exact production path — zero
   writer spend, no PDFs/cover/upsell; per-spread render errors land in
-  `failures`, never fail the probe. `rerenderSpreads` (a unique subset of
+  `failures`, never fail the probe. Probe and `/v13/generate-stories` runs
+  register in the watchdog's activity tracking under their own
+  `probe:`/`stories:` map keys (2026-09-03; before that the global idle
+  check `process.exit(0)`'d the instance ~10 min into an unregistered
+  background run — every long probe died with no callback), with the
+  illustrator's 30s heartbeats wired to `touchActivity`. `rerenderSpreads` (a unique subset of
   `spreads`) is the per-spread force: the listed spreads render FRESH while
   the rest replay from cache as world-gate references, so the gate can
   correct the fresh render against the set it must match — the

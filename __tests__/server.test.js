@@ -571,6 +571,28 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     expect(payload.dispatchId).toBe('art_d_test');
     expect(payload.failures[0].failureCode).toBe('missing_identity_reference');
   });
+
+  test('the probe is registered in per-book activity tracking until its callback is delivered', async () => {
+    // An unregistered probe is invisible to the watchdog: activeBooks stays
+    // empty and the global idle check exits the process ~10 minutes in,
+    // killing a long render run with no callback (the bench's 45-minute
+    // "probe stalled" failure). While the run is in flight it must be
+    // visible, with the illustrator's heartbeats wired to touchActivity.
+    let release;
+    renderStorySpreads.mockReset().mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve({ results: [], aspect: 'square', storyHash: 'h', tuningTag: 'none' });
+    }));
+    const activeCount = async () => (await request(app).get('/health')).body.activeBooks;
+    const before = await activeCount();
+    expect((await post(validBody())).status).toBe(202);
+    await settle();
+    expect(await activeCount()).toBe(before + 1);
+    expect(renderStorySpreads.mock.calls[0][0].onProgress).toBeInstanceOf(Function);
+    release();
+    await settle();
+    // Delivered — the probe deregisters so the instance may go idle again.
+    expect(await activeCount()).toBe(before);
+  });
 });
 
 describe('POST /v13/generate-cover-image (probe-anchor cover)', () => {
