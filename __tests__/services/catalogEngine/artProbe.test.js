@@ -843,7 +843,11 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(scene).toMatch(/painted over the (LEFT|RIGHT) column/);
     // ce-17: the column is the scene at full sharpness — never a haze zone.
     expect(scene).toContain('NEVER blur, fog, soften, darken, lighten, desaturate, or empty it');
-    expect(scene).toContain('their own thin dark outline');
+    // ce-18: the fill is dark ink, so the legibility edge is a PALE hairline —
+    // this hint rides every embedded scene and must not contradict the spec.
+    expect(scene).toContain('their own thin, tight pale hairline');
+    expect(scene).toContain('never from inverting the dark ink to light text');
+    expect(scene).not.toContain('thin dark outline');
     expect(scene).not.toContain('gentle depth haze');
     expect(opts.safeFallbackSuffix).toContain('COMPOSITION FOR PRINT (TEXT COLUMN)');
     const caption = await (async () => { generateIllustration.mockClear(); await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] })); return generateIllustration.mock.calls[0][0]; })();

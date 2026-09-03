@@ -347,9 +347,10 @@ async function regionColours(cropBuffer, regions = DEFAULT_REGIONS) {
  * BACKGROUND — the glyphs are a thin minority — so the read is: extract the
  * bbox at native resolution (never downscaled: interpolation drags thin
  * strokes toward the background and biases the colour), take the pixels
- * furthest in luminance from the region's median (the background proxy),
- * split them by which side of the median they fall on, and keep the LARGER
- * group. That group is the glyph FILL, because the pale hairline the spec
+ * furthest in luminance from the region's median (the background proxy —
+ * both read off 256-bin histograms, so the work stays bounded passes and
+ * never a sort), split them by which side of the median they fall on, and
+ * keep the LARGER group. That group is the glyph FILL, because the pale hairline the spec
  * allows is by definition thinner than the stroke it hugs — which is also
  * what makes the read report the painted POLARITY rather than assume one.
  *
@@ -380,41 +381,64 @@ async function textInkColour(buffer, bbox, opts = {}) {
     if (info.channels < 3) return null;
     const n = info.width * info.height;
     if (n < INK_MIN_PIXELS) return null;
-    const lum = new Float32Array(n);
+    // Bounded passes over integer luminance, never a sort: a 4K embedded
+    // render with an imprecise bbox is millions of pixels, and a full-array
+    // sort per candidate (times the concurrent candidates) both blocks the
+    // event loop and multiplies memory. The thresholds are expressed in
+    // 0-255 luminance anyway, so a 256-bin histogram is exact for them.
+    const lum = new Uint8Array(n);
+    const lumHist = new Uint32Array(256);
     for (let i = 0; i < n; i += 1) {
       const p = i * info.channels;
-      lum[i] = 0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2];
+      const v = Math.round(0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2]);
+      lum[i] = v;
+      lumHist[v] += 1;
     }
-    const median = [...lum].sort((a, b) => a - b)[Math.floor(n / 2)];
+    // The background proxy: the median luminance, read off the histogram.
+    let median = 0;
+    let below = 0;
+    const half = Math.floor(n / 2);
+    for (let v = 0; v < 256; v += 1) {
+      below += lumHist[v];
+      if (below > half) { median = v; break; }
+    }
     // Candidate glyph pixels: the most deviant INK_PIXEL_FRACTION, each at
     // least INK_MIN_DEVIATION from the background — a flat crop yields none.
-    const idx = Array.from({ length: n }, (_, i) => i)
-      .filter(i => Math.abs(lum[i] - median) >= INK_MIN_DEVIATION)
-      .sort((a, b) => Math.abs(lum[b] - median) - Math.abs(lum[a] - median))
-      .slice(0, Math.max(INK_MIN_PIXELS, Math.round(n * INK_PIXEL_FRACTION)));
-    const darker = idx.filter(i => lum[i] < median);
-    const lighter = idx.filter(i => lum[i] >= median);
-    const fill = darker.length >= lighter.length ? darker : lighter;
-    if (fill.length < INK_MIN_PIXELS) return null;
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    for (const i of fill) {
-      const p = i * info.channels;
-      r += data[p];
-      g += data[p + 1];
-      b += data[p + 2];
+    // The cutoff comes from a deviation histogram walked from the top down.
+    const devHist = new Uint32Array(256);
+    for (let i = 0; i < n; i += 1) devHist[Math.abs(lum[i] - median)] += 1;
+    const wanted = Math.max(INK_MIN_PIXELS, Math.round(n * INK_PIXEL_FRACTION));
+    let cutoff = INK_MIN_DEVIATION;
+    let kept = 0;
+    for (let d = 255; d >= INK_MIN_DEVIATION; d -= 1) {
+      kept += devHist[d];
+      cutoff = d;
+      if (kept >= wanted) break;
     }
-    const hex = rgbToHex(r / fill.length, g / fill.length, b / fill.length);
+    if (kept < INK_MIN_PIXELS) return null;
+    // One accumulation pass over the two sides of the median; the LARGER
+    // side is the glyph fill (the allowed hairline is thinner than the
+    // stroke it hugs), which is also how the painted polarity is read.
+    let dr = 0; let dg = 0; let db = 0; let dc = 0;
+    let lr = 0; let lg = 0; let lb = 0; let lc = 0;
+    for (let i = 0; i < n; i += 1) {
+      if (Math.abs(lum[i] - median) < cutoff) continue;
+      const p = i * info.channels;
+      if (lum[i] < median) { dr += data[p]; dg += data[p + 1]; db += data[p + 2]; dc += 1; } else { lr += data[p]; lg += data[p + 1]; lb += data[p + 2]; lc += 1; }
+    }
+    const isDark = dc >= lc;
+    const count = isDark ? dc : lc;
+    if (count < INK_MIN_PIXELS) return null;
+    const hex = isDark ? rgbToHex(dr / dc, dg / dc, db / dc) : rgbToHex(lr / lc, lg / lc, lb / lc);
     const target = typeof opts.targetHex === 'string' ? opts.targetHex : null;
     const limit = Number.isFinite(opts.threshold) && opts.threshold >= 0 ? opts.threshold : DEFAULT_INK_DELTA_E_THRESHOLD;
     const d = target ? deltaE(hex, target) : NaN;
     return {
       hex,
       deltaE: Number.isFinite(d) ? Number(d.toFixed(2)) : null,
-      polarity: fill === darker ? 'dark' : 'light',
+      polarity: isDark ? 'dark' : 'light',
       pass: Number.isFinite(d) ? d <= limit : null,
-      pixels: fill.length,
+      pixels: count,
     };
   } catch (err) {
     return null;
@@ -430,6 +454,7 @@ async function textInkColour(buffer, bbox, opts = {}) {
  * Lab (a real measured colour, so the existing hex-based ΔE applies), and
  * anything beyond `threshold` from it is flagged. Pure — exported for tests.
  *
+ * Needs at least THREE measurements — two cannot establish a majority.
  * @param {Array<{spread:number, hex:string}>} entries measured inks (any order)
  * @param {{threshold?: number}} [opts]
  * @returns {{referenceHex: string|null, flagged: Array<{spread:number, hex:string, deltaE:number}>}}
@@ -439,7 +464,12 @@ function inkSetOutliers(entries, opts = {}) {
   const list = (Array.isArray(entries) ? entries : [])
     .filter(e => e && Number.isInteger(e.spread) && hexToRgb(e.hex))
     .map(e => ({ spread: e.spread, hex: e.hex, lab: rgbToLab(hexToRgb(e.hex)) }));
-  if (list.length < 2) return { referenceHex: null, flagged: [] };
+  // Below THREE measurements there is no majority to infer the book's ink
+  // from: the component-wise median of two values is simply one of them, so
+  // an inverted pair could elect the LIGHT block as the reference and flag
+  // the correct dark spread for re-render. The absolute per-spread check
+  // against the pinned hex already owns that case.
+  if (list.length < 3) return { referenceHex: null, flagged: [] };
   const mid = (key) => {
     const v = list.map(e => e.lab[key]).sort((a, b) => a - b);
     return v[Math.floor(v.length / 2)];

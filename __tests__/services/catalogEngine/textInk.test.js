@@ -129,18 +129,35 @@ describe('inkSetOutliers — every spread against the book\'s OWN median ink', (
     expect(r.flagged.map(f => f.spread)).toEqual([3]);
   });
 
-  test('a consistent book flags nothing; under two measurements there is nothing to compare', () => {
-    expect(inkSetOutliers([{ spread: 1, hex: '#2A1C12' }, { spread: 2, hex: '#2B1D13' }]).flagged).toEqual([]);
+  test('a consistent book flags nothing', () => {
+    expect(inkSetOutliers([
+      { spread: 1, hex: '#2A1C12' }, { spread: 2, hex: '#2B1D13' }, { spread: 3, hex: '#291B11' },
+    ]).flagged).toEqual([]);
+  });
+
+  test('under THREE measurements nothing is compared — two cannot establish a majority', () => {
+    // The dangerous case: with one correct and one inverted block, a
+    // two-sample median elects a SIDE, and electing the light one would
+    // flag the CORRECT spread for re-render. The absolute per-spread check
+    // against the pinned ink owns this case instead.
+    expect(inkSetOutliers([{ spread: 1, hex: '#2A1C12' }, { spread: 2, hex: '#F5F0E6' }]))
+      .toEqual({ referenceHex: null, flagged: [] });
+    expect(inkSetOutliers([{ spread: 1, hex: '#F5F0E6' }, { spread: 2, hex: '#2A1C12' }]))
+      .toEqual({ referenceHex: null, flagged: [] });
     expect(inkSetOutliers([{ spread: 1, hex: '#2A1C12' }])).toEqual({ referenceHex: null, flagged: [] });
     expect(inkSetOutliers([])).toEqual({ referenceHex: null, flagged: [] });
   });
 
-  test('malformed entries are dropped, never coerced', () => {
+  test('malformed entries are dropped, never coerced — and they do not count toward the three', () => {
     const r = inkSetOutliers([
       { spread: 1, hex: '#2A1C12' }, { spread: 2, hex: 'brown' }, { spread: 3.5, hex: '#2A1C12' },
-      { spread: 4, hex: '#fff' }, null, { spread: 5, hex: '#2B1D13' },
+      { spread: 4, hex: '#fff' }, null, { spread: 5, hex: '#2B1D13' }, { spread: 6, hex: '#291B11' },
     ]);
     expect(r.flagged).toEqual([]);
     expect(r.referenceHex).toBeTruthy();
+    // The same list minus one VALID entry falls under the three-sample floor.
+    expect(inkSetOutliers([
+      { spread: 1, hex: '#2A1C12' }, { spread: 2, hex: 'brown' }, { spread: 4, hex: '#fff' }, { spread: 5, hex: '#2B1D13' },
+    ])).toEqual({ referenceHex: null, flagged: [] });
   });
 });

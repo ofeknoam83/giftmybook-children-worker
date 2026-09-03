@@ -133,7 +133,7 @@ function renderTextColumnHint(side, rules) {
   const top = rules.topPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const bottom = rules.bottomPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const xRange = side === 'left' ? `x from ${edge}% to ${active}%` : `x from ${100 - active}% to ${100 - edge}%`;
-  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin dark outline, not from treating the background. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
+  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin, tight pale hairline, not from treating the background and never from inverting the dark ink to light text. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
 }
 
 /** Corrective world-gate re-renders allowed per run (cost bound). */
@@ -671,18 +671,28 @@ async function runInkConsistencyGate({ results, inkHex, rerender, onProgress = (
   const { referenceHex, flagged } = metrics.inkSetOutliers(measured);
   if (flagged.length === 0) return { pass: true, checked: measured.length, referenceHex };
   log('warn', `Ink gate: ${flagged.length} spread(s) differ from the book's ink ${referenceHex} (${flagged.map(f => `s${f.spread} ${f.hex} ΔE${f.deltaE}`).join(', ')})`);
-  const rerendered = await applySetRepairs({
-    results,
-    // Only the closed defect name and pinned numbers travel; the note is
-    // diagnostics for the advisory, never a prompt (noteFor owns that).
-    flagged: flagged.map(f => ({ spread: f.spread, defect: 'text_ink', note: `painted ink ${f.hex} differs from the book's ink ${referenceHex} (ΔE ${f.deltaE})` })),
-    budget: flags.textInkMaxRerenders(),
-    stage: 'textInk',
-    rerender,
-    noteFor: () => repairNoteV2(['embedded story text ink colour differs'], null, { inkHex }),
-    onProgress,
-    log,
-  });
+  // The repairs below are full render cycles, and the render phase's own
+  // heartbeat is already cleared by now: without one here the server's
+  // 20-minute idle watchdog can abort a healthy book mid-repair. Same
+  // pattern as the world and contact gates.
+  const heartbeat = setInterval(() => onProgress(1, 'Ink consistency gate in progress...'), 30000);
+  let rerendered;
+  try {
+    rerendered = await applySetRepairs({
+      results,
+      // Only the closed defect name and pinned numbers travel; the note is
+      // diagnostics for the advisory, never a prompt (noteFor owns that).
+      flagged: flagged.map(f => ({ spread: f.spread, defect: 'text_ink', note: `painted ink ${f.hex} differs from the book's ink ${referenceHex} (ΔE ${f.deltaE})` })),
+      budget: flags.textInkMaxRerenders(),
+      stage: 'textInk',
+      rerender,
+      noteFor: () => repairNoteV2(['embedded story text ink colour differs'], null, { inkHex }),
+      onProgress,
+      log,
+    });
+  } finally {
+    clearInterval(heartbeat);
+  }
   return { pass: false, checked: measured.length, referenceHex, flagged, rerendered };
 }
 

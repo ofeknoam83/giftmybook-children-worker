@@ -431,7 +431,9 @@ describe('ce-18: the book has ONE ink — pinned, measured, and never copied fro
     checkSpreadRenderV2.mockImplementation(async (buf, { label }) => (label.includes(':s3:') ? inked('#F5F0E6') : inked('#2A1C12')));
     inkSetOutliers.mockReturnValue({ referenceHex: '#2A1C12', flagged: [{ spread: 3, hex: '#F5F0E6', deltaE: 81.6 }] });
     const { results, textInkQa } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
-    // Measured inks (replayed spreads included) are what the gate compares.
+    // Measured inks (replayed spreads included) are what the gate compares;
+    // whether two of them are comparable at all is inkSetOutliers' own rule
+    // (it needs three — see textInk.test.js), mocked here to exercise the wiring.
     expect(inkSetOutliers).toHaveBeenCalledWith([
       { spread: 1, hex: '#2A1C12' }, { spread: 3, hex: '#F5F0E6' },
     ]);
