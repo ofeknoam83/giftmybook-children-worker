@@ -197,7 +197,7 @@ test('the props field is STRICT: a shorter list, an untyped flag, or a reordered
 
 test('with embedded text expected, a readable_text:true verdict without a transcript is malformed; a transcript is compared', async () => {
   const opts = { ...fullOpts(), expectedText: 'The cow says moo.' };
-  const textFields = { text_split_both_sides: false, text_on_band: false, text_lines_misaligned: false, text_style_inconsistent: false };
+  const textFields = { text_split_both_sides: false, text_on_band: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
   fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, visible_text: '', ...textFields })));
   expect((await checkSpreadRenderV2(IMG, opts)).qaUnavailable).toMatch(/malformed/);
   fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, ...textFields })));
@@ -210,6 +210,29 @@ test('with embedded text expected, a readable_text:true verdict without a transc
   const r4 = await checkSpreadRenderV2(IMG, opts);
   expect(r4.qaUnavailable).toBeUndefined();
   expect(r4.defects).toContain('embedded story text missing from the image');
+});
+
+test('text on the page fold is BLOCKING — judged boolean OR a text bbox straddling the middle tenth (ce-12)', async () => {
+  const opts = { ...fullOpts(), expectedText: 'The cow says moo.' };
+  const textFields = { text_split_both_sides: false, text_on_band: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
+  const embedded = (over = {}) => cleanVerdict({ readable_text: true, visible_text: 'The cow says moo.', ...textFields, ...over });
+
+  // The judge's boolean alone flags it.
+  fetchWithTimeout.mockResolvedValueOnce(answer(embedded({ text_in_center_gutter: true })));
+  const r1 = await checkSpreadRenderV2(IMG, opts);
+  expect(r1.blocking).toEqual(['embedded story text crosses the page fold (center gutter)']);
+
+  // Deterministic backstop: a bbox spanning 6%→58% straddles the fold even
+  // when the boolean says clean (the screenshot case).
+  fetchWithTimeout.mockResolvedValueOnce(answer(embedded({ text_bbox: { x: 0.06, y: 0.2, w: 0.52, h: 0.5 } })));
+  const r2 = await checkSpreadRenderV2(IMG, opts);
+  expect(r2.blocking).toEqual(['embedded story text crosses the page fold (center gutter)']);
+
+  // A block fully on one page passes; the soft bbox is optional.
+  fetchWithTimeout.mockResolvedValueOnce(answer(embedded({ text_bbox: { x: 0.06, y: 0.2, w: 0.3, h: 0.5 } })));
+  const r3 = await checkSpreadRenderV2(IMG, opts);
+  expect(r3.pass).toBe(true);
+  expect(r3.blocking).toEqual([]);
 });
 
 test('bath/water spreads skip the outfit check; an absent child suppresses identity/outfit/action findings', async () => {

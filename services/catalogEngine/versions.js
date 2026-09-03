@@ -99,7 +99,13 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // spreads whose story featured the companion rendered it reference-less
 // and unchecked (a different-looking creature per spread). Scene prompts
 // changed for every such story — ce-10 renders must never replay as ce-11.
-const STYLE_VERSION = 'ce-11';
+// ce-12: the page fold — the embedded TEXT PLACEMENT rule now states the
+// print reality (the image is TWO facing pages; the vertical centerline is
+// the physical fold that cuts any word crossing it) and QA gates
+// text_in_center_gutter (plus a deterministic text-bbox straddle check)
+// as a BLOCKING placement defect with its own repair note. The renderer's
+// embedded-text prompt changed — ce-11 renders must never replay as ce-12.
+const STYLE_VERSION = 'ce-12';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
@@ -117,8 +123,12 @@ const STYLE_VERSION = 'ce-11';
  * and the companion check now runs on every spread whose manuscript names
  * the companion, not only beat-named spreads. Markers written under qa-3
  * were judged with softer eyes — replays re-check.
+ * qa-5 (ce-12): the verdict gains `text_in_center_gutter` (required with
+ * embedded text) and the soft `text_bbox`; text crossing the page fold —
+ * judged, or a bbox straddling the middle tenth — is a BLOCKING placement
+ * defect ('embedded story text crosses the page fold (center gutter)').
  */
-const QA_VERSION = 'qa-4';
+const QA_VERSION = 'qa-5';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

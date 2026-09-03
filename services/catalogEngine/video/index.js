@@ -21,7 +21,7 @@ const { downloadBuffer, uploadBuffer, getSignedUrl, objectExists, loadJson, save
 const { renderStorySpreads, storyFingerprint } = require('../illustrator');
 const { buildBookBible, summarizeBible, anchorHash } = require('../illustrator/bible');
 const { buildShotPlan } = require('../illustrator/shotPlan');
-const { visualPropsForSpread, continuityPropsForSpread, beatMentionsCompanion } = require('../illustrator/scenes');
+const { visualPropsForSpread, continuityPropsForSpread, companionOnSpread } = require('../illustrator/scenes');
 const { isModestBathWaterScene } = require('../../illustrationGenerator');
 const { pickBest, compareCandidates, residualBlocking } = require('../illustrator/select');
 const { EMOTION_CUES } = require('../illustrator/emotionPlan');
@@ -260,12 +260,15 @@ async function generateGiftVideo(p) {
   const companionDrawable = !!(theme.companion && theme.companion.name);
   const segmentInputs = plan.segments.map(s => {
     const beat = s.kind === 'spread' ? book.beats.find(b => b.spread === s.spread) : null;
-    const companionOnSpread = !!(beat && companionDrawable && beatMentionsCompanion(beat, theme.companion));
+    const spreadText = s.kind === 'spread' ? (story.spreads.find(x => x.spread === s.spread) || {}).text || '' : '';
+    // ce-11 signal (beat OR manuscript names the companion) — the film's
+    // segments attach the companion ref on the same spreads the book does.
+    const companionPresent = !!(beat && companionDrawable && companionOnSpread(beat, spreadText, theme.companion));
     const declared = beat ? visualPropsForSpread(evidence, s.spread) : [];
     const carried = beat && flags.propContinuityEnabled() ? continuityPropsForSpread(evidence, s.spread) : [];
     const propValues = [...new Set([...declared, ...carried])];
     const references = [characterRef];
-    if (companionOnSpread && companionRef) references.push(companionRef);
+    if (companionPresent && companionRef) references.push(companionRef);
     const propRefList = [];
     for (const v of propValues) {
       const r = propRefs.get(normalizePropValue(v));
@@ -275,10 +278,9 @@ async function generateGiftVideo(p) {
     const emotion = s.kind === 'spread' && emotionPlan && emotionPlan[s.spread] ? emotionPlan[s.spread] : null;
     const brief = buildClipBrief({
       segment: s, name: profile.name, beat: beat ? beat.beat : null,
-      companion: companionOnSpread ? theme.companion : null,
+      companion: companionPresent ? theme.companion : null,
       emotion, propValues, references, ageBand, theme,
     });
-    const spreadText = s.kind === 'spread' ? (story.spreads.find(x => x.spread === s.spread) || {}).text || '' : '';
     const checks = {
       sheet: { base64: bible.sheet.base64, mimeType: bible.sheet.mimeType || 'image/png' },
       outfitSpec: beat && isModestBathWaterScene(`${beat.beat} ${spreadText}`) ? null : outfitSpec,
@@ -286,7 +288,7 @@ async function generateGiftVideo(p) {
         const r = propRefs.get(normalizePropValue(v));
         return { name: v, specText: r ? r.specText : null, sheet: r ? r.sheet : null, expected: declared.includes(v) ? 'required' : 'carried' };
       }),
-      companion: companionOnSpread ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion && bible.companion.base64 ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null } : null,
+      companion: companionPresent ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion && bible.companion.base64 ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null } : null,
       beat: beat ? beat.beat : null,
       emotion: emotion ? { ...emotion, cue: EMOTION_CUES[emotion.emotion] || null } : null,
     };
