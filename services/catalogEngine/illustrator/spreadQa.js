@@ -879,9 +879,15 @@ const BLOCKING_PREFIXES = [
   'embedded story text too large',
 ];
 
-/** qa-7 size ruler thresholds: painted-block / footprint (max of width and height ratios). */
-const TEXT_TOO_LARGE_RATIO = 1.6;
-const TEXT_OVERSIZED_RATIO = 1.3;
+/**
+ * Size ruler thresholds: painted-block / footprint (max of width and height
+ * ratios). qa-8 (ce-16) tightened them from 1.6/1.3 with the smaller
+ * footprint: a block painted at the OLD size measures ~1.35× the new one —
+ * an advisory that sinks it in selection — while blocking stays above the
+ * judged bbox's own noise on small blocks.
+ */
+const TEXT_TOO_LARGE_RATIO = 1.5;
+const TEXT_OVERSIZED_RATIO = 1.25;
 
 /**
  * How many times larger than its footprint the painted block is — the max
@@ -998,6 +1004,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       return unavailable('vision QA returned a malformed verdict');
     }
     const defects = [];
+    let sizeRatio = null; // qa-8: exposed on the result so selection can prefer the smaller painted block
     if (json.child_absent) defects.push('child hero missing from the scene');
     if (json.multiple_children) defects.push('duplicated child hero');
     if (json.flat_or_photo_style) defects.push('style break: flat/2D or photographic medium');
@@ -1074,7 +1081,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         if (json.text_in_center_gutter || straddlesFold) defects.push('embedded story text crosses the page fold (center gutter)');
         // qa-7: the ruler — the SAME footprint numbers the prompt stated,
         // held against the judged bbox (fail-open without a bbox).
-        const sizeRatio = textSizeRatio(textBbox, o.expectedBlock);
+        sizeRatio = textSizeRatio(textBbox, o.expectedBlock);
         if (sizeRatio != null && sizeRatio >= TEXT_TOO_LARGE_RATIO) defects.push(`embedded story text too large (about ${sizeRatio}× the book's fixed size)`);
         else if (sizeRatio != null && sizeRatio >= TEXT_OVERSIZED_RATIO) defects.push(`embedded story text oversized (about ${sizeRatio}× the book's fixed size)`);
         if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
@@ -1089,6 +1096,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       defects, blocking, advisory,
       verdict: json,
       bbox: cleanBbox(json.child_bbox),
+      textSizeRatio: sizeRatio,
       // Per-prop boxes (present props only) — the contact-sheet gate crops
       // each prop beside its sheet from these, never the whole spread.
       propBoxes: o.props.map((p, i) => ({ name: p.name, bbox: json.props && json.props[i] && json.props[i].presence === 'present' ? cleanBbox(json.props[i].bbox) : null })),

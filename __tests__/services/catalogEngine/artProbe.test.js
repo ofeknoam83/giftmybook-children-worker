@@ -815,6 +815,10 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     // The anchor spread's own renders: no typography reference; the others: the crop LAST, cited by index, with the assigned side forwarded.
     const calls = generateIllustration.mock.calls;
     const forSpread = (n) => calls.filter(([scene]) => scene.includes(`Scene ${n} of 12`)).map(c => c[3]);
+    // ce-16: the anchor page renders CATALOG_TEXT_ANCHOR_CANDIDATES (3) so a small
+    // page exists to elect; the rest keep this file's CATALOG_RENDER_CANDIDATES (1).
+    expect(forSpread(1)).toHaveLength(3);
+    expect(forSpread(3)).toHaveLength(1);
     for (const o of forSpread(1)) {
       expect(o.typographyRef).toBeUndefined();
       expect((o.referencePack || []).some(r => r.kind === 'typography')).toBe(false);
@@ -896,6 +900,35 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(electTypographyAnchor.mock.calls[0][0]).toMatchObject({ spread: 1, reelect: true });
     expect(forced.results[0].storageKey).not.toContain('-ta');
     expect(forced.typographyAnchorUsed).toMatch(/^s1\./);
+  });
+
+  test('CATALOG_EMBEDDED_IMAGE_SIZE rides embedded renders as imageSize and folds -is{size} into their keys; caption renders never carry it', async () => {
+    process.env.CATALOG_EMBEDDED_IMAGE_SIZE = '2k';
+    try {
+      generateIllustration.mockClear();
+      const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+      expect(results[0].storageKey).toMatch(/-is2k-[^/]*\/spread-1\.wide\.png$/);
+      expect(generateIllustration.mock.calls[0][3].imageSize).toBe('2K');
+      generateIllustration.mockClear();
+      const caption = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+      expect(caption.results[0].storageKey).not.toContain('-is');
+      expect(generateIllustration.mock.calls[0][3].imageSize).toBeUndefined();
+      process.env.CATALOG_EMBEDDED_IMAGE_SIZE = 'huge';
+      generateIllustration.mockClear();
+      const bad = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+      expect(bad.results[0].storageKey).not.toContain('-is');
+      expect(generateIllustration.mock.calls[0][3].imageSize).toBeUndefined();
+    } finally {
+      delete process.env.CATALOG_EMBEDDED_IMAGE_SIZE;
+    }
+  });
+
+  test('needsRepair: the oversized advisory shades selection only; every other embedded-text finding still repairs', () => {
+    const { needsRepair } = require('../../../services/catalogEngine/illustrator');
+    expect(needsRepair({ blocking: [], advisory: ['embedded story text oversized (about 1.3× the book\'s fixed size)'] })).toBe(false);
+    expect(needsRepair({ blocking: [], advisory: ['embedded story text lines misaligned (tilted)'] })).toBe(true);
+    expect(needsRepair({ blocking: ['embedded story text too large (about 2× the book\'s fixed size)'], advisory: [] })).toBe(true);
+    expect(needsRepair({ blocking: [], advisory: ['face hidden: turned away'] })).toBe(false);
   });
 
   test('CATALOG_TEXT_ANCHOR=0: no election, no reference, and every embedded key folds -ta0', async () => {

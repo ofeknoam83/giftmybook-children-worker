@@ -95,6 +95,17 @@
  *                                   anchor-less renders never replay each
  *                                   other).
  *
+ *  - CATALOG_TEXT_ANCHOR_CANDIDATES=N — (ce-16) candidates rendered for the
+ *                                   typography anchor page (1-4, default 3):
+ *                                   the whole book copies the elected page's
+ *                                   type size, so it gets more rolls.
+ *  - CATALOG_EMBEDDED_IMAGE_SIZE=2K — (ce-16, OPT-IN) request this output
+ *                                   size ('1K'|'2K'|'4K') on embedded renders
+ *                                   (more pixels per glyph keeps small
+ *                                   painted text crisp); a model that rejects
+ *                                   the field renders at its default. Folded
+ *                                   into the render key as -is{size}.
+ *
  *  - CATALOG_GIFT_VIDEO=0          — (gv-1) disable the gift-video endpoints
  *                                   (`/v13/generate-video` answers 503).
  *  - CATALOG_VIDEO_PROVIDERS=a,b   — (gv-1) the providers an admin may select
@@ -167,6 +178,11 @@ module.exports = {
   // ce-15 — the typography anchor (the book's first painted page as the
   // type reference for its other embedded spreads)
   textAnchorEnabled: () => !envOff('CATALOG_TEXT_ANCHOR'),
+  textAnchorCandidates: () => envInt('CATALOG_TEXT_ANCHOR_CANDIDATES', 3, 1, 4),
+  embeddedImageSize: () => {
+    const v = String(process.env.CATALOG_EMBEDDED_IMAGE_SIZE || '').trim().toUpperCase();
+    return v === '1K' || v === '2K' || v === '4K' ? v : null;
+  },
   // gv-1 — the gift video (docs/GIFT_VIDEO_PLAN.md §5.3)
   giftVideoEnabled: () => !envOff('CATALOG_GIFT_VIDEO'),
   videoProviders: () => String(process.env.CATALOG_VIDEO_PROVIDERS || 'replicate')

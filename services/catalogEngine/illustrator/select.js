@@ -20,6 +20,11 @@ const WEIGHTS = {
   safeZoneFail: -10,
   offCenterFail: -10,
   shotSizeFail: -5,
+  // ce-16: × max(0, textSizeRatio − 1) — a painted block 1.25× its footprint
+  // loses 10 points to an on-footprint one, so between two otherwise-equal
+  // candidates the SMALLER text always wins (and, on the anchor page, the
+  // whole book then copies the smaller one).
+  textSizeExcess: -40,
 };
 
 /**
@@ -40,7 +45,7 @@ function candidateKey(storageKey, k, pass = 0) {
 /**
  * Score one candidate from its verdict + metrics. Pure.
  * @param {object} c
- * @param {{pass: boolean, blocking?: string[], advisory?: string[], defects?: string[], qaUnavailable?: string}} c.qa
+ * @param {{pass: boolean, blocking?: string[], advisory?: string[], defects?: string[], qaUnavailable?: string, textSizeRatio?: number|null}} c.qa
  * @param {{identityScore?: number|null, colour?: {slots?: object}|null, bbox?: {safeZoneOk?: boolean, offCenterOk?: boolean|null, shotSizeOk?: boolean|null}|null}|null} [c.metrics]
  * @returns {number}
  */
@@ -52,6 +57,9 @@ function scoreCandidate(c) {
   const advisory = Array.isArray(qa.advisory) ? qa.advisory : (Array.isArray(qa.defects) ? qa.defects : []);
   score += blocking.length * WEIGHTS.blocking;
   score += advisory.length * WEIGHTS.advisory;
+  if (typeof qa.textSizeRatio === 'number' && Number.isFinite(qa.textSizeRatio) && qa.textSizeRatio > 1) {
+    score += WEIGHTS.textSizeExcess * (qa.textSizeRatio - 1);
+  }
   const m = c.metrics || {};
   if (typeof m.identityScore === 'number' && Number.isFinite(m.identityScore)) {
     score += WEIGHTS.identity * (m.identityScore - 0.5);

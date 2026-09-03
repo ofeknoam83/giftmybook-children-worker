@@ -81,3 +81,24 @@ test('residualBlocking and hasDriftDefect read the closed defect vocabulary', ()
   expect(hasDriftDefect(['duplicated child hero', 'painted text in the illustration'])).toBe(false);
   expect(residualBlocking({ qa: null })).toEqual([]);
 });
+
+describe('ce-16: the measured text size shades selection — the smaller painted block wins between equals', () => {
+  const { scoreCandidate, pickBest, WEIGHTS } = require('../../../services/catalogEngine/illustrator/select');
+  const clean = (k, textSizeRatio) => ({ k, qa: { pass: true, blocking: [], advisory: [], textSizeRatio }, metrics: null });
+
+  test('excess over the footprint costs points; at or under the footprint costs nothing', () => {
+    const on = { ...clean(1, 1.0), score: 0 };
+    on.score = scoreCandidate(on);
+    const under = { ...clean(2, 0.8), score: 0 };
+    under.score = scoreCandidate(under);
+    const over = { ...clean(3, 1.25), score: 0 };
+    over.score = scoreCandidate(over);
+    expect(on.score).toBe(WEIGHTS.base);
+    expect(under.score).toBe(WEIGHTS.base);
+    expect(over.score).toBeCloseTo(WEIGHTS.base + WEIGHTS.textSizeExcess * 0.25, 5);
+    expect(pickBest([over, on]).k).toBe(1);
+    // No ratio (caption layout, no bbox) — the score is untouched.
+    const none = { ...clean(4, null), score: 0 };
+    expect(scoreCandidate(none)).toBe(WEIGHTS.base);
+  });
+});
