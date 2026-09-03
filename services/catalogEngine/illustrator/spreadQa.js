@@ -580,7 +580,7 @@ function repairNote(defects, expectedText = null, opts = {}) {
       notes.push('Paint the story text directly OVER the artwork on a calm area of the scene — NO blank, solid, or lightened band/strip/panel behind it; the illustration must fill the entire canvas edge to edge. Fix ONLY the text placement; keep the scene otherwise identical.');
     }
     if (d.includes('crosses the page fold')) {
-      notes.push('This image prints as TWO facing book pages and the vertical centerline is the physical FOLD — any word crossing it is cut in half in print. Move the ENTIRE text block fully onto ONE page: completely within the left 35% or the right 35% of the image, with NO word or letter in the middle 30%. Fix ONLY the text placement; keep the scene otherwise identical.');
+      notes.push('This image prints as TWO facing book pages and the vertical centerline is the physical FOLD — any word crossing it is cut in half in print. Use a SMALLER font and re-wrap the text into MORE, SHORTER lines (about 5 words each) so the whole block fits its narrow column, then keep the ENTIRE block fully on ONE page: completely within the left 35% or the right 35% of the image, with NO word or letter in the middle 30%. Fix ONLY the text size and placement; keep the scene otherwise identical.');
     }
     if (d.includes('lines misaligned')) {
       notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin — every line beginning at the EXACT same horizontal position — with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');

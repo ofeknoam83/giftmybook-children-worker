@@ -92,6 +92,13 @@ const TOTAL_SPREADS = 13;
 //   text-free so the illustration breathes. The center band is a hard no-text zone.
 const TEXT_RULES = {
   maxWordsPerLine: 6,
+  // Characters per painted line (spaces included). The renderer PRE-WRAPS
+  // the manuscript into lines this long and orders the model to keep the
+  // breaks — at the small body size below, ~30 characters span roughly a
+  // quarter of a 16:9 canvas, so the block fits its 28%-wide column and the
+  // page fold is never in reach. The model's own line breaks (7–9 words at
+  // caption scale) are exactly how blocks grew to 55% of the width.
+  maxCharsPerLine: 30,
   // Minimum distance from the outer-side edge so the caption never risks
   // being clipped by the printer trim.
   edgePaddingPercent: 7,
@@ -120,7 +127,11 @@ const TEXT_RULES = {
   // the cross-spread drift parents notice. Readability on any background
   // comes from the mandatory soft dark shadow/outline, never from recoloring.
   fontColor: 'ONE fixed text color for the ENTIRE book: soft warm ivory (a slightly warm off-white), with a whisper-soft dark contact shadow or thin dark outline for readability. The SAME fill color and the SAME shadow treatment on every spread — never retint, recolor, or restyle the text to match an individual scene’s palette or lighting.',
-  fontSize: 'Modest, **very readable** on print — the comfortable middle: clearly legible (never miniature or faint), but **not** large and never “cover title” scale. Think restrained film subtitle: **small** on the art, but sharp and easy to read at arm’s length. That same legible modest size on **every** spread; do not grow or shrink the type dramatically versus prior spreads in this book.',
+  // ce-13: a CONCRETE small size. "Modest subtitle" came out as caption
+  // scale (cap height ~4% of the image) and long lines that crossed the
+  // page fold; the size is now stated as a measure the model can hit, and
+  // it must fit the narrow column with many short lines rather than grow.
+  fontSize: 'SMALL book body type — the running text of a printed picture book, NOT a caption, subtitle, or headline: cap height about 2% of the image height (roughly one fiftieth of the height), line pitch about 3.5% of the height. Clearly legible and sharp, never faint, but visibly SMALL on the art — about half the size AI-painted captions usually come out. At this size a line holds only a few words, so the text wraps into MANY short lines inside its narrow column; the block never grows wider to fit. The SAME small size on every spread of this book.',
   // Extra guidance for prompt builders and system instruction (not always concatenated in old paths).
   textIntegration: 'The caption is part of the same cinematic 3D frame: same color grade, same atmospheric haze, same exposure logic. No floating UI bar, no sharp rectangular panel behind lines, no sticker-like cutout with mismatched brightening, no highlighter blocks. If there is depth fog, letters soften very slightly at the micro-edges. Readability is mandatory, but the text must "live in" the light of the world, not sit on top as a separate layer of flat graphic design. **Typography and fill color** stay stable book-wide; only the soft shadow/haze around the glyphs may blend with the scene — never the font, size, or fill color.',
 };
@@ -167,7 +178,7 @@ function resolvePictureBookTextRules(childAge) {
     // Taller multi-line stacks need more lift from the bottom crop zone.
     bottomPaddingPercent: 42,
     fontSize:
-      '**Compact read-aloud tier (ages 3–8, longer lines):** Use a **slightly smaller** on-image caption than a typical toddler picture book — still crisp, sharp, and easy to read at arm’s length, but stepped down one clear notch so a multi-line block never crowds the vertical safe zone. Modest film subtitle, not miniature; never poster or title scale. Hold this **same** compact size on every spread.',
+      `${TEXT_RULES.fontSize} **Compact read-aloud tier (ages 3–8, longer lines):** step the same small body type down one further notch so a 10–12-line block fits inside the text column box with even spacing — still crisp and sharp, never faint, never poster or title scale. Hold this **same** compact size on every spread.`,
     typographyConsistency:
       `${TEXT_RULES.typographyConsistency} This book uses the **compact read-aloud** size tier — match that slightly smaller baseline on every spread; do not drift back to a larger "little kid" caption scale.`,
   };
