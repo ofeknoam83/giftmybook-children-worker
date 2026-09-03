@@ -11,13 +11,17 @@
  * The scale survives (full height: "each row this tall relative to the
  * page" is visible); the composition does not.
  *
- * Elected ONCE per story: pinned beside the renders (create-if-absent,
- * single winner like the world plate), so every later run and every
- * per-spread re-render matches the same page; `forceRerender`
- * (all-or-nothing) re-elects. Its content hash folds into the OTHER
- * spreads' cache keys — a re-elected anchor never replays renders made
- * against the old one. Fail-open: no anchor → the spreads render on the
- * text rules alone with a stage `typographyAnchor` advisory.
+ * Elected ONCE per story and PINNED beside the renders as ONE JSON object
+ * (the crop rides inside as base64 beside its spread, side and hash — a
+ * single create-if-absent write, so racing instances adopt one winner
+ * like the world plate). Every later run reuses the pin whatever its
+ * subset — a bench probe on spreads 4–6 pins page 4, and the final book
+ * anchors on page 4 too, so the approved probe renders stay replayable;
+ * `forceRerender` (all-or-nothing) re-elects. The pinned page keeps its
+ * plain cache key; every OTHER spread folds the crop's content hash into
+ * its key, so a re-elected anchor never replays renders made against the
+ * old one. Fail-open: no anchor → the spreads render on the text rules
+ * alone with a stage `typographyAnchor` advisory.
  */
 
 'use strict';
@@ -78,58 +82,88 @@ function anchorHash(bytes) {
 }
 
 /**
- * The pin path beside the renders: `…/{storyHash}/typo-anchor.{aspect}.png`
- * (derived from the anchor spread's own render key so it lives in the
- * un-folded directory every run resolves first).
- * @param {string} anchorSpreadRenderKey renderCachePath(...) of the anchor spread
+ * The pin path beside the renders: `…/{storyHash}/typo-anchor.{aspect}.json`
+ * — derived from any render key of the story's un-folded directory (the
+ * one every run resolves first), never from a folded one.
+ * @param {string} renderKey renderCachePath(bookId, storyHash, spread, aspect, tag)
  * @returns {string}
  */
-function anchorPinPath(anchorSpreadRenderKey) {
-  return anchorSpreadRenderKey.replace(/spread-\d+\.([a-z-]+)\.png$/, 'typo-anchor.$1.png');
+function anchorPinPath(renderKey) {
+  return renderKey.replace(/spread-\d+\.([a-z-]+)\.png$/, 'typo-anchor.$1.json');
 }
 
 /**
- * Elect the story's typography anchor: reuse the pinned crop when one
- * exists (unless re-electing), else crop it from the anchor spread's render
- * and pin it (create-if-absent — a racing instance adopts the winner).
+ * Parse a pin blob. Null when unusable (a foreign or truncated object is
+ * "no pin", never a throw).
+ * @param {Buffer} raw
+ * @returns {{spread: number, side: 'left'|'right', bytes: Buffer, hash: string, pinned: true}|null}
+ */
+function parsePin(raw) {
+  try {
+    const j = JSON.parse(raw.toString('utf8'));
+    if (!j || typeof j !== 'object') return null;
+    const spread = Number(j.spread);
+    const side = j.side === 'left' || j.side === 'right' ? j.side : null;
+    if (!Number.isInteger(spread) || spread < 1 || spread > 12 || !side || typeof j.png !== 'string' || !j.png) return null;
+    const bytes = Buffer.from(j.png, 'base64');
+    if (bytes.length === 0) return null;
+    return { spread, side, bytes, hash: anchorHash(bytes), pinned: true };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The story's pinned anchor, if an earlier run elected one.
+ * @param {string} pinKey anchorPinPath(...)
+ * @returns {Promise<{spread: number, side: 'left'|'right', bytes: Buffer, hash: string, pinned: true}|null>}
+ */
+async function readPinnedTypographyAnchor(pinKey) {
+  try {
+    return parsePin(await downloadBuffer(pinKey));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Elect the story's typography anchor: reuse the pin when one exists
+ * (unless re-electing), else crop it from the anchor spread's render and
+ * pin it create-if-absent — a lost race adopts the winner (which may be a
+ * different page, elected by a concurrent run of another subset).
  * @param {object} params
  * @param {Buffer|null} params.buffer the anchor spread's render bytes
  * @param {'left'|'right'} params.side the anchor spread's assigned text side
+ * @param {number} params.spread the anchor spread number (recorded in the pin)
  * @param {string} params.pinKey anchorPinPath(...)
  * @param {boolean} [params.reelect] overwrite the pin (forceRerender)
  * @param {function} [params.crop] the crop function (cropTypographyAnchor; injectable for tests)
  * @param {function} [params.log]
- * @returns {Promise<{bytes: Buffer, hash: string, pinned: boolean}|null>}
+ * @returns {Promise<{spread: number, side: 'left'|'right', bytes: Buffer, hash: string, pinned: boolean}|null>}
  */
-async function electTypographyAnchor({ buffer, side, pinKey, reelect = false, crop = cropTypographyAnchor, log = () => {} }) {
+async function electTypographyAnchor({ buffer, side, spread, pinKey, reelect = false, crop = cropTypographyAnchor, log = () => {} }) {
   if (!reelect) {
-    try {
-      const pinned = await downloadBuffer(pinKey);
-      if (pinned && pinned.length > 0) return { bytes: pinned, hash: anchorHash(pinned), pinned: true };
-    } catch {
-      // no pin yet — elect below
-    }
+    const pinned = await readPinnedTypographyAnchor(pinKey);
+    if (pinned) return pinned;
   }
   const bytes = await crop(buffer, side);
   if (!bytes) return null;
+  const own = { spread, side, bytes, hash: anchorHash(bytes), pinned: false };
+  const blob = Buffer.from(JSON.stringify({ spread, side, hash: own.hash, png: bytes.toString('base64'), electedAt: new Date().toISOString() }));
   try {
     if (reelect) {
-      await uploadBuffer(bytes, pinKey, 'image/png');
+      await uploadBuffer(blob, pinKey, 'application/json');
     } else {
-      const { created } = await uploadBufferIfAbsent(bytes, pinKey, 'image/png');
+      const { created } = await uploadBufferIfAbsent(blob, pinKey, 'application/json');
       if (!created) {
-        try {
-          const winner = await downloadBuffer(pinKey);
-          if (winner && winner.length > 0) return { bytes: winner, hash: anchorHash(winner), pinned: true };
-        } catch {
-          // fall through to our own bytes for this run
-        }
+        const winner = await readPinnedTypographyAnchor(pinKey);
+        if (winner) return winner;
       }
     }
   } catch (err) {
     log('warn', `typography anchor pin write failed (${err.message}) — using the unpinned crop for this run`);
   }
-  return { bytes, hash: anchorHash(bytes), pinned: false };
+  return own;
 }
 
-module.exports = { anchorCropRect, cropTypographyAnchor, anchorHash, anchorPinPath, electTypographyAnchor, ANCHOR_HALF_WIDTH, ANCHOR_MAX_HEIGHT };
+module.exports = { anchorCropRect, cropTypographyAnchor, anchorHash, anchorPinPath, parsePin, readPinnedTypographyAnchor, electTypographyAnchor, ANCHOR_HALF_WIDTH, ANCHOR_MAX_HEIGHT };

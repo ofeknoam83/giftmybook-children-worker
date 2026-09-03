@@ -803,8 +803,8 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(firstOther).toBeGreaterThan(0);
     expect(order.slice(0, firstOther).every(n => n === '1')).toBe(true);
     expect(electTypographyAnchor).toHaveBeenCalledTimes(1);
-    expect(electTypographyAnchor.mock.calls[0][0].pinKey).toMatch(/\/typo-anchor\.wide\.png$/);
-    expect(uploadBufferIfAbsent).toHaveBeenCalledWith(expect.any(Buffer), expect.stringMatching(/typo-anchor\.wide\.png$/), 'image/png');
+    expect(electTypographyAnchor.mock.calls[0][0]).toMatchObject({ spread: 1, pinKey: expect.stringMatching(/\/typo-anchor\.wide\.json$/) });
+    expect(uploadBufferIfAbsent).toHaveBeenCalledWith(expect.any(Buffer), expect.stringMatching(/typo-anchor\.wide\.json$/), 'application/json');
     const [s1, s3, s5] = results;
     expect(s1.spread).toBe(1);
     expect(s1.storageKey).not.toContain('-ta');
@@ -841,6 +841,61 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(opts.safeFallbackSuffix).toContain('COMPOSITION FOR PRINT (TEXT COLUMN)');
     const caption = await (async () => { generateIllustration.mockClear(); await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] })); return generateIllustration.mock.calls[0][0]; })();
     expect(caption).not.toContain('TEXT COLUMN');
+  });
+
+  test('a pinned page is reused by every later run whatever its subset: no serialization, the pinned page keeps its plain key, every other spread folds the pin', async () => {
+    const { anchorHash } = jest.requireActual('../../../services/catalogEngine/illustrator/textAnchor');
+    const crop = Buffer.from('pinned-crop');
+    const seen = new Map();
+    // Keys the (mocked) renderer was asked to write hold bytes afterwards —
+    // a forced render skips the replay check, so its canonical key's first
+    // download is the post-render one (the default harness's first-miss
+    // rule would wrongly fail it).
+    const rendered = new Set();
+    generateIllustration.mockImplementation(async (scene, ref, style, opts) => { if (opts && opts.gcsPath) rendered.add(opts.gcsPath); return 'https://x/render.png'; });
+    downloadBuffer.mockImplementation(async (key) => {
+      if (key.endsWith('typo-anchor.wide.json')) return Buffer.from(JSON.stringify({ spread: 4, side: 'right', hash: anchorHash(crop), png: crop.toString('base64') }));
+      if (key.endsWith('.qa.json')) throw new Error('no marker');
+      if (rendered.has(key)) return Buffer.from('png-bytes');
+      if (/\.(?:r\d+)?c\d\.png$/.test(key)) return Buffer.from('png-bytes');
+      const n = (seen.get(key) || 0) + 1;
+      seen.set(key, n);
+      if (n === 1) throw new Error('cache miss');
+      return Buffer.from('png-bytes');
+    });
+    generateIllustration.mockClear();
+    electTypographyAnchor.mockClear();
+    // A probe that does not even contain the pinned page: both spreads render against it.
+    const probe = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
+    expect(electTypographyAnchor).not.toHaveBeenCalled(); // no election — the pin is the anchor
+    const fold = `-ta${anchorHash(crop).slice(0, 8)}`;
+    expect(probe.results.map(r => r.storageKey)).toEqual([
+      expect.stringMatching(new RegExp(`${fold}/spread-1\\.wide\\.png$`)),
+      expect.stringMatching(new RegExp(`${fold}/spread-3\\.wide\\.png$`)),
+    ]);
+    expect(probe.typographyAnchorUsed).toBe(`s4.${anchorHash(crop).slice(0, 8)}`);
+    for (const [, , , o] of generateIllustration.mock.calls) {
+      const last = o.referencePack[o.referencePack.length - 1];
+      expect(last.kind).toBe('typography');
+      expect(last.label).toContain('TYPOGRAPHY REFERENCE (page 4 of THIS book');
+      expect(last.label).toContain('the RIGHT half');
+      expect(last.base64).toBe(crop.toString('base64'));
+      expect(o.typographyRef).toBe(o.referencePack.length);
+    }
+    // A run that contains the pinned page: page 4 keeps its plain key and still gets its own crop as reference.
+    generateIllustration.mockClear();
+    const withPinned = await renderStorySpreads(baseParams({ spreadNos: [4, 6], spreads: [4, 6], textLayout: 'embedded' }));
+    expect(withPinned.results[0].storageKey).not.toContain('-ta');
+    expect(withPinned.results[1].storageKey).toContain(fold);
+    expect(generateIllustration.mock.calls.every(c => c[3].typographyRef > 0)).toBe(true);
+    // forceRerender re-elects from THIS run's first spread instead of reusing the pin.
+    generateIllustration.mockClear();
+    electTypographyAnchor.mockClear();
+    const forced = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded', forceRerender: true }));
+    expect(electTypographyAnchor).toHaveBeenCalledTimes(1);
+    expect(electTypographyAnchor.mock.calls[0][0]).toMatchObject({ spread: 1, reelect: true });
+    expect(forced.results[0].storageKey).not.toContain('-ta');
+    expect(forced.typographyAnchorUsed).toMatch(/^s1\./);
   });
 
   test('CATALOG_TEXT_ANCHOR=0: no election, no reference, and every embedded key folds -ta0', async () => {

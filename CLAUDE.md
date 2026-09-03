@@ -445,16 +445,22 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   half layout's proven technique): the assigned column is continuous CALM
   scenery so small letters are legible without a panel. (4) **The
   typography anchor** (`illustrator/textAnchor.js`, kill-switch
-  `CATALOG_TEXT_ANCHOR=0`): the run's first embedded spread renders ALONE,
-  the text-side HALF of its render (a crop at full height — never a whole
-  sibling frame; the 2026-08-06 photocopy-drift deletion stands) is pinned
-  beside the renders (`typo-anchor.wide.png`, create-if-absent, single
-  winner; `forceRerender` re-elects) and rides every OTHER spread's
+  `CATALOG_TEXT_ANCHOR=0`): the text-side HALF of one painted page of the
+  story (a crop at full height — never a whole sibling frame; the
+  2026-08-06 photocopy-drift deletion stands) rides every other spread's
   reference pack as the LAST entry, labeled TYPE ONLY ("each row of your
-  text as tall as one of its rows"); its content hash folds into those
-  spreads' cache keys (`-ta{hash8}`, `-ta0` when off), and callbacks echo
-  `typographyAnchorUsed` (`s{spread}.{hash8}` or `none`, with a stage
-  `typographyAnchor` advisory when an embedded run has none). (5) The
+  text as tall as one of its rows"). It is elected ONCE per story and
+  pinned beside the renders as ONE json object (`typo-anchor.wide.json`:
+  the crop with its spread, side and hash; create-if-absent, single
+  winner) — every later run reuses the pin whatever its subset (a bench
+  probe on spreads 4–6 pins page 4 and the final book anchors on page 4
+  too, so approved probe renders stay replayable); only a run with NO pin
+  renders its first spread alone before the fan-out to elect it;
+  `forceRerender` re-elects. The pinned page keeps its plain cache key
+  and every other spread folds the crop's hash (`-ta{hash8}`, `-ta0` when
+  off); callbacks echo `typographyAnchorUsed` (`s{spread}.{hash8}` or
+  `none`, with a stage `typographyAnchor` advisory when an embedded run
+  has none). (5) The
   ruler (`qa-7`): QA v2 holds the judged `text_bbox` to the same footprint
   — ≥ 1.6× too wide or tall is BLOCKING `embedded story text too large`
   (the smaller candidate wins; a residual never ships), ≥ 1.3× the

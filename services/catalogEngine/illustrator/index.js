@@ -50,7 +50,7 @@ const { renderWorldCardBlock } = require('../worldCards');
 const { STYLE_VERSION, QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
-const { electTypographyAnchor, anchorPinPath } = require('./textAnchor');
+const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
 const { resolvePictureBookTextRules } = require('../../shared/illustration/config');
 
@@ -1075,29 +1075,43 @@ async function renderStorySpreads(params) {
   const pLimit = require('p-limit');
   const limit = pLimit(RENDER_CONCURRENCY());
   let done = 0;
-  // ce-15: the TYPOGRAPHY ANCHOR — the run's first embedded spread renders
-  // alone, its text-side half becomes the type reference every OTHER
-  // spread renders against, and the anchor's content hash folds into
-  // THEIR cache keys (`-ta{hash8}`; the anchor spread keeps the plain key
-  // — its own key cannot depend on its own crop). With the kill-switch
-  // off every embedded key folds `-ta0`, so anchored and anchor-less
-  // renders never replay each other.
+  // ce-15: the TYPOGRAPHY ANCHOR — the text-side half of one painted page
+  // of THIS story is the type reference every other spread renders
+  // against. It is elected ONCE per story and pinned (textAnchor.js); an
+  // earlier run's pin is reused whatever this run's subset is (a bench
+  // probe on spreads 4–6 pins page 4, and the final book anchors on page
+  // 4 too, so the approved probe renders stay replayable). Only a run
+  // with NO pin renders its first spread alone before the fan-out to
+  // elect it. The pinned page keeps its plain cache key (its key cannot
+  // depend on its own crop); every other spread folds the crop's hash
+  // (`-ta{hash8}`). With the kill-switch off every embedded key folds
+  // `-ta0`, so anchored and anchor-less renders never replay each other.
   const tuningTag = tuning ? tuning.tag : 'none';
   const anchorEnabled = textLayout === 'embedded' && flags.textAnchorEnabled();
   const anchorOff = textLayout === 'embedded' && !flags.textAnchorEnabled();
-  const anchorSpreadNo = anchorEnabled && wanted.length > 1 ? wanted[0].spread : null;
-  let typographyAnchor = null;
   const anchorAdvisories = [];
+  const anchorPinKey = anchorEnabled ? anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)) : null;
+  const toAnchorRef = (e) => ({ spread: e.spread, side: e.side, base64: e.bytes.toString('base64'), mimeType: 'image/png', hash: e.hash, pinned: e.pinned });
+  const pinned = anchorEnabled && !forceRerender ? await readPinnedTypographyAnchor(anchorPinKey) : null;
+  let typographyAnchor = pinned ? toAnchorRef(pinned) : null;
+  if (typographyAnchor) log('info', `Typography anchor: pinned page ${typographyAnchor.spread} reused (${typographyAnchor.hash})`);
+  // The run's anchor spread: the pinned page, else (no pin yet) this run's
+  // first spread — rendered alone first so its crop can be elected.
+  const electNow = anchorEnabled && !typographyAnchor && wanted.length > 1;
+  let anchorSpreadNo = typographyAnchor ? typographyAnchor.spread : (electNow ? wanted[0].spread : null);
   const hashFor = (spread) => {
     if (anchorOff) return `${storyHash}-ta0`;
     if (typographyAnchor && spread !== anchorSpreadNo) return `${storyHash}-ta${typographyAnchor.hash.slice(0, 8)}`;
     return storyHash;
   };
+  // Every spread renders WITH the reference once one exists — the pinned
+  // page too when it is re-rendered (its own earlier text is the best
+  // possible type reference for it); only the fold above skips it.
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
     tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
-    ...(typographyAnchor && spread !== anchorSpreadNo ? { typographyAnchor } : {}),
+    ...(typographyAnchor ? { typographyAnchor } : {}),
     ...extra,
   });
   // allSettled, not all: one thrown spread must cost only THAT spread — the
@@ -1119,22 +1133,25 @@ async function renderStorySpreads(params) {
       return r;
     };
     let anchorSettled = null;
-    if (anchorSpreadNo != null) {
+    if (electNow) {
       onProgress(0.01, `Illustrating spread ${anchorSpreadNo} first (the book's typography anchor)...`);
       [anchorSettled] = await Promise.allSettled([renderOne(wanted[0])]);
       const anchorBuffer = anchorSettled.status === 'fulfilled' && anchorSettled.value ? anchorSettled.value.buffer : null;
       const side = shotPlan && shotPlan[anchorSpreadNo] ? shotPlan[anchorSpreadNo].textSide : null;
       const elected = side
-        ? await electTypographyAnchor({ buffer: anchorBuffer, side, pinKey: anchorPinPath(renderCachePath(bookId, storyHash, anchorSpreadNo, cacheAspect, tuningTag)), reelect: !!forceRerender, log })
+        ? await electTypographyAnchor({ buffer: anchorBuffer, side, spread: anchorSpreadNo, pinKey: anchorPinKey, reelect: !!forceRerender, log })
         : null;
       if (elected) {
-        typographyAnchor = { spread: anchorSpreadNo, side, base64: elected.bytes.toString('base64'), mimeType: 'image/png', hash: elected.hash, pinned: elected.pinned };
-        log('info', `Typography anchor: spread ${anchorSpreadNo} (${side} half, ${elected.pinned ? 'pinned' : 'elected'} ${elected.hash})`);
+        // A lost create race adopts the winner — possibly another page,
+        // elected by a concurrent run of a different subset.
+        typographyAnchor = toAnchorRef(elected);
+        anchorSpreadNo = elected.spread;
+        log('info', `Typography anchor: page ${elected.spread} (${elected.side} half, ${elected.pinned ? 'pinned' : 'elected'} ${elected.hash})`);
       } else {
         anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo} ${side ? 'produced no usable render to crop' : 'has no assigned text side'}; the other spreads render on the text rules alone` });
       }
     }
-    const rest = anchorSpreadNo != null ? wanted.slice(1) : wanted;
+    const rest = electNow ? wanted.slice(1) : wanted;
     settled = await Promise.allSettled(rest.map(beat => limit(() => renderOne(beat))));
     if (anchorSettled) settled = [anchorSettled, ...settled];
   } finally {
