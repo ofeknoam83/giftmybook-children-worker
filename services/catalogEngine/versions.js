@@ -151,7 +151,17 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // fontColor spec drops the "soft shadow" for a tight outline, and the
 // typography reference's label says the same. Prompt text changed — ce-16
 // renders must never replay as ce-17.
-const STYLE_VERSION = 'ce-17';
+// ce-18: ONE INK, measured. The ce-17 round painted dark brown text on the
+// bright spreads and inverted to white on the darker ones — contrast-
+// seeking, because "soft warm ivory" is illegible on a pale savanna sky, so
+// the model broke the spec to stay readable and nothing measured the
+// result (`text_style_inconsistent` only ever caught a block mixing
+// colours WITHIN itself). The pinned ink is now the polarity that survives
+// a bright picture book — deep warm cocoa-brown #2A1C12, stated as a name
+// AND a hex, legible via a thin pale hairline instead of an inverted fill
+// — and that hex is the gate's target too. Prompt text changed on every
+// embedded render — ce-17 renders must never replay as ce-18.
+const STYLE_VERSION = 'ce-18';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
@@ -198,7 +208,17 @@ const STYLE_VERSION = 'ce-17';
  * world gate's TEXT TREATMENT dimension names it too. qa-8 markers never
  * judged it — replays re-check.
  */
-const QA_VERSION = 'qa-9';
+/**
+ * qa-10 (ce-18): the verdict's text bbox is measured for INK COLOUR
+ * (metrics.textInkColour: the glyph fill isolated from its background,
+ * CIE76 ΔE against the book's pinned hex). A wrong-ink block is the
+ * BLOCKING 'embedded story text ink colour differs', the measurement rides
+ * the result as `textInk` for candidate scoring and the book-level ink
+ * gate, and the marker keeps it so a replayed spread still counts toward
+ * the book's ink set. Markers written under qa-9 never measured ink —
+ * replays re-check.
+ */
+const QA_VERSION = 'qa-10';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

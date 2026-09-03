@@ -102,3 +102,21 @@ describe('ce-16: the measured text size shades selection — the smaller painted
     expect(scoreCandidate(none)).toBe(WEIGHTS.base);
   });
 });
+
+describe('ce-18: the measured ink ΔE shades selection — the closest-to-spec render wins', () => {
+  const { scoreCandidate, pickBest, WEIGHTS } = require('../../../services/catalogEngine/illustrator/select');
+  const withInk = (k, deltaE) => ({ k, qa: { pass: true, blocking: [], advisory: [], textInk: deltaE == null ? null : { hex: '#2a1c12', deltaE } }, metrics: null });
+
+  test('drift costs points in proportion; an exact match and an unmeasured block cost nothing', () => {
+    const exact = { ...withInk(1, 0) };
+    exact.score = scoreCandidate(exact);
+    const drifted = { ...withInk(2, 12) };
+    drifted.score = scoreCandidate(drifted);
+    const unmeasured = { ...withInk(3, null) };
+    unmeasured.score = scoreCandidate(unmeasured);
+    expect(exact.score).toBe(WEIGHTS.base);
+    expect(unmeasured.score).toBe(WEIGHTS.base);
+    expect(drifted.score).toBeCloseTo(WEIGHTS.base + WEIGHTS.textInkDelta * 12, 5);
+    expect(pickBest([drifted, exact]).k).toBe(1);
+  });
+});

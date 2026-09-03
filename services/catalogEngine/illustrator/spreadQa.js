@@ -30,6 +30,7 @@
 const sharp = require('sharp');
 const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustrationGenerator');
 const { SHOT_TYPE_QA_DESCRIPTIONS } = require('./shotPlan');
+const metrics = require('./metrics');
 
 const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
 // Every strict-JSON judge call shares ONE generationConfig: thinking OFF on
@@ -591,6 +592,10 @@ function repairNote(defects, expectedText = null, opts = {}) {
       const ref = Number.isInteger(opts.typographyRef) && opts.typographyRef > 0 ? ` — the exact size and style of the text in REFERENCE IMAGE ${opts.typographyRef}` : '';
       notes.push(`The story text was painted far too LARGE${fp}. Repaint the SAME words with the SAME line breaks at SMALL book body type${ref}; the block must not grow to fill its column. Fix ONLY the text size; keep the scene otherwise identical.`);
     }
+    if (d.startsWith('embedded story text ink colour differs')) {
+      const ink = typeof opts.inkHex === 'string' ? opts.inkHex : null;
+      notes.push(`The story text was painted in the WRONG COLOUR. Repaint the same words in the book's ONE fixed ink${ink ? `: deep warm cocoa-brown, almost black (hex ${ink})` : ''} — never white, ivory, cream, or any pale fill, and never a colour picked to suit this scene's palette. Keep it legible with a thin, tight pale hairline hugging each letter, not by inverting the fill. Fix ONLY the text colour; keep the scene otherwise identical.`);
+    }
     if (d.includes('lines misaligned')) {
       notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin — every line beginning at the EXACT same horizontal position — with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');
     }
@@ -886,6 +891,12 @@ const BLOCKING_PREFIXES = [
   // spreads; blocking so the smaller candidate wins and a residual is
   // never shipped. 'oversized' (≥ 1.3×) stays advisory (shades selection).
   'embedded story text too large',
+  // qa-10 (ce-18): the ink colour is a book-wide lock like the font and the
+  // size. A spread that inverts to light text (or retints to the scene)
+  // reads as a different book, so a wrong-ink candidate sinks in selection
+  // and a residual never ships — and, critically, a wrong-ink page can
+  // never be elected as the book's typography anchor.
+  'embedded story text ink colour differs',
 ];
 
 /**
@@ -965,6 +976,9 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     beat: typeof opts.beat === 'string' && opts.beat.trim() ? qaData(opts.beat, 300) : null,
     emotion: opts.emotion && typeof opts.emotion.emotion === 'string' ? opts.emotion : null,
     emotionVocabulary: Array.isArray(opts.emotionVocabulary) ? opts.emotionVocabulary.filter(e => /^[a-z]+$/.test(e)) : [],
+    // qa-10 (ce-18): the book's pinned ink hex — the target the painted
+    // block's measured colour is held to; absent ⇒ no ink check.
+    inkHex: typeof opts.inkHex === 'string' && /^#?[0-9a-fA-F]{6}$/.test(opts.inkHex.trim()) ? opts.inkHex.trim() : null,
     // qa-7: the block's footprint (the numbers the prompt stated) — the
     // ruler the judged text bbox is held to; absent ⇒ no size check.
     expectedBlock: opts.expectedBlock && Number(opts.expectedBlock.widthPercent) > 0 && Number(opts.expectedBlock.heightPercent) > 0
@@ -1014,6 +1028,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     }
     const defects = [];
     let sizeRatio = null; // qa-8: exposed on the result so selection can prefer the smaller painted block
+    let textInk = null; // qa-10: the measured ink colour, exposed for selection and the set gate
     if (json.child_absent) defects.push('child hero missing from the scene');
     if (json.multiple_children) defects.push('duplicated child hero');
     if (json.flat_or_photo_style) defects.push('style break: flat/2D or photographic medium');
@@ -1099,6 +1114,19 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         else if (sizeRatio != null && sizeRatio >= TEXT_OVERSIZED_RATIO) defects.push(`embedded story text oversized (about ${sizeRatio}× the book's fixed size)`);
         if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
         if (json.text_style_inconsistent) defects.push('embedded story text mixes fonts, sizes, or colors');
+        // qa-10: the INK colour, measured from the pixels inside the judged
+        // bbox (metrics.textInkColour) and held to the book's pinned hex.
+        // `text_style_inconsistent` only ever caught a block that mixes
+        // colours WITHIN itself; a block uniformly painted the wrong colour
+        // — the polarity flip an image model reaches for when the pinned
+        // ink would be illegible on that scene — scored a clean pass.
+        // Fail-open: an unmeasurable block yields no verdict.
+        if (o.inkHex && textBbox) {
+          textInk = await metrics.textInkColour(imageBuffer, textBbox, { targetHex: o.inkHex });
+          if (textInk && textInk.pass === false) {
+            defects.push(`embedded story text ink colour differs (painted ${textInk.hex}, the book's ink is ${o.inkHex})`);
+          }
+        }
       }
     } else if (json.readable_text) {
       defects.push('painted text in the illustration');
@@ -1110,6 +1138,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       verdict: json,
       bbox: cleanBbox(json.child_bbox),
       textSizeRatio: sizeRatio,
+      textInk,
       // Per-prop boxes (present props only) — the contact-sheet gate crops
       // each prop beside its sheet from these, never the whole spread.
       propBoxes: o.props.map((p, i) => ({ name: p.name, bbox: json.props && json.props[i] && json.props[i].presence === 'present' ? cleanBbox(json.props[i].bbox) : null })),
@@ -1133,7 +1162,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
  * @returns {string}
  */
 function repairNoteV2(defects, expectedText = null, opts = {}) {
-  const base = repairNote(defects, expectedText, { shotType: opts.shotType || null, outfitSpec: null, expectedBlock: opts.expectedBlock || null, typographyRef: Number.isInteger(opts.typographyRef) ? opts.typographyRef : null });
+  const base = repairNote(defects, expectedText, { shotType: opts.shotType || null, outfitSpec: null, expectedBlock: opts.expectedBlock || null, typographyRef: Number.isInteger(opts.typographyRef) ? opts.typographyRef : null, inkHex: opts.inkHex || null });
   const notes = [];
   const sheetRef = Number.isInteger(opts.sheetRef) ? `REFERENCE ${opts.sheetRef}` : 'the character model sheet';
   const slotsBroken = [...new Set(defects.filter(d => d.startsWith('outfit break: ')).map(d => d.replace('outfit break: ', '').split(' ')[0]))];

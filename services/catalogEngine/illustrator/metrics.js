@@ -89,6 +89,18 @@ const GREY_SPREAD_MAX = 40;
 /** Hard cap on colourHex entries read per slot (hostile specs). */
 const MAX_HEX_PER_SLOT = 8;
 
+// ── ce-18: the painted text's INK colour ────────────────────────────────
+/** ΔE beyond which a painted block's ink is a different colour from the book's. */
+const DEFAULT_INK_DELTA_E_THRESHOLD = 26;
+/** ΔE beyond which one spread's ink differs from the book's own median ink. */
+const INK_SET_DELTA_E_THRESHOLD = 14;
+/** Share of the text bbox's most background-deviant pixels treated as glyph candidates. */
+const INK_PIXEL_FRACTION = 0.2;
+/** A pixel must sit this far (0-255 luminance) from the background median to be glyph. */
+const INK_MIN_DEVIATION = 18;
+/** Fewer glyph pixels than this is unmeasurable — fail open, never a verdict. */
+const INK_MIN_PIXELS = 40;
+
 // ---------------------------------------------------------------------------
 // Bbox + crop
 // ---------------------------------------------------------------------------
@@ -328,6 +340,150 @@ async function regionColours(cropBuffer, regions = DEFAULT_REGIONS) {
   } catch (err) {
     return null;
   }
+}
+
+/**
+ * The INK colour of a painted text block (ce-18). The text bbox is mostly
+ * BACKGROUND — the glyphs are a thin minority — so the read is: extract the
+ * bbox at native resolution (never downscaled: interpolation drags thin
+ * strokes toward the background and biases the colour), take the pixels
+ * furthest in luminance from the region's median (the background proxy —
+ * both read off 256-bin histograms, so the work stays bounded passes and
+ * never a sort), split them by which side of the median they fall on, and
+ * keep the LARGER group. That group is the glyph FILL, because the pale hairline the spec
+ * allows is by definition thinner than the stroke it hugs — which is also
+ * what makes the read report the painted POLARITY rather than assume one.
+ *
+ * Deterministic; fail-open (null) on an unreadable image, an invalid bbox,
+ * or too few glyph pixels to average. Pure pixels — nothing here reaches a
+ * prompt except through the caller's fixed defect strings.
+ *
+ * @param {Buffer} buffer the render's bytes
+ * @param {{x:number,y:number,w:number,h:number}|number[]} bbox the judged text bbox (fractions)
+ * @param {{targetHex?: string, threshold?: number}} [opts] the book's pinned ink + ΔE tolerance
+ * @returns {Promise<{hex:string, deltaE:number|null, polarity:'dark'|'light', pass:boolean|null, pixels:number}|null>}
+ */
+async function textInkColour(buffer, bbox, opts = {}) {
+  const box = normalizeBbox(bbox);
+  if (!Buffer.isBuffer(buffer) || !box) return null;
+  try {
+    const meta = await sharp(buffer).metadata();
+    const W = meta.width || 0;
+    const H = meta.height || 0;
+    if (W < 8 || H < 8) return null;
+    const left = Math.min(Math.max(0, Math.round(box.x * W)), W - 1);
+    const top = Math.min(Math.max(0, Math.round(box.y * H)), H - 1);
+    const width = Math.max(1, Math.min(Math.round(box.w * W), W - left));
+    const height = Math.max(1, Math.min(Math.round(box.h * H), H - top));
+    const { data, info } = await sharp(buffer)
+      .extract({ left, top, width, height })
+      .removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (info.channels < 3) return null;
+    const n = info.width * info.height;
+    if (n < INK_MIN_PIXELS) return null;
+    // Bounded passes over integer luminance, never a sort: a 4K embedded
+    // render with an imprecise bbox is millions of pixels, and a full-array
+    // sort per candidate (times the concurrent candidates) both blocks the
+    // event loop and multiplies memory. The thresholds are expressed in
+    // 0-255 luminance anyway, so a 256-bin histogram is exact for them.
+    const lum = new Uint8Array(n);
+    const lumHist = new Uint32Array(256);
+    for (let i = 0; i < n; i += 1) {
+      const p = i * info.channels;
+      const v = Math.round(0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2]);
+      lum[i] = v;
+      lumHist[v] += 1;
+    }
+    // The background proxy: the median luminance, read off the histogram.
+    let median = 0;
+    let below = 0;
+    const half = Math.floor(n / 2);
+    for (let v = 0; v < 256; v += 1) {
+      below += lumHist[v];
+      if (below > half) { median = v; break; }
+    }
+    // Candidate glyph pixels: the most deviant INK_PIXEL_FRACTION, each at
+    // least INK_MIN_DEVIATION from the background — a flat crop yields none.
+    // The cutoff comes from a deviation histogram walked from the top down.
+    const devHist = new Uint32Array(256);
+    for (let i = 0; i < n; i += 1) devHist[Math.abs(lum[i] - median)] += 1;
+    const wanted = Math.max(INK_MIN_PIXELS, Math.round(n * INK_PIXEL_FRACTION));
+    let cutoff = INK_MIN_DEVIATION;
+    let kept = 0;
+    for (let d = 255; d >= INK_MIN_DEVIATION; d -= 1) {
+      kept += devHist[d];
+      cutoff = d;
+      if (kept >= wanted) break;
+    }
+    if (kept < INK_MIN_PIXELS) return null;
+    // One accumulation pass over the two sides of the median; the LARGER
+    // side is the glyph fill (the allowed hairline is thinner than the
+    // stroke it hugs), which is also how the painted polarity is read.
+    let dr = 0; let dg = 0; let db = 0; let dc = 0;
+    let lr = 0; let lg = 0; let lb = 0; let lc = 0;
+    for (let i = 0; i < n; i += 1) {
+      if (Math.abs(lum[i] - median) < cutoff) continue;
+      const p = i * info.channels;
+      if (lum[i] < median) { dr += data[p]; dg += data[p + 1]; db += data[p + 2]; dc += 1; } else { lr += data[p]; lg += data[p + 1]; lb += data[p + 2]; lc += 1; }
+    }
+    const isDark = dc >= lc;
+    const count = isDark ? dc : lc;
+    if (count < INK_MIN_PIXELS) return null;
+    const hex = isDark ? rgbToHex(dr / dc, dg / dc, db / dc) : rgbToHex(lr / lc, lg / lc, lb / lc);
+    const target = typeof opts.targetHex === 'string' ? opts.targetHex : null;
+    const limit = Number.isFinite(opts.threshold) && opts.threshold >= 0 ? opts.threshold : DEFAULT_INK_DELTA_E_THRESHOLD;
+    const d = target ? deltaE(hex, target) : NaN;
+    return {
+      hex,
+      deltaE: Number.isFinite(d) ? Number(d.toFixed(2)) : null,
+      polarity: isDark ? 'dark' : 'light',
+      pass: Number.isFinite(d) ? d <= limit : null,
+      pixels: count,
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Spreads whose measured ink differs from the BOOK'S OWN median ink (ce-18).
+ * The per-spread check holds every render to the pinned hex, but its
+ * tolerance must absorb scene bleed on thin glyphs — two spreads can sit
+ * inside it in opposite directions and still look different from each
+ * other. The reference is the entry closest to the component-wise median
+ * Lab (a real measured colour, so the existing hex-based ΔE applies), and
+ * anything beyond `threshold` from it is flagged. Pure — exported for tests.
+ *
+ * Needs at least THREE measurements — two cannot establish a majority.
+ * @param {Array<{spread:number, hex:string}>} entries measured inks (any order)
+ * @param {{threshold?: number}} [opts]
+ * @returns {{referenceHex: string|null, flagged: Array<{spread:number, hex:string, deltaE:number}>}}
+ */
+function inkSetOutliers(entries, opts = {}) {
+  const limit = Number.isFinite(opts.threshold) && opts.threshold >= 0 ? opts.threshold : INK_SET_DELTA_E_THRESHOLD;
+  const list = (Array.isArray(entries) ? entries : [])
+    .filter(e => e && Number.isInteger(e.spread) && hexToRgb(e.hex))
+    .map(e => ({ spread: e.spread, hex: e.hex, lab: rgbToLab(hexToRgb(e.hex)) }));
+  // Below THREE measurements there is no majority to infer the book's ink
+  // from: the component-wise median of two values is simply one of them, so
+  // an inverted pair could elect the LIGHT block as the reference and flag
+  // the correct dark spread for re-render. The absolute per-spread check
+  // against the pinned hex already owns that case.
+  if (list.length < 3) return { referenceHex: null, flagged: [] };
+  const mid = (key) => {
+    const v = list.map(e => e.lab[key]).sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)];
+  };
+  const target = { L: mid('L'), a: mid('a'), b: mid('b') };
+  const ref = list.reduce((best, e) => {
+    const d = (e.lab.L - target.L) ** 2 + (e.lab.a - target.a) ** 2 + (e.lab.b - target.b) ** 2;
+    return !best || d < best.d ? { e, d } : best;
+  }, null).e;
+  const flagged = list
+    .map(e => ({ spread: e.spread, hex: e.hex, deltaE: Number(deltaE(e.hex, ref.hex).toFixed(2)) }))
+    .filter(e => Number.isFinite(e.deltaE) && e.deltaE > limit)
+    .sort((a, b) => a.spread - b.spread);
+  return { referenceHex: ref.hex, flagged };
 }
 
 /**
@@ -722,6 +878,8 @@ module.exports = {
   DEFAULT_REGIONS,
   SLOT_REGION,
   DEFAULT_DELTA_E_THRESHOLD,
+  DEFAULT_INK_DELTA_E_THRESHOLD,
+  INK_SET_DELTA_E_THRESHOLD,
   normalizeBbox,
   cropBbox,
   regionColours,
@@ -731,6 +889,8 @@ module.exports = {
   deltaE,
   nearestDeltaE,
   outfitColourCheck,
+  textInkColour,
+  inkSetOutliers,
   bboxRules,
   embedImage,
   registerEmbeddingBackend,

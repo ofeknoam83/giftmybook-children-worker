@@ -25,6 +25,10 @@ const WEIGHTS = {
   // candidates the SMALLER text always wins (and, on the anchor page, the
   // whole book then copies the smaller one).
   textSizeExcess: -40,
+  // ce-18: × the measured ink ΔE from the book's pinned hex. A wrong-ink
+  // candidate is already blocking; this shades the sub-threshold drift so
+  // the closest-to-spec render wins between two otherwise-equal ones.
+  textInkDelta: -0.8,
 };
 
 /**
@@ -45,7 +49,7 @@ function candidateKey(storageKey, k, pass = 0) {
 /**
  * Score one candidate from its verdict + metrics. Pure.
  * @param {object} c
- * @param {{pass: boolean, blocking?: string[], advisory?: string[], defects?: string[], qaUnavailable?: string, textSizeRatio?: number|null}} c.qa
+ * @param {{pass: boolean, blocking?: string[], advisory?: string[], defects?: string[], qaUnavailable?: string, textSizeRatio?: number|null, textInk?: {deltaE:number|null}|null}} c.qa
  * @param {{identityScore?: number|null, colour?: {slots?: object}|null, bbox?: {safeZoneOk?: boolean, offCenterOk?: boolean|null, shotSizeOk?: boolean|null}|null}|null} [c.metrics]
  * @returns {number}
  */
@@ -59,6 +63,9 @@ function scoreCandidate(c) {
   score += advisory.length * WEIGHTS.advisory;
   if (typeof qa.textSizeRatio === 'number' && Number.isFinite(qa.textSizeRatio) && qa.textSizeRatio > 1) {
     score += WEIGHTS.textSizeExcess * (qa.textSizeRatio - 1);
+  }
+  if (qa.textInk && typeof qa.textInk.deltaE === 'number' && Number.isFinite(qa.textInk.deltaE)) {
+    score += WEIGHTS.textInkDelta * qa.textInk.deltaE;
   }
   const m = c.metrics || {};
   if (typeof m.identityScore === 'number' && Number.isFinite(m.identityScore)) {

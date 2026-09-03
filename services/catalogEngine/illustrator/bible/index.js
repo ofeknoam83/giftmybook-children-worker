@@ -318,7 +318,7 @@ function buildReferencePack(bible, ctx) {
   if (ctx.typographyAnchor && ctx.typographyAnchor.base64) {
     const a = ctx.typographyAnchor;
     const side = a.side === 'right' ? 'RIGHT' : 'LEFT';
-    refs.typographyRef = push({ kind: 'typography', label: `TYPOGRAPHY REFERENCE (page ${a.spread} of THIS book, already painted — the ${side} half of that page at full height): match its story text's typeface, weight, colour, shadow, and SIZE relative to the page height EXACTLY (each row of your text as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way (no blur, fog, or darkening behind the letters). TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`, base64: a.base64, mimeType: a.mimeType || 'image/png' });
+    refs.typographyRef = push({ kind: 'typography', label: `TYPOGRAPHY REFERENCE (page ${a.spread} of THIS book, already painted — the ${side} half of that page at full height): match its story text's typeface, weight, and SIZE relative to the page height EXACTLY (each row of your text as tall as one of its rows), and above all its INK COLOUR — the same dark cocoa-brown fill with the same thin pale hairline, never inverted to light text and never retinted to suit your scene — painted straight over the sharp, fully detailed scene the same way (no blur, fog, or darkening behind the letters). TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`, base64: a.base64, mimeType: a.mimeType || 'image/png' });
   }
   return { pack, refs };
 }

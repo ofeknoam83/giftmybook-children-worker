@@ -50,6 +50,8 @@ jest.mock('../../../services/catalogEngine/illustrator/metrics', () => ({
   identityScore: jest.fn().mockResolvedValue(null),
   embedImage: jest.fn().mockResolvedValue(null),
   outlierSpreads: jest.fn(() => []),
+  textInkColour: jest.fn().mockResolvedValue(null),
+  inkSetOutliers: jest.fn(() => ({ referenceHex: null, flagged: [] })),
 }));
 jest.mock('../../../services/catalogEngine/illustrator/contactSheet', () => ({
   checkCharacterContactSheet: jest.fn().mockResolvedValue({ pass: true, flagged: [], checked: 2 }),
@@ -65,6 +67,7 @@ const { getBibleProps } = require('../../../services/catalogEngine/illustrator/b
 const { getOutfitLock } = require('../../../services/catalogEngine/illustrator/outfitLock');
 const { getEmotionPlan } = require('../../../services/catalogEngine/illustrator/emotionPlan');
 const { checkSpreadRenderV2 } = require('../../../services/catalogEngine/illustrator/spreadQa');
+const { inkSetOutliers } = require('../../../services/catalogEngine/illustrator/metrics');
 const { checkCharacterContactSheet, checkPropContactSheet } = require('../../../services/catalogEngine/illustrator/contactSheet');
 const { renderStorySpreads, illustrateStory } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
@@ -111,6 +114,7 @@ beforeEach(() => {
   getBibleProps.mockResolvedValue({ props: [], companion: null, advisories: [] });
   getEmotionPlan.mockResolvedValue({ plan: { 1: { emotion: 'wonder', intensity: 'soft', source: 'table' }, 3: { emotion: 'joy', intensity: 'clear', source: 'table' } }, hash: 'emo', source: 'table' });
   checkSpreadRenderV2.mockResolvedValue(cleanQa());
+  inkSetOutliers.mockReturnValue({ referenceHex: null, flagged: [] });
   // Cache misses on the first download of every key; later downloads
   // return distinct bytes per key so candidates are distinguishable.
   const seen = new Map();
@@ -397,4 +401,84 @@ test('a render accepted on a safety-fallback rung is never silent', async () => 
   });
   const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
   expect(results[0].advisories).toEqual(expect.arrayContaining([expect.objectContaining({ stage: 'render', note: expect.stringContaining('"sanitized" fallback prompt') })]));
+});
+
+describe('ce-18: the book has ONE ink — pinned, measured, and never copied from a defective page', () => {
+  const INK = require('../../../services/shared/illustration/config').TEXT_RULES.fontColorHex;
+  const inked = (hex) => cleanQa({ textInk: { hex, deltaE: 1, polarity: 'dark', pass: true, pixels: 900 } });
+
+  test('the pinned hex reaches the checker and the repair options on embedded renders only', async () => {
+    await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+    expect(checkSpreadRenderV2.mock.calls[0][1].inkHex).toBe(INK);
+    expect(INK).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    checkSpreadRenderV2.mockClear();
+    await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] })); // caption: nothing painted
+    expect(checkSpreadRenderV2.mock.calls[0][1].inkHex).toBeNull();
+  });
+
+  test('CATALOG_TEXT_INK_QA=0 stops the measurement (the ink still rides the prompt)', async () => {
+    process.env.CATALOG_TEXT_INK_QA = '0';
+    try {
+      await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+      expect(checkSpreadRenderV2.mock.calls[0][1].inkHex).toBeNull();
+      expect(inkSetOutliers).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.CATALOG_TEXT_INK_QA;
+    }
+  });
+
+  test('the set gate holds every spread to the book\'s median ink and re-renders the outlier', async () => {
+    checkSpreadRenderV2.mockImplementation(async (buf, { label }) => (label.includes(':s3:') ? inked('#F5F0E6') : inked('#2A1C12')));
+    inkSetOutliers.mockReturnValue({ referenceHex: '#2A1C12', flagged: [{ spread: 3, hex: '#F5F0E6', deltaE: 81.6 }] });
+    const { results, textInkQa } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
+    // Measured inks (replayed spreads included) are what the gate compares;
+    // whether two of them are comparable at all is inkSetOutliers' own rule
+    // (it needs three — see textInk.test.js), mocked here to exercise the wiring.
+    expect(inkSetOutliers).toHaveBeenCalledWith([
+      { spread: 1, hex: '#2A1C12' }, { spread: 3, hex: '#F5F0E6' },
+    ]);
+    expect(textInkQa).toMatchObject({ pass: false, checked: 2, referenceHex: '#2A1C12', rerendered: [3] });
+    const s3 = results.find(r => r.spread === 3);
+    expect(s3.advisories.some(a => a.stage === 'textInk' && a.note.includes('#F5F0E6'))).toBe(true);
+  });
+
+  test('a consistent book passes the gate without spending a re-render', async () => {
+    checkSpreadRenderV2.mockResolvedValue(inked('#2A1C12'));
+    const { textInkQa } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
+    expect(textInkQa).toEqual({ pass: true, checked: 2, referenceHex: null });
+  });
+
+  test('the measured ink rides the QA marker, so a replayed spread still counts toward the book\'s ink', async () => {
+    checkSpreadRenderV2.mockResolvedValue(inked('#2A1C12'));
+    await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+    const marker = uploadBuffer.mock.calls.find(c => String(c[1]).endsWith('.qa.json'));
+    expect(JSON.parse(marker[0].toString('utf8')).qa.textInk).toMatchObject({ hex: '#2A1C12' });
+  });
+
+  test('an anchor page whose OWN painted text is blocking is never elected — no page copies its defect', async () => {
+    checkSpreadRenderV2.mockResolvedValue(blockingQa("embedded story text ink colour differs (painted #f5f0e6, the book's ink is #2A1C12)"));
+    process.env.CATALOG_SHIP_ON_EXHAUSTION = '1'; // let the run finish so the advisory is observable
+    try {
+      const { typographyAnchorUsed, advisories } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
+      expect(typographyAnchorUsed).toBe('none');
+      expect(advisories).toEqual(expect.arrayContaining([
+        expect.objectContaining({ stage: 'typographyAnchor', note: expect.stringContaining('own painted text is blocking') }),
+      ]));
+      // Exactly one anchor advisory: the guard's, not the generic "no crop" one.
+      expect(advisories.filter(a => a.stage === 'typographyAnchor')).toHaveLength(1);
+    } finally {
+      delete process.env.CATALOG_SHIP_ON_EXHAUSTION;
+    }
+  });
+
+  test('a blocking defect that is NOT about the text still elects the anchor — the guard is text-scoped', async () => {
+    checkSpreadRenderV2.mockResolvedValue(blockingQa('prop missing: "teddy bear"'));
+    process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+    try {
+      const { advisories } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
+      expect(advisories.some(a => a.stage === 'typographyAnchor' && a.note.includes('own painted text is blocking'))).toBe(false);
+    } finally {
+      delete process.env.CATALOG_SHIP_ON_EXHAUSTION;
+    }
+  });
 });

@@ -133,7 +133,7 @@ function renderTextColumnHint(side, rules) {
   const top = rules.topPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const bottom = rules.bottomPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const xRange = side === 'left' ? `x from ${edge}% to ${active}%` : `x from ${100 - active}% to ${100 - edge}%`;
-  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin dark outline, not from treating the background. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
+  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin, tight pale hairline, not from treating the background and never from inverting the dark ink to light text. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
 }
 
 /** Corrective world-gate re-renders allowed per run (cost bound). */
@@ -348,6 +348,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // every candidate, repair, and replay re-check of this spread.
   const qaOpts = {
     expectedText: embedText ? spreadText : null,
+    // qa-10 (ce-18): the book's ONE pinned ink — the target the painted
+    // block's MEASURED colour is held to (the same hex the prompt states).
+    inkHex: embedText && flags.textInkQaEnabled() ? textRules.fontColorHex : null,
     // qa-7: the block's footprint — the ruler the judged text bbox is held to.
     expectedBlock: embedText ? (({ widthPercent, heightPercent }) => ({ widthPercent, heightPercent }))(expectedTextBlock(spreadText, textRules)) : null,
     shotType: shotEntry ? shotEntry.shotType : null,
@@ -374,6 +377,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     sheetRef: refs.characterSheetRef,
     expectedBlock: qaOpts.expectedBlock,
     typographyRef: Number.isInteger(refs.typographyRef) ? refs.typographyRef : null,
+    inkHex: qaOpts.inkHex,
     props: qaOpts.props.map(p => ({ name: p.name, specText: p.specText, ref: refs.props[p.name] || null })),
     companion: qaOpts.companion ? { name: qaOpts.companion.name, ref: refs.companionRef } : null,
     beat: qaOpts.beat,
@@ -607,7 +611,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           advisories, tuningTag,
           renderHash: renderContentHash(buffer),
           qaVersion: QA_VERSION,
-          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], score: best.score } : null,
+          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], textInk: best.qa.textInk || null, score: best.score } : null,
           // An unresolved marker never vouches: the next replay re-checks
           // (an admin may have raised budgets or picked a candidate) —
           // unless the opt-in ship policy shipped it, which the marker
@@ -638,6 +642,58 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     propBoxes: best.qa && Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [],
     crop: best.metrics ? best.metrics.crop || null : null,
   };
+}
+
+/**
+ * ce-18 — the book-level INK gate. The per-spread check holds every render
+ * to the pinned hex, but its tolerance has to absorb scene light bleeding
+ * into thin glyph pixels: two spreads can sit inside it in OPPOSITE
+ * directions and still not match each other. This compares every measured
+ * ink against the book's own median ink (metrics.inkSetOutliers) and
+ * re-renders the outliers — the ce-16 size-outlier shape, applied to
+ * colour. Replayed spreads count toward the median (their measured ink
+ * rides the QA marker) but are never re-rendered, like every set gate.
+ *
+ * @param {object} params
+ * @param {Array} params.results per-spread records (mutated by the repairs)
+ * @param {string|null} params.inkHex the book's pinned ink (for the repair note)
+ * @param {(spread: number, note: string) => Promise<object>} params.rerender
+ * @param {function} [params.onProgress]
+ * @param {function} params.log
+ * @returns {Promise<{pass: boolean, checked: number, referenceHex: string|null, flagged?: Array, rerendered?: number[]}|null>}
+ */
+async function runInkConsistencyGate({ results, inkHex, rerender, onProgress = () => {}, log }) {
+  if (!flags.textInkQaEnabled()) return null;
+  const measured = results
+    .filter(r => r.buffer && r.qa && r.qa.textInk && r.qa.textInk.hex)
+    .map(r => ({ spread: r.spread, hex: r.qa.textInk.hex }));
+  if (measured.length < 2) return null;
+  const { referenceHex, flagged } = metrics.inkSetOutliers(measured);
+  if (flagged.length === 0) return { pass: true, checked: measured.length, referenceHex };
+  log('warn', `Ink gate: ${flagged.length} spread(s) differ from the book's ink ${referenceHex} (${flagged.map(f => `s${f.spread} ${f.hex} ΔE${f.deltaE}`).join(', ')})`);
+  // The repairs below are full render cycles, and the render phase's own
+  // heartbeat is already cleared by now: without one here the server's
+  // 20-minute idle watchdog can abort a healthy book mid-repair. Same
+  // pattern as the world and contact gates.
+  const heartbeat = setInterval(() => onProgress(1, 'Ink consistency gate in progress...'), 30000);
+  let rerendered;
+  try {
+    rerendered = await applySetRepairs({
+      results,
+      // Only the closed defect name and pinned numbers travel; the note is
+      // diagnostics for the advisory, never a prompt (noteFor owns that).
+      flagged: flagged.map(f => ({ spread: f.spread, defect: 'text_ink', note: `painted ink ${f.hex} differs from the book's ink ${referenceHex} (ΔE ${f.deltaE})` })),
+      budget: flags.textInkMaxRerenders(),
+      stage: 'textInk',
+      rerender,
+      noteFor: () => repairNoteV2(['embedded story text ink colour differs'], null, { inkHex }),
+      onProgress,
+      log,
+    });
+  } finally {
+    clearInterval(heartbeat);
+  }
+  return { pass: false, checked: measured.length, referenceHex, flagged, rerendered };
 }
 
 /**
@@ -1155,7 +1211,17 @@ async function renderStorySpreads(params) {
       [anchorSettled] = await Promise.allSettled([renderOne(wanted[0], { candidateCount: flags.textAnchorCandidates() })]);
       const anchorBuffer = anchorSettled.status === 'fulfilled' && anchorSettled.value ? anchorSettled.value.buffer : null;
       const side = shotPlan && shotPlan[anchorSpreadNo] ? shotPlan[anchorSpreadNo].textSide : null;
-      const elected = side
+      // ce-18: never elect an anchor whose OWN painted text is blocking —
+      // the whole book copies this crop, so a wrong-ink (or banded, hazed,
+      // oversized) page would propagate its defect book-wide. That is
+      // exactly how the ce-17 haze spread from page 1 to all twelve.
+      const anchorTextDefects = anchorSettled.status === 'fulfilled' && anchorSettled.value
+        ? (anchorSettled.value.blocking || []).filter(d => d.startsWith('embedded story text'))
+        : [];
+      if (anchorTextDefects.length > 0) {
+        anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo}'s own painted text is blocking (${anchorTextDefects.join('; ')}); the other spreads render on the text rules alone rather than copying it` });
+      }
+      const elected = side && anchorTextDefects.length === 0
         ? await electTypographyAnchor({ buffer: anchorBuffer, side, spread: anchorSpreadNo, pinKey: anchorPinKey, reelect: !!forceRerender, log })
         : null;
       if (elected) {
@@ -1164,7 +1230,7 @@ async function renderStorySpreads(params) {
         typographyAnchor = toAnchorRef(elected);
         anchorSpreadNo = elected.spread;
         log('info', `Typography anchor: page ${elected.spread} (${elected.side} half, ${elected.pinned ? 'pinned' : 'elected'} ${elected.hash})`);
-      } else {
+      } else if (anchorTextDefects.length === 0) {
         anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo} ${side ? 'produced no usable render to crop' : 'has no assigned text side'}; the other spreads render on the text rules alone` });
       }
     }
@@ -1222,6 +1288,16 @@ async function renderStorySpreads(params) {
   const contactGateStart = Date.now();
   const contactQa = await runContactSheetGate({ results, bible, evidence: story.personalization_evidence || [], rerender, onProgress, log });
   if (contactQa) log('info', `Contact gate done in ${Math.round((Date.now() - contactGateStart) / 1000)}s (${contactQa.rerendered?.length || 0} re-render(s))`);
+  // ce-18 ink gate: every spread's measured text ink vs the book's median.
+  const inkGateStart = Date.now();
+  const textInkQa = await runInkConsistencyGate({
+    results,
+    inkHex: textLayout === 'embedded' && flags.textInkQaEnabled() ? resolvePictureBookTextRules(profile?.age).fontColorHex : null,
+    rerender,
+    onProgress,
+    log,
+  });
+  if (textInkQa && textInkQa.pass === false) log('info', `Ink gate done in ${Math.round((Date.now() - inkGateStart) / 1000)}s (${textInkQa.rerendered?.length || 0} re-render(s))`);
 
   // Book-level advisories (the bible's own + the ce-8 lock-less warning).
   const advisories = [...bible.advisories, ...anchorAdvisories];
@@ -1259,6 +1335,7 @@ async function renderStorySpreads(params) {
     tuningTag: tuning ? tuning.tag : 'none',
     worldQa,
     contactQa,
+    textInkQa,
     outfitLockUsed: outfitLock ? outfitLock.hash : 'none',
     // ce-15: which page's painted text the other spreads were held to
     // (`s{spread}.{hash8}`), or 'none' — an anchor-less embedded run also
@@ -1283,7 +1360,7 @@ async function renderStorySpreads(params) {
 async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
-  const { results, aspect, tuningTag, worldQa, contactQa, outfitLockUsed, typographyAnchorUsed, bookBible, bible, unresolved, advisories: bookAdvisories } = await renderStorySpreads({
+  const { results, aspect, tuningTag, worldQa, contactQa, textInkQa, outfitLockUsed, typographyAnchorUsed, bookBible, bible, unresolved, advisories: bookAdvisories } = await renderStorySpreads({
     ...params, spreads: null, rerenderSpreads: null, probeNonce: null,
   });
   const qaAdvisories = [...bookAdvisories, ...results.flatMap(r => r.advisories)];
@@ -1343,6 +1420,7 @@ async function illustrateStory(params) {
     illustrationTuningUsed: tuningTag,
     worldQa: worldQa || null,
     contactQa: contactQa || null,
+    textInkQa: textInkQa || null,
     outfitLockUsed,
     typographyAnchorUsed,
     bookBible,
@@ -1352,4 +1430,4 @@ async function illustrateStory(params) {
   };
 }
 
-module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, renderTextColumnHint };
+module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, runInkConsistencyGate, renderTextColumnHint };

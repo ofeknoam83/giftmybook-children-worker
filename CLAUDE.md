@@ -500,6 +500,43 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   emptied area behind the text is the BLOCKING `embedded story text sits
   on a treated backdrop` with its own repair note, and the world gate's
   TEXT TREATMENT dimension names it too. STYLE_VERSION `ce-17`.
+  **ONE ink, measured (`ce-18`, 2026-09-03)**: the ce-17 round painted dark
+  brown text on the bright spreads and inverted to WHITE on the darker
+  ones — contrast-seeking, because "soft warm ivory" is illegible on a pale
+  savanna sky, so the model broke the spec to stay readable. Nothing caught
+  it: `text_style_inconsistent` only ever flagged a block mixing colours
+  WITHIN itself (a uniformly wrong-coloured block scored a clean pass), and
+  the world gate's colour clause is one lenient advisory. (1) The pinned
+  ink is now the polarity that survives a bright picture book — **deep warm
+  cocoa-brown #2A1C12**, the family the typeset caption pages already print
+  in — stated as a NAME and a HEX (`TEXT_RULES.fontColorHex`, inherited by
+  every age tier), legible through a thin PALE hairline instead of an
+  inverted fill; a colour rule the model must break to stay legible always
+  drifts. (2) That hex is the GATE's target too, so prompt and check can
+  never disagree: `metrics.textInkColour` extracts the text bbox at native
+  resolution (never downscaled — interpolation drags thin strokes toward
+  the background), takes the pixels furthest in luminance from the region's
+  median, splits them by side and keeps the LARGER group (the glyph fill;
+  the allowed hairline is thinner than the stroke it hugs, which is what
+  makes the read report the painted POLARITY), and CIE76-ΔEs it against the
+  pinned ink. Beyond ΔE 26 it is the BLOCKING `embedded story text ink
+  colour differs` (`qa-10`) with its own repair note; the measurement rides
+  the result as `textInk`, `select.js` charges `textInkDelta` (-0.8 × ΔE)
+  so the closest-to-spec candidate wins, and the QA marker keeps it so a
+  replayed spread still counts toward the book's ink. Fail-open
+  throughout: an unmeasurable block yields no verdict. (3) The **ink set
+  gate** (`runInkConsistencyGate` + `metrics.inkSetOutliers`, budget
+  `CATALOG_TEXT_INK_MAX_RERENDERS` default 2) holds every spread to the
+  book's OWN median ink (ΔE 14) and re-renders the outliers — the ce-16
+  size-outlier shape applied to colour, closing the gap where two spreads
+  sit inside the absolute tolerance in opposite directions. Its verdict
+  rides completion/probe callbacks as `textInkQa`. (4) The typography
+  anchor's label now names the ink FIRST, and — the ce-17 lesson
+  generalised — **a page whose own painted text is blocking is never
+  elected as the anchor** (a wrong-ink, banded or hazed page 1 would
+  otherwise propagate its defect book-wide, which is exactly how the ce-17
+  haze spread to all twelve). Kill-switch `CATALOG_TEXT_INK_QA=0`.
+  STYLE_VERSION `ce-18`, QA_VERSION `qa-10`.
   Three false-positive guards landed the same day (each could fail a
   full book `consistency_unresolved` on its own): `compareTexts`
   normalizes glyphs before comparing (curly↔straight quotes, NFD-stripped
@@ -553,6 +590,11 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_EMBEDDED_IMAGE_SIZE=2K` — (ce-16, OPT-IN) request this output
   size (`1K`|`2K`|`4K`) on embedded renders; a model that rejects the field
   renders at its default. Cache-keyed (`-is{size}`).
+- `CATALOG_TEXT_INK_QA=0` — (ce-18) stop measuring the painted text's INK
+  colour: no per-spread ink defect and no book-level ink gate (the pinned
+  ink still rides every prompt).
+- `CATALOG_TEXT_INK_MAX_RERENDERS=N` — (ce-18) corrective re-renders the ink
+  set gate may spend per run (0-4, default 2).
 - `CATALOG_CHARACTER_SHEET=0` — (ce-9) no character model sheet (renders
   anchor on the cover alone; the outfit spec derives from the cover again).
 - `CATALOG_SHEET_REQUIRED=0` — (ce-9) a book whose sheet cannot be built

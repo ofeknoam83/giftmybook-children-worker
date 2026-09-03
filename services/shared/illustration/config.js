@@ -125,8 +125,18 @@ const TEXT_RULES = {
   typographyConsistency: 'BOOK-WIDE LOCK: every spread of this book renders its text with the IDENTICAL font family, weight, size, and color — one continuous series, one subtitle spec for the whole book. This exact spec is pinned on every page, so follow it to the letter: never introduce a different face, a different weight, a noticeably larger or smaller point size, or a different text color on any spread. Within the block itself, every line uses the same single font, size, and color — never mix typefaces, sizes, weights, or colors between lines or words.',
   // ONE fixed fill color for the whole book — per-scene retinting is exactly
   // the cross-spread drift parents notice. Readability on any background
-  // comes from the mandatory soft dark shadow/outline, never from recoloring.
-  fontColor: 'ONE fixed text color for the ENTIRE book: soft warm ivory (a slightly warm off-white), with a thin, tight dark outline hugging each letter for readability — never a wide glow, blurred halo, drop-shadow cloud, or darkened patch behind the block. The SAME fill color and the SAME thin outline on every spread — never retint, recolor, or restyle the text to match an individual scene’s palette or lighting.',
+  // comes from the mandatory thin pale hairline, never from recolouring —
+  // and never from inverting the fill, which is the drift ce-18 measures.
+  // ce-18: ONE ink, stated as a NAME and a HEX — and the hex is the gate's
+  // target too, so prompt and check can never disagree. Ivory lost every
+  // bright spread: on a pale savanna sky it is illegible, so the model
+  // painted dark ink there and flipped back to white on darker ground —
+  // the exact per-scene retint this spec forbids. A colour rule the model
+  // must BREAK to stay legible always drifts, so the pinned ink is the
+  // polarity that survives a bright picture book (and the family the
+  // typeset caption pages already print in).
+  fontColorHex: '#2A1C12',
+  fontColor: 'ONE fixed text colour for the ENTIRE book: deep warm cocoa-brown, almost black (hex #2A1C12) — the ink of printed picture-book body type. NEVER white, ivory, cream, yellow, gold, or any pale fill. For readability on mid-tone artwork, and only for that, each letter carries a thin, tight PALE hairline (a warm off-white edge hugging the glyph, no wider than the stroke itself) — never a wide glow, blurred halo, drop-shadow cloud, or darkened patch behind the block. The SAME dark ink and the SAME thin pale hairline on every spread: never invert to light text, never retint, recolour, or restyle the text to match an individual scene\u2019s palette or lighting, however bright or dark that scene is.',
   // ce-13: a CONCRETE small size. "Modest subtitle" came out as caption
   // scale (cap height ~4% of the image) and long lines that crossed the
   // page fold; the size is now stated as a measure the model can hit, and
