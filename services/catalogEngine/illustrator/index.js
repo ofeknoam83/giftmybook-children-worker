@@ -36,7 +36,7 @@
 
 const { generateIllustration, downloadPhotoAsBase64, isModestBathWaterScene } = require('../../illustrationGenerator');
 const { downloadBuffer, uploadBuffer, getSignedUrl, deletePrefix } = require('../../gcsStorage');
-const { buildScenePrompt, hasCarryThroughProps, visualPropsForSpread, continuityPropsForSpread, beatMentionsCompanion, inertPropValue } = require('./scenes');
+const { buildScenePrompt, hasCarryThroughProps, visualPropsForSpread, continuityPropsForSpread, companionOnSpread, inertPropValue } = require('./scenes');
 const { checkSpreadRenderV2, repairNoteV2, checkWorldConsistency, worldRepairNote, classifyDefects } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
 const { buildShotPlan, renderShotDirective } = require('./shotPlan');
@@ -220,14 +220,19 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const carriedProps = flags.propContinuityEnabled()
     ? continuityPropsForSpread(evidence, spread).map(inertPropValue).filter(p => p && !declaredProps.includes(p))
     : [];
-  const companionOnSpread = !!(beat && beatMentionsCompanion(beat, theme.companion));
+  // ce-11: the companion signal reads the beat AND the spread's manuscript
+  // text — the same signal gates the scene line (buildScenePrompt), this
+  // reference pack, the COMPANION prompt block, and the QA companion check,
+  // so a companion the story puts on a mid-book spread is always rendered
+  // against its sheet and verified, never freestyled.
+  const companionPresent = !!(beat && companionOnSpread(beat, spreadText, theme.companion));
   const { pack, refs } = buildReferencePack(bible, {
     refPhoto,
     propValues: [...declaredProps, ...carriedProps],
-    companionOnSpread,
+    companionOnSpread: companionPresent,
   });
   const promptBible = buildPromptBible(bible, refs, {
-    spread, declaredProps, carriedProps, companionOnSpread, characterDescription: characterDescription || null,
+    spread, declaredProps, carriedProps, companionOnSpread: companionPresent, characterDescription: characterDescription || null,
   });
   const outfitSpecText = bible.outfit ? bible.outfit.outfit : null;
   // worldNote: a set-level gate's corrective suffix on its one targeted
@@ -307,7 +312,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       // comfort object is continuity decoration (absence is advisory).
       return { name, specText: sheet ? sheet.specText || null : null, sheet: sheet ? { base64: sheet.base64, mimeType: sheet.mimeType || 'image/png' } : null, expected: declaredProps.includes(name) ? 'required' : 'carried' };
     }),
-    companion: companionOnSpread && theme.companion && theme.companion.name
+    companion: companionPresent && theme.companion && theme.companion.name
       ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null }
       : null,
     beat: beat ? beat.beat : null,

@@ -94,16 +94,39 @@ function inertPropValue(value) {
     .slice(0, 80);
 }
 
+/** Escape a literal string for use inside a RegExp. */
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
- * Whether the companion plausibly appears on this spread — the beat text
- * naming them is the only deterministic signal we trust.
+ * Whether the companion appears on this spread. Deterministic signals only,
+ * from two PINNED texts — the catalog beat and the spread's own manuscript
+ * text (the story is fixed per run; its spread texts seed the render cache
+ * key) — matched two ways:
+ *  - the companion's NAME as a case-SENSITIVE whole word ("Patch" the
+ *    pirate parrot must never fire on "a patch of mud"; prose always
+ *    capitalizes the name);
+ *  - the full TYPE phrase case-insensitively ("A young toucan swooped
+ *    down" introduces the companion before anyone says its name).
+ * Before ce-11 only the beat's name mention counted — most beats name the
+ * companion solely on spreads 1/12, so mid-book spreads whose STORY put
+ * the companion in the scene rendered it reference-less and unchecked,
+ * and every such spread drew a different-looking creature.
  * @param {object} beat
+ * @param {string} spreadText the spread's manuscript text
  * @param {object} companion {name, type}
  * @returns {boolean}
  */
-function beatMentionsCompanion(beat, companion) {
+function companionOnSpread(beat, spreadText, companion) {
   if (!companion?.name) return false;
-  return beat.beat.toLowerCase().includes(companion.name.toLowerCase());
+  const hay = `${beat?.beat || ''}\n${spreadText || ''}`;
+  // Unicode lookarounds, not \b: companion naming is overlay-patchable and
+  // \b is ASCII-only — an accented name ("José") would never match at all.
+  const bounded = (term, flags) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term)}(?![\\p{L}\\p{N}])`, flags);
+  if (bounded(companion.name, 'u').test(hay)) return true;
+  const type = String(companion.type || '').trim();
+  return !!type && bounded(type, 'iu').test(hay);
 }
 
 /**
@@ -129,7 +152,7 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
   lines.push(`Scene ${spread} of 12 in "${theme.display_name}" world "${theme.world_name}".`);
   lines.push(`ACTION (paint exactly this moment): ${beat.beat}`);
   lines.push(`The child ${profile.name} (age ${profile.age}) is the active protagonist — exactly ONE instance of ${profile.name} in the scene, matching the reference character's face, hair, and outfit.`);
-  if (beatMentionsCompanion(beat, theme.companion)) {
+  if (companionOnSpread(beat, spreadText, theme.companion)) {
     lines.push(`Companion present: ${theme.companion.name}, a ${theme.companion.type} — friendly and warm, secondary to the child.`);
   }
   if (spreadText) {
@@ -172,4 +195,4 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
   return lines.join('\n');
 }
 
-module.exports = { buildScenePrompt, visualPropsForSpread, continuityPropsForSpread, hasCarryThroughProps, beatMentionsCompanion, inertPropValue };
+module.exports = { buildScenePrompt, visualPropsForSpread, continuityPropsForSpread, hasCarryThroughProps, companionOnSpread, inertPropValue };

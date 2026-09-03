@@ -7,6 +7,8 @@
  *   3. exactly 12 spreads numbered once each in order
  *   4. title equality with the backend-rendered title
  *   5. book-definition checks (refrain exact/placement, child name present)
+ *      + accidental doubled words (5c — refrain-masked, repairable,
+ *      skipped for stored pairs)
  *   6. age-engine deterministic word bounds (exact-age calibrated for 1–3)
  *   7. personalization evidence vs profile and map
  *   8. callback-before-introduction + detail/moment caps
@@ -84,6 +86,52 @@ function checkBeatAnchors({ response, book, theme }) {
 }
 
 /**
+ * Step 5c: accidental doubled words — the same word twice in a row,
+ * separated by whitespace only ("should she check check next"), is a typo
+ * no deterministic check caught before 2026-09-03: it satisfies the word
+ * bounds, paints faithfully into embedded art, and matches its own OCR.
+ * Case-insensitive whole-word match; repetition across punctuation stays
+ * legal ("plink, plink, plink", "No, no!", "choo-choo") — a DELIBERATE
+ * repeat must be punctuated. Every VERBATIM-REQUIRED string is masked out
+ * first — the exact refrain, the child's name, the theme's world and
+ * companion names, and every evidence source_value: those strings are
+ * customer/overlay data other checks demand LITERALLY (a child named
+ * "Jo Jo" or a comfort object "choo choo train" is required in the text
+ * as written), so a double inside one must never create a conflict the
+ * repair pass cannot resolve — deleting the repetition would fail the
+ * name/refrain/evidence check instead.
+ * @param {object} response
+ * @param {{book?: object, theme?: object, profile?: object}} ctx masking sources
+ * @returns {string[]} errors
+ */
+function checkDoubledWords(response, { book, theme, profile } = {}) {
+  const errors = [];
+  const masks = [
+    book?.refrain?.text,
+    profile?.name,
+    theme?.world_name,
+    theme?.companion?.name,
+    ...(response.personalization_evidence || []).map(ev => ev?.source_value),
+  ].map(v => String(v ?? '').trim()).filter(v => v.length > 0)
+    // Longer masks first so "choo choo train" is removed before any
+    // shorter mask could split it and leave half a double behind.
+    .sort((a, b) => b.length - a.length);
+  const re = /(?<![\p{L}\p{N}'’])([\p{L}\p{N}'’]+)[ \t]+\1(?![\p{L}\p{N}'’])/giu;
+  for (const s of response.spreads || []) {
+    let text = String(s.text || '');
+    for (const m of masks) text = text.split(m).join('\n');
+    const seen = new Set();
+    for (const m of text.matchAll(re)) {
+      const word = m[1].toLowerCase();
+      if (seen.has(word)) continue;
+      seen.add(word);
+      errors.push(`spread ${s.spread}: accidental doubled word "${m[1]} ${m[1]}" — delete the repetition (a deliberate repeat needs punctuation: "${m[1]}, ${m[1]}")`);
+    }
+  }
+  return errors;
+}
+
+/**
  * Validate the story text + evidence of a response.
  *
  * @param {object} params
@@ -96,9 +144,13 @@ function checkBeatAnchors({ response, book, theme }) {
  * @param {boolean} [params.skipEvidenceChecks] the pinned approved map is
  *   unavailable (withdrawn or revised since generation) — skip ONLY the
  *   map-dependent evidence steps 7–8; every text check still runs
+ * @param {boolean} [params.skipDoubledWordCheck] stored-pair re-validation:
+ *   the doubled-word check (5c) postdates many accepted stories, and an
+ *   already-sold book must keep printing — fresh generation, repair, and
+ *   polish all enforce it
  * @returns {{ok: boolean, errors: string[]}}
  */
-function validateStoryResponse({ response, request, book, ageBand, map, theme, skipEvidenceChecks = false }) {
+function validateStoryResponse({ response, request, book, ageBand, map, theme, skipEvidenceChecks = false, skipDoubledWordCheck = false }) {
   const errors = [];
 
   // 1. Schema
@@ -148,6 +200,8 @@ function validateStoryResponse({ response, request, book, ageBand, map, theme, s
     errors.push(`the child's name '${profile.name}' (exact spelling) must appear in the story`);
   }
   if (theme) errors.push(...checkBeatAnchors({ response, book, theme }));
+  // 5c. Accidental doubled words (repairable; skipped for stored pairs).
+  if (!skipDoubledWordCheck) errors.push(...checkDoubledWords(response, { book, theme, profile }));
 
   // 6. Age bounds — resolved by the request's PINNED engine version, so a
   // stored pair generated under an older age engine keeps re-validating
@@ -328,4 +382,4 @@ function checkLeakage({ response, profile, fullText }) {
   return errors;
 }
 
-module.exports = { validateStoryResponse, validateEvidence, evidenceTextAligned, checkBeatAnchors, checkLeakage, containsTerm, BANNED_BRANDS };
+module.exports = { validateStoryResponse, validateEvidence, evidenceTextAligned, checkBeatAnchors, checkDoubledWords, checkLeakage, containsTerm, BANNED_BRANDS };

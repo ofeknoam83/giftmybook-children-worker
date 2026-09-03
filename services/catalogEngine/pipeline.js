@@ -98,6 +98,10 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
       response, request, book: hit.book, ageBand: hit.ageBand,
       map: nameOnly ? null : currentMap, theme: hit.theme,
       skipEvidenceChecks: mapUnavailable,
+      // The doubled-word check (5c) postdates many accepted stories — an
+      // already-sold book must keep printing; only fresh generation,
+      // repair, and polish enforce it.
+      skipDoubledWordCheck: true,
     });
     if (!ok) {
       throw new PipelineError(`stored story failed re-validation: ${errors.slice(0, 4).join('; ')}`, 'invalid_story', { errors });

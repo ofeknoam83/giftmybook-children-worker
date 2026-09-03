@@ -222,13 +222,14 @@ function selectOfferedDetails(profile, map) {
 }
 
 // Failure classes ONE targeted repair call can fix without touching the
-// plot: word bounds, personalization legality/caps/minima, banned terms,
-// leakage, and the evidence hard-gate. Everything else (schema, echo,
-// title, refrain, beats, spread numbering) means the story itself is wrong
-// and repair must not run.
+// plot: word bounds, accidental doubled words, personalization
+// legality/caps/minima, banned terms, leakage, and the evidence hard-gate.
+// Everything else (schema, echo, title, refrain, beats, spread numbering)
+// means the story itself is wrong and repair must not run.
 const REPAIRABLE_ERROR_PATTERNS = [
   /^spread \d+: \d+ words, must be /,
   /^total \d+ words, must be /,
+  /^spread \d+: accidental doubled word /,
   /^evidence: /,
   /^moment_count \d+ exceeds /,
   /^selected_detail_count \d+ exceeds /,

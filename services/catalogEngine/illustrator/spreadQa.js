@@ -845,6 +845,13 @@ const BLOCKING_PREFIXES = [
   'companion missing', 'companion differs',
   'anatomy defect: extra or missing limbs',
   'painted text in the illustration', 'embedded story text missing', 'embedded story text garbled',
+  // qa-4: band/split placement breaks the embedded layout's full-bleed
+  // contract as surely as garbled text does — one white-panel spread in an
+  // otherwise over-artwork book shipped as a mere advisory (2026-09-03).
+  // Blocking-class: a banded candidate sinks in selection, and a residual
+  // fails `consistency_unresolved` instead of shipping inconsistent.
+  // The ce-4 typography findings (misaligned/inconsistent) stay advisory.
+  'embedded story text split', 'embedded story text sits on a blank band',
 ];
 
 /**

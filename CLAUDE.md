@@ -90,7 +90,14 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   never lost to polish (`polished: true` on the result when it lands).
 - `storyValidation.js` — the 10-step deterministic sequence: ajv schema →
   identity/version echo → 12 ordered spreads → exact title equality → refrain
-  exact text + placement → exact-age word bounds → evidence-vs-map legality →
+  exact text + placement → accidental doubled words (5c, 2026-09-03:
+  "check check" satisfied every earlier check and painted faithfully into
+  embedded art; whitespace-only immediate repeats fail REPAIRABLY, every
+  VERBATIM-REQUIRED string is masked first — refrain, child name, world +
+  companion names, evidence source_values, so a child named "Jo Jo" or a
+  "choo choo train" object never creates an unrepairable conflict —
+  punctuated deliberate repeats — "plink, plink" — stay legal, and stored
+  pairs skip the check so already-sold books keep printing) → exact-age word bounds → evidence-vs-map legality →
   evidence-to-spread text alignment (a literal evidence value may occur ONLY
   on spreads its evidence declares — every path, first-pass included, holds
   the same invariant) → callback-before-introduction + caps → banned
@@ -370,8 +377,24 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   the EXACT same horizontal position; (7) the world gate's WORLD dimension
   and `materials_physics` repair pin ONE biome/vegetation family per book.
   Both new QA fields are soft and advisory-class — they shade candidate
-  selection and steer repairs, never fail a book. STYLE_VERSION `ce-10`,
-  QA_VERSION `qa-3`.
+  selection and steer repairs, never fail a book.
+  **Manuscript-pinned companion + full-bleed embedded text (`ce-11`,
+  2026-09-03)**: (1) `companionOnSpread` (scenes.js) reads the beat AND the
+  spread's manuscript text — companion NAME as a case-sensitive whole word
+  ("Patch" the parrot never fires on "a patch of mud") or the full type
+  phrase case-insensitively ("A young toucan swooped down") — and that ONE
+  signal gates the scene's companion line, the companion sheet in the
+  reference pack, the COMPANION prompt block, and the QA companion check.
+  Beats name most companions only on spreads 1/12, so mid-book spreads
+  whose story featured the companion rendered it reference-less and
+  unchecked — a different-looking creature per spread. (2) The embedded
+  band/split placement defects (`text_on_band` / `text_split_both_sides`)
+  are BLOCKING-class (qa-4): a white text panel breaks the embedded
+  layout's full-bleed contract, so a banded candidate sinks in selection
+  and a residual fails `consistency_unresolved` instead of shipping one
+  inconsistent spread (it used to ship as an advisory); the ce-4
+  typography findings (misaligned / style-inconsistent) stay advisory.
+  STYLE_VERSION `ce-11`, QA_VERSION `qa-4`.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 

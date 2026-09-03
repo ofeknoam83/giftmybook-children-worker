@@ -6,11 +6,11 @@
 
 const { normalizeProfile, usableDetails, matchKey, ProfileError } = require('../../../services/catalogEngine/profile');
 const { selectBooks, scoreBook, pickSlate } = require('../../../services/catalogEngine/selection');
-const { validateStoryResponse, validateEvidence, checkBeatAnchors, containsTerm } = require('../../../services/catalogEngine/storyValidation');
-const { buildStoryRequest, buildUserPrompt } = require('../../../services/catalogEngine/writer');
+const { validateStoryResponse, validateEvidence, checkBeatAnchors, checkDoubledWords, containsTerm } = require('../../../services/catalogEngine/storyValidation');
+const { buildStoryRequest, buildUserPrompt, isRepairable } = require('../../../services/catalogEngine/writer');
 const { loadAugments, augmentsFor, coverageReport } = require('../../../services/catalogEngine/augments');
 const { getBook } = require('../../../services/catalogEngine/catalog');
-const { buildScenePrompt, visualPropsForSpread } = require('../../../services/catalogEngine/illustrator/scenes');
+const { buildScenePrompt, visualPropsForSpread, companionOnSpread } = require('../../../services/catalogEngine/illustrator/scenes');
 
 const PRONOUNS = { subject: 'she', object: 'her', possessive_adjective: 'her' };
 const baseProfile = (extra = {}) => ({ name: 'Emma', age: 2, pronouns: PRONOUNS, ...extra });
@@ -161,7 +161,9 @@ describe('story validation (deterministic 10-step)', () => {
     // total) but over the 1.4.0 maxima (25/spread, 300 total). The pinned
     // pair must keep validating; the same story under a current-version
     // request must fail.
-    const pad = Array(10).fill('gently').join(' ');
+    // Ten DISTINCT words — a repeated pad word would trip the 5c
+    // doubled-word check and cloud what this test pins (age bounds).
+    const pad = 'softly warmly kindly brightly slowly calmly sweetly lightly neatly early';
     const f = makeFixture();
     for (const s of f.response.spreads) s.text = `${s.text} ${pad}`;
     const current = validateStoryResponse({ ...f });
@@ -189,6 +191,48 @@ describe('story validation (deterministic 10-step)', () => {
     f.response.spreads[3].text = `${FILLER} just like Bluey.`;
     const v = validateStoryResponse({ ...f });
     expect(v.errors.some(e => e.includes('banned brand'))).toBe(true);
+  });
+
+  test('an accidental doubled word fails REPAIRABLY; stored pairs skip the check (5c)', () => {
+    const f = makeFixture();
+    f.response.spreads[6].text = 'Emma wonders which part she should check check next along the sunny path';
+    const v = validateStoryResponse({ ...f });
+    expect(v.errors).toEqual([expect.stringMatching(/^spread 7: accidental doubled word "check check"/)]);
+    // The repair pass may fix it with a minimal edit — never a lost story.
+    expect(isRepairable(v.errors)).toBe(true);
+    // Stored pairs re-validate without 5c: the check postdates many accepted
+    // stories, and an already-sold book must keep printing.
+    expect(validateStoryResponse({ ...f, skipDoubledWordCheck: true }).ok).toBe(true);
+  });
+
+  test('punctuated deliberate repeats stay legal ("plink, plink, plink")', () => {
+    const f = makeFixture();
+    f.response.spreads[0].text = 'Water dripped near Emma with a plink, plink, plink on the smooth stones';
+    const v = validateStoryResponse({ ...f });
+    expect(v.errors).toEqual([]);
+    expect(v.ok).toBe(true);
+  });
+
+  test('verbatim-required strings with internal doubles are masked from 5c — never an unrepairable conflict', () => {
+    // Other checks demand these strings LITERALLY (name, evidence value):
+    // flagging a double inside one would make the story unfixable — the
+    // repair could not both delete the repetition and keep the literal.
+    const objectStory = {
+      spreads: [{ spread: 1, text: 'Emma hugged her choo choo train and smiled at the animals.' }],
+      personalization_evidence: [{ spread: 1, source_field: 'object', source_value: 'choo choo train' }],
+    };
+    expect(checkDoubledWords(objectStory, { profile: { name: 'Emma' } })).toEqual([]);
+    const doubledName = {
+      spreads: [{ spread: 1, text: 'Jo Jo laughed at the friendly hens.' }],
+      personalization_evidence: [],
+    };
+    expect(checkDoubledWords(doubledName, { profile: { name: 'Jo Jo' } })).toEqual([]);
+    // A genuine typo outside every mask still fails.
+    const typo = {
+      spreads: [{ spread: 7, text: 'Which part should she check check next?' }],
+      personalization_evidence: [],
+    };
+    expect(checkDoubledWords(typo, { profile: { name: 'Jo Jo' } })).toHaveLength(1);
   });
 
   test('evidence in name-only mode (no map) fails', () => {
@@ -413,6 +457,31 @@ describe('slim illustrator scene prompts', () => {
     expect(prompt).toContain('exactly ONE instance');
     expect(prompt).toContain('NEVER paint these words');
     expect(prompt).toContain('Farmer Bea'); // beat names the companion
+  });
+
+  test('the companion signal reads the MANUSCRIPT too, not just the beat (ce-11)', () => {
+    const { book, theme } = getBook('jungle_6_7_footprint_trail');
+    const profile = normalizeProfile(baseProfile());
+    // Spread 5's beat does not name Tiko — before ce-11 the companion
+    // rendered reference-less and unchecked on every such spread.
+    expect(book.beats[4].beat).not.toContain('Tiko');
+    const named = buildScenePrompt({ book, theme, spread: 5, spreadText: 'Tiko fluttered from branch to branch above her.', profile, evidence: [] });
+    expect(named).toContain('Companion present: Tiko');
+    // The full type phrase pins the companion even before anyone says the name.
+    const byType = buildScenePrompt({ book, theme, spread: 5, spreadText: 'A young toucan swooped down beside her.', profile, evidence: [] });
+    expect(byType).toContain('Companion present: Tiko');
+    // No mention in beat or manuscript → no companion line.
+    const absent = buildScenePrompt({ book, theme, spread: 5, spreadText: 'She leaned close and studied the prints.', profile, evidence: [] });
+    expect(absent).not.toContain('Companion present');
+  });
+
+  test('companion NAME matching is case-sensitive whole-word — "a patch of mud" never summons Patch the parrot', () => {
+    const beat = { beat: 'Child checks the immediate area.' };
+    const patch = { name: 'Patch', type: 'friendly green parrot' };
+    expect(companionOnSpread(beat, 'She stepped around a patch of mud.', patch)).toBe(false);
+    expect(companionOnSpread(beat, 'Patchwork sails flapped above.', patch)).toBe(false);
+    expect(companionOnSpread(beat, '"Ahoy!" squawked Patch from the mast.', patch)).toBe(true);
+    expect(companionOnSpread({ beat: 'Child meets Patch at the docks.' }, 'She walked on.', patch)).toBe(true);
   });
 
   test('embedText flips the story-text line to render-into-image (embedded layout)', () => {

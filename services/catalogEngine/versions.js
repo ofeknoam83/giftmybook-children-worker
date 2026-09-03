@@ -90,7 +90,16 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // pinned EMOTION line, and hard-left-margin phrasing on the embedded
 // TEXT_RULES alignment spec. All are prompt-text changes — ce-9 renders
 // must never replay as ce-10.
-const STYLE_VERSION = 'ce-10';
+// ce-11: the companion is pinned by the MANUSCRIPT, not just the beat —
+// companionOnSpread (scenes.js) reads the beat AND the spread's story text
+// (companion name as a case-sensitive whole word, or the full type phrase)
+// and the one signal gates the scene's companion line, the companion sheet
+// in the reference pack, the COMPANION prompt block, and the QA companion
+// check. Beats name most companions only on spreads 1/12, so mid-book
+// spreads whose story featured the companion rendered it reference-less
+// and unchecked (a different-looking creature per spread). Scene prompts
+// changed for every such story — ce-10 renders must never replay as ce-11.
+const STYLE_VERSION = 'ce-11';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
@@ -101,8 +110,15 @@ const STYLE_VERSION = 'ce-10';
  * personal-object soft fields (both advisory-class), and the outfit
  * mismatch definition now names a missing/added/different garment
  * pattern, print, or graphic.
+ * qa-4 (ce-11): the embedded band/split placement defects
+ * ('embedded story text sits on a blank band…' / '…split across both
+ * sides…') are reclassified BLOCKING (a white text panel breaks the
+ * embedded layout's full-bleed contract; it used to ship as an advisory),
+ * and the companion check now runs on every spread whose manuscript names
+ * the companion, not only beat-named spreads. Markers written under qa-3
+ * were judged with softer eyes — replays re-check.
  */
-const QA_VERSION = 'qa-3';
+const QA_VERSION = 'qa-4';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip
