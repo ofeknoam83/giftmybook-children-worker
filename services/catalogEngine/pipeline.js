@@ -409,6 +409,9 @@ async function runBookPipeline(params) {
     outfitLockUsed: art.outfitLockUsed || 'none',
     // ce-15: the typography anchor the embedded spreads were held to, or 'none'.
     typographyAnchorUsed: art.typographyAnchorUsed || 'none',
+    // ce-18: the book-level ink verdict — always present (null when the
+    // gate did not run: kill-switch, non-embedded layout, or <2 measured).
+    textInkQa: art.textInkQa || null,
     // Book-level world-consistency verdict — ALWAYS present: null when the
     // gate did not run (kill-switch, <2 renders), so callback consumers get
     // one stable shape. Per-spread world findings already ride qaAdvisories

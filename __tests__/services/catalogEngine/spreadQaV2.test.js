@@ -443,3 +443,75 @@ describe('qa-9 (ce-17): a blurred, fogged, or darkened zone behind the text is a
     expect(ok.pass).toBe(true);
   });
 });
+
+describe('qa-10 (ce-18): the painted INK colour is measured against the book\'s pinned hex', () => {
+  const sharp = require('sharp');
+  const TEXT = 'Aaron waved at the zebras.';
+  const BOOK_INK = '#2A1C12';
+
+  /** A real render: `ink` rows over `bg`, the shape of a painted text block. */
+  const render = async (bg, ink) => {
+    const W = 240;
+    const H = 120;
+    const d = Buffer.alloc(W * H * 3);
+    for (let y = 0; y < H; y += 1) {
+      const c = y % 10 === 0 ? ink : bg;
+      for (let x = 0; x < W; x += 1) {
+        const p = (y * W + x) * 3;
+        [d[p], d[p + 1], d[p + 2]] = c;
+      }
+    }
+    return sharp(d, { raw: { width: W, height: H, channels: 3 } }).png().toBuffer();
+  };
+  const inkOpts = (over = {}) => ({ label: 't', expectedText: TEXT, inkHex: BOOK_INK, ...over });
+  const inkVerdict = () => cleanVerdict({
+    readable_text: true, visible_text: TEXT,
+    text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false,
+    text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false,
+    // Off the fold, so only the ink check can speak.
+    text_bbox: { x: 0.07, y: 0.2, w: 0.2, h: 0.5 },
+  });
+
+  test('a block in the book\'s ink passes and reports its measurement', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(inkVerdict()));
+    const r = await checkSpreadRenderV2(await render([230, 215, 180], [42, 28, 18]), inkOpts());
+    expect(r.pass).toBe(true);
+    expect(r.textInk).toMatchObject({ polarity: 'dark', pass: true });
+    expect(r.textInk.deltaE).toBeLessThan(5);
+  });
+
+  test('an inverted (light) block is BLOCKING — the flip the judge\'s own fields never caught', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(inkVerdict()));
+    const r = await checkSpreadRenderV2(await render([120, 95, 60], [250, 250, 250]), inkOpts());
+    expect(r.blocking).toEqual([expect.stringContaining('embedded story text ink colour differs')]);
+    expect(r.blocking[0]).toContain(BOOK_INK);
+    expect(r.textInk).toMatchObject({ polarity: 'light', pass: false });
+    // A uniformly wrong-coloured block never trips the intra-block field.
+    expect(r.verdict.text_style_inconsistent).toBe(false);
+  });
+
+  test('no pinned ink, an unmeasurable render, or no bbox ⇒ no ink verdict (fail-open)', async () => {
+    const bad = await render([120, 95, 60], [250, 250, 250]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(inkVerdict()));
+    expect((await checkSpreadRenderV2(bad, inkOpts({ inkHex: null }))).defects).toEqual([]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(inkVerdict()));
+    expect((await checkSpreadRenderV2(bad, inkOpts({ inkHex: 'cocoa brown' }))).defects).toEqual([]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(inkVerdict()));
+    const noImage = await checkSpreadRenderV2(IMG, inkOpts());
+    expect(noImage.defects).toEqual([]);
+    expect(noImage.textInk).toBeNull();
+    fetchWithTimeout.mockResolvedValueOnce(answer({ ...inkVerdict(), text_bbox: null }));
+    expect((await checkSpreadRenderV2(bad, inkOpts())).defects).toEqual([]);
+  });
+
+  test('the repair note names the book\'s ink and forbids fixing legibility by inverting the fill', () => {
+    const note = repairNoteV2(["embedded story text ink colour differs (painted #f5f0e6, the book's ink is #2A1C12)"], TEXT, { inkHex: BOOK_INK });
+    expect(note).toContain('WRONG COLOUR');
+    expect(note).toContain(BOOK_INK);
+    expect(note).toContain('thin, tight pale hairline');
+    expect(note).toContain('Fix ONLY the text colour');
+    const bare = repairNoteV2(['embedded story text ink colour differs'], TEXT, {});
+    expect(bare).toContain('WRONG COLOUR');
+    expect(bare).not.toContain('hex');
+  });
+});

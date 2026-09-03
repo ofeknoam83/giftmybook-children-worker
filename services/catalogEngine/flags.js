@@ -106,6 +106,13 @@
  *                                   the field renders at its default. Folded
  *                                   into the render key as -is{size}.
  *
+ *  - CATALOG_TEXT_INK_QA=0        — (ce-18) stop measuring the painted text's
+ *                                   INK colour: no per-spread ink defect and
+ *                                   no book-level ink gate (the pinned ink
+ *                                   still rides every prompt).
+ *  - CATALOG_TEXT_INK_MAX_RERENDERS=N — (ce-18) corrective re-renders the ink
+ *                                   set gate may spend per run (0-4, default 2).
+ *
  *  - CATALOG_GIFT_VIDEO=0          — (gv-1) disable the gift-video endpoints
  *                                   (`/v13/generate-video` answers 503).
  *  - CATALOG_VIDEO_PROVIDERS=a,b   — (gv-1) the providers an admin may select
@@ -179,6 +186,9 @@ module.exports = {
   // type reference for its other embedded spreads)
   textAnchorEnabled: () => !envOff('CATALOG_TEXT_ANCHOR'),
   textAnchorCandidates: () => envInt('CATALOG_TEXT_ANCHOR_CANDIDATES', 3, 1, 4),
+  // ce-18 — the painted text's ink colour
+  textInkQaEnabled: () => !envOff('CATALOG_TEXT_INK_QA'),
+  textInkMaxRerenders: () => envInt('CATALOG_TEXT_INK_MAX_RERENDERS', 2, 0, 4),
   embeddedImageSize: () => {
     const v = String(process.env.CATALOG_EMBEDDED_IMAGE_SIZE || '').trim().toUpperCase();
     return v === '1K' || v === '2K' || v === '4K' ? v : null;

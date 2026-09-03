@@ -744,6 +744,8 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         // ce-9: contact-sheet gate verdict, the bible the probe rendered
         // against, and any spreads whose BLOCKING defects survived.
         contactQa: art.contactQa || null,
+        // ce-18: the book-level ink verdict (null when the gate did not run).
+        textInkQa: art.textInkQa || null,
         bookBible: art.bookBible || null,
         unresolved: art.unresolved || [],
         aspect: art.aspect,
@@ -766,6 +768,7 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         // Same stable shape as the success payload: the gate never ran here.
         worldQa: null,
         contactQa: null,
+        textInkQa: null,
         bookBible: null,
         unresolved: [],
         costs: costTracker.getSummary(),

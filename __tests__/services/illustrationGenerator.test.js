@@ -133,11 +133,26 @@ describe('ce-15: the text block has a FOOTPRINT, a no-panel rule that names the 
     expect(prompt).not.toContain('a horizontal text band across the image will be REJECTED');
     // ce-17: the scene under the letters stays sharp — no haze zone, legibility from a thin outline only.
     expect(prompt).toContain('NEVER blur, fog, soften, darken, lighten, desaturate, or empty the area behind or around the text');
-    expect(prompt).toContain("Legibility comes ONLY from the letters' own thin dark outline");
-    expect(prompt).toContain('thin, tight dark outline hugging each letter');
+    // ce-18: the fill is dark ink now, so the legibility edge is a PALE
+    // hairline — the renderer's rule and the pinned spec must not disagree.
+    expect(prompt).toContain("Legibility comes ONLY from the letters' own thin, tight pale hairline");
+    expect(prompt).toContain('never from inverting the dark ink to light text');
+    expect(prompt).toContain('thin, tight PALE hairline');
+    expect(prompt).not.toContain('thin, tight dark outline');
     expect(prompt).not.toContain('whisper-soft dark contact shadow');
     expect(prompt).not.toContain('gentle depth haze');
     expect(prompt.slice(prompt.indexOf('TEXT — FINAL CHECK'))).toContain('blur, fog, glow, or darkening');
+  });
+
+  test('ce-18: the ONE ink reaches the prompt as a name AND the hex the gate measures against', () => {
+    const { TEXT_RULES } = require('../../services/shared/illustration/config');
+    const prompt = build();
+    expect(prompt).toContain(TEXT_RULES.fontColorHex);
+    expect(prompt).toContain('deep warm cocoa-brown, almost black');
+    expect(prompt).toContain('NEVER white, ivory, cream, yellow, gold, or any pale fill');
+    expect(prompt).toContain('never invert to light text');
+    // The old ivory spec is gone from every rule.
+    expect(prompt).not.toContain('soft warm ivory');
   });
 
   test('a typography reference index is cited as TYPE ONLY; without one the line is absent', () => {
