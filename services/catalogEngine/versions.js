@@ -105,7 +105,15 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // text_in_center_gutter (plus a deterministic text-bbox straddle check)
 // as a BLOCKING placement defect with its own repair note. The renderer's
 // embedded-text prompt changed — ce-11 renders must never replay as ce-12.
-const STYLE_VERSION = 'ce-12';
+// ce-13: typeset-by-prompt — the renderer PRE-WRAPS the manuscript into
+// short lines (TEXT_RULES.maxCharsPerLine) and orders the model to keep the
+// breaks, pins the shot plan's assigned text side as a CONCRETE column box
+// (x within the edge/active-side bounds, y within the top/bottom padding
+// band) with the centerline framed as a hard wall, and the FONT SIZE spec
+// became a concrete small body-type measure (cap height ≈ 2% of the image
+// height) that must fit the column with many lines rather than grow. The
+// embedded-text prompt changed — ce-12 renders must never replay as ce-13.
+const STYLE_VERSION = 'ce-13';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
@@ -127,8 +135,11 @@ const STYLE_VERSION = 'ce-12';
  * embedded text) and the soft `text_bbox`; text crossing the page fold —
  * judged, or a bbox straddling the middle tenth — is a BLOCKING placement
  * defect ('embedded story text crosses the page fold (center gutter)').
+ * qa-6 (ce-13): compareTexts flags a missing FIRST or LAST word as edge
+ * truncation ("ron checked the ground" for "Aaron checked …" passed the
+ * 25% word-bag threshold), so a block cut by the frame is garbled text.
  */
-const QA_VERSION = 'qa-5';
+const QA_VERSION = 'qa-6';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

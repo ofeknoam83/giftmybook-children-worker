@@ -330,6 +330,51 @@ function levenshteinDistance(a, b) {
  * Uses word-frequency bags to detect duplications and missing words,
  * plus character-level Levenshtein distance for overall similarity.
  */
+/**
+ * Pre-wrap story text into short lines for the painted-text prompt (ce-13).
+ * Left to itself the image model breaks lines at 7–9 words in a caption-size
+ * face — exactly how a text block grew to 55% of the width and across the
+ * page fold. Handing it the breaks makes the narrow column achievable: at
+ * the pinned small body size ~30 characters span about a quarter of a 16:9
+ * canvas. Paragraph breaks are kept as an empty line; each paragraph is
+ * wrapped greedily and then re-flowed to balanced widths (a typeset block,
+ * not one long line and one orphan word); a word longer than the limit
+ * stands alone. Pure — exported for tests.
+ * @param {string} text the spread's manuscript text
+ * @param {number} [maxChars] characters per line including spaces
+ * @returns {string[]} lines ('' marks a paragraph gap)
+ */
+function wrapStoryLines(text, maxChars = 30) {
+  const limit = Math.max(8, Number(maxChars) || 30);
+  const greedy = (words, width) => {
+    const out = [];
+    let current = '';
+    for (const word of words) {
+      if (!current) { current = word; continue; }
+      if (current.length + 1 + word.length <= width) current = `${current} ${word}`;
+      else { out.push(current); current = word; }
+    }
+    if (current) out.push(current);
+    return out;
+  };
+  const paragraphs = String(text || '').replace(/\r/g, '').trim().split(/\n\s*\n|\n/).map(p => p.trim()).filter(Boolean);
+  const lines = [];
+  paragraphs.forEach((para, i) => {
+    if (i > 0) lines.push('');
+    const words = para.split(/\s+/);
+    const first = greedy(words, limit);
+    if (first.length <= 1) { lines.push(...first); return; }
+    // Balance: aim every line at the paragraph's average width, never above
+    // the limit and never below the longest word — then keep whichever pass
+    // gives the fewer lines (balancing must not add rows).
+    const longest = Math.max(...words.map(w => w.length));
+    const target = Math.min(limit, Math.max(longest, Math.ceil(para.length / first.length)));
+    const balanced = greedy(words, target);
+    lines.push(...(balanced.length <= first.length ? balanced : first));
+  });
+  return lines;
+}
+
 function compareTexts(expected, extracted) {
   const normalize = (s) => s.toLowerCase().replace(/[^\w\s']/g, '').replace(/\s+/g, ' ').trim();
   const toWordBag = (s) => {
@@ -361,6 +406,19 @@ function compareTexts(expected, extracted) {
   }
   if (uniqueExpected > 0 && missingCount / uniqueExpected > 0.25) {
     issues.push(`${missingCount}/${uniqueExpected} unique words missing`);
+  }
+
+  // Edge truncation (qa-6): a block whose FIRST or LAST word is absent was
+  // cut by the frame or painted from mid-word ("ron checked the ground" for
+  // "Aaron checked …") — one word is far below the bag threshold above, yet
+  // it is a printed defect. Checked only on blocks long enough for the edge
+  // words to be meaningful.
+  const expectedWords = normalizedExpected.split(' ').filter(Boolean);
+  if (expectedWords.length >= 3 && normalizedExtracted.length > 0) {
+    const first = expectedWords[0];
+    const last = expectedWords[expectedWords.length - 1];
+    if (!extractedBag[first]) issues.push(`first word "${first}" missing — text truncated at the start`);
+    if (last !== first && !extractedBag[last]) issues.push(`last word "${last}" missing — text truncated at the end`);
   }
 
   // NEW: Character-level similarity check
@@ -852,29 +910,44 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const textRulesForEmbed = embedStoryText ? resolvePictureBookTextRules(opts.childAge) : null;
   if (embedStoryText) {
     const tr = textRulesForEmbed;
+    // ce-13: the geometry is stated as a CONCRETE column box on the shot
+    // plan's assigned side (opts.textSide), and the manuscript is handed
+    // over PRE-WRAPPED into short lines the model must keep — the two
+    // levers that make "never across the fold" achievable at all.
+    const textSide = opts.textSide === 'left' || opts.textSide === 'right' ? opts.textSide : null;
+    const topPad = tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent;
+    const bottomPad = tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent;
+    const leftColumn = `x from ${tr.edgePaddingPercent}% to ${tr.activeSideMaxPercent}% of the image width`;
+    const rightColumn = `x from ${100 - tr.activeSideMaxPercent}% to ${100 - tr.edgePaddingPercent}% of the image width`;
+    const columnBox = textSide === 'left'
+      ? `the LEFT column (${leftColumn})`
+      : textSide === 'right'
+        ? `the RIGHT column (${rightColumn})`
+        : `ONE column — the left (${leftColumn}) OR the right (${rightColumn}); pick a single side`;
+    const verticalBand = `y from ${topPad}% to ${100 - bottomPad}% of the image height`;
+    const foldMargin = 50 - tr.activeSideMaxPercent;
+    const storyLines = wrapStoryLines(pageText, tr.maxCharsPerLine);
+    const lineCount = storyLines.filter(Boolean).length;
     parts.push('TEXT RENDERING RULES:');
     parts.push('- This illustration MUST include the story text rendered directly INTO the image');
     // The book-wide typographic lock: each spread renders in a STATELESS call,
     // so the ONLY way every page comes out in the same font, size, and color
     // is pinning the identical spec (TEXT_RULES) on every render.
     parts.push(`- FONT (FIXED FOR THE WHOLE BOOK): ${tr.fontStyle}`);
-    parts.push(
-      '- FONT SIZE (FIXED FOR THE WHOLE BOOK): The text must NOT be large or dominant. NOT a title, NOT a headline. Think subtitles on a movie screen — clearly readable but small and unobtrusive. The illustration is the star. Text that looks like a poster headline will be REJECTED. The SAME point size on every spread of this book.'
-      + (tr.maxWordsPerLine > 6 ? ' For ages 3–8 with longer read-aloud lines, use a **slightly smaller** point size than a typical toddler spread — still crisp at arm’s length.' : ''),
-    );
+    parts.push(`- FONT SIZE (FIXED FOR THE WHOLE BOOK): ${tr.fontSize} The whole ${lineCount}-line block below must fit INSIDE the text column box at this size with even spacing; if it would not fit, use a SMALLER size — never a wider column, never fewer lines. Text at caption, poster, or headline scale will be REJECTED.`);
     parts.push(`- TEXT COLOR (FIXED FOR THE WHOLE BOOK): ${tr.fontColor}`);
     parts.push(`- TEXT ALIGNMENT (CRITICAL): ${tr.textAlignment}`);
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
-    parts.push('- TEXT PLACEMENT (CRITICAL): This image prints as TWO facing book pages — the vertical centerline is the physical page FOLD, and any word that touches it is cut in half in the printed book. Render the text as EXACTLY ONE block, entirely within ONE side of the image — the left 35% OR the right 35%. Pick a single side; NEVER split the text into blocks on both sides, NEVER center it, and NEVER let any word enter the middle 30% of the image (15% on each side of center — the fold zone).');
+    parts.push(`- TEXT ZONE (CRITICAL — THE PAGE FOLD): This image prints as TWO facing book pages. The vertical centerline of the image (x = 50%) is the physical page FOLD — a hard wall: any word that touches it is cut in half in the printed book, so NO letter may come within ${foldMargin}% of the image width of the centerline. The ENTIRE text block lives in ${columnBox}, ${verticalBand}. EVERY glyph inside that box. The column is narrow ON PURPOSE: fit the text with the small font and the short lines given below — never by widening the block, never by centering it. EXACTLY ONE block; NEVER split the text across both sides.`);
     parts.push('- TEXT INTEGRATION (CRITICAL): Paint the text directly OVER the artwork, on a naturally calm area of the scene (sky, water, wall, foliage). Do NOT reserve a blank, solid, or lightened band/strip/panel for the text — no letterboxing at the top, bottom, or side. The illustration must continue behind the text, edge to edge; a horizontal text band across the image will be REJECTED.');
-    parts.push(`- EDGE PADDING (CRITICAL): Leave at least 10% padding from left and right edges, and at least ${tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the TOP edge so text won\'t be cut in print.`);
-    parts.push(`- BOTTOM PADDING (CRITICAL): Leave at least ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% of the image.`);
+    parts.push(`- EDGE PADDING (CRITICAL): Leave at least ${tr.edgePaddingPercent}% padding from the outer left/right edge, and at least ${topPad}% from the TOP edge so text won\'t be cut in print.`);
+    parts.push(`- BOTTOM PADDING (CRITICAL): Leave at least ${bottomPad}% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom ${bottomPad}% of the image.`);
     parts.push('- Main characters and key action should not be hidden behind the text');
     parts.push(`- TYPOGRAPHY CONSISTENCY (CRITICAL): ${tr.typographyConsistency}`);
     parts.push('');
-    parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
-    parts.push(pageText.trim());
-    parts.push(`\nREMINDER: ONE text block on ONE side only — completely within the left 35% or right 35% of the image, NEVER split across both sides, NEVER in the middle 30% (the center gutter zone), and ALWAYS painted over continuous artwork (no blank or solid text band). Every line straight, level, and LEFT-ALIGNED to one shared margin — every line beginning at the EXACT same horizontal position — with even line spacing; ONE font, ONE size, ONE color — the book's fixed spec. Leave at least 10% padding from left/right edges, at least ${tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the TOP, and at least ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the BOTTOM (bottom gets cropped in print).`);
+    parts.push(`TEXT TO RENDER ON THIS PAGE — exactly ${lineCount} short lines. Paint them with EXACTLY these line breaks: one line per row, in this order, every word exactly as written (a blank row is a paragraph gap). NEVER join two rows into one line and NEVER re-break a row — the breaks are part of the design:`);
+    parts.push(storyLines.join('\n'));
+    parts.push(`\nREMINDER: ONE text block of ${lineCount} short lines in ${textSide ? `the ${textSide.toUpperCase()} column` : 'one column'} — every glyph inside the text column box (${verticalBand}), NEVER within ${foldMargin}% of the centerline (the page fold), NEVER split across both sides, and ALWAYS painted over continuous artwork (no blank or solid text band). Small book body type — the SAME small size on every spread. Every line straight, level, and LEFT-ALIGNED to one shared margin — every line beginning at the EXACT same horizontal position — with even line spacing; ONE font, ONE size, ONE color — the book's fixed spec. Keep the given line breaks exactly.`);
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
@@ -897,7 +970,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   );
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (embedStoryText && textRulesForEmbed) {
-    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, as ONE block on ONE side only \u2014 entirely within the left 35% or right 35% (not split across both sides, not in the center 30% gutter zone) \u2014 painted over continuous artwork (no blank band), with at least 10% padding from left/right, at least ${textRulesForEmbed.topPaddingPercent ?? textRulesForEmbed.cornerVerticalPaddingPercent}% from the top edge, and at least ${textRulesForEmbed.bottomPaddingPercent ?? textRulesForEmbed.cornerVerticalPaddingPercent}% from the bottom edge. \u2713`);
+    parts.push(`10. TEXT RENDERED: story text is included exactly as provided with the given line breaks, as ONE block of short lines in its assigned column \u2014 no glyph within ${50 - textRulesForEmbed.activeSideMaxPercent}% of the image width of the centerline (the page fold), not split across both sides \u2014 in SMALL book body type, painted over continuous artwork (no blank band), inside the column box (at least ${textRulesForEmbed.edgePaddingPercent}% from the outer edge, ${textRulesForEmbed.topPaddingPercent ?? textRulesForEmbed.cornerVerticalPaddingPercent}% from the top, ${textRulesForEmbed.bottomPaddingPercent ?? textRulesForEmbed.cornerVerticalPaddingPercent}% from the bottom). \u2713`);
     parts.push('10b. TEXT TYPOGRAPHY: every line straight, level, and left-aligned to one shared margin with even line spacing; the whole block in ONE font, ONE size, ONE color \u2014 the book\u2019s fixed serif spec, identical on every spread. \u2713');
   } else {
     parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
@@ -1423,6 +1496,8 @@ module.exports = {
   // Deterministic OCR-vs-manuscript comparison (word bag + Levenshtein) —
   // the slim illustrator's spread QA reuses it to verify Gemini-painted text.
   compareTexts,
+  // ce-13: the pre-wrap the painted-text prompt hands the model (pure).
+  wrapStoryLines,
   buildGenericSafePrompt,
   getNextApiKey,
   GEMINI_MODEL,

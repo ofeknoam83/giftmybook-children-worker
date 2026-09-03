@@ -402,8 +402,23 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   straddle check on the new soft `text_bbox` against the middle tenth of
   the width) as a BLOCKING placement defect with its own fold repair
   note — enforcement for the middle-30% exclusion the prompt always
-  demanded but nothing verified. STYLE_VERSION `ce-12`, QA_VERSION
-  `qa-5`.
+  demanded but nothing verified.
+  **Typeset by prompt (`ce-13`, 2026-09-03)**: a gate can only reject —
+  ce-12 rounds still crossed the fold because the model broke lines at 7–9
+  words in a caption-size face, which cannot fit a 35%-wide side. The
+  renderer now PRE-WRAPS the manuscript (`wrapStoryLines`,
+  `TEXT_RULES.maxCharsPerLine` 30, paragraph gaps kept, widths balanced)
+  and orders the model to paint EXACTLY those line breaks; the TEXT ZONE
+  rule states the shot plan's assigned text side (`opts.textSide`, ce-8's
+  `textSide` finally consumed by the renderer) as a CONCRETE column box
+  (x within the edge/active-side bounds, y within the top/bottom padding
+  band) with the centerline framed as a hard wall; and `TEXT_RULES.
+  fontSize` is a concrete SMALL body-type measure (cap height ≈ 2% of the
+  image height, line pitch ≈ 3.5%) that must fit the column with many
+  lines rather than grow. The fold repair note now says "smaller font,
+  more shorter lines" first. `compareTexts` (qa-6) flags a missing FIRST
+  or LAST word as edge truncation ("ron checked …" passed the 25% bag
+  threshold). STYLE_VERSION `ce-13`, QA_VERSION `qa-6`.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 

@@ -265,8 +265,13 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // generic-safe rung (its OUTFIT line) — bible mode states it ONCE in the
     // CHARACTER block and switches the legacy repetition off.
     ...(outfitSpecText ? { characterOutfit: outfitSpecText } : {}),
-    // The assigned shot type arms the renderer's composition enforcement.
+    // The assigned shot type arms the renderer's composition enforcement;
+    // the assigned text side (ce-13) pins the painted text's COLUMN in the
+    // renderer's TEXT ZONE rule — one deterministic side per spread instead
+    // of "pick a side" — so the column, the child's placement, and the QA
+    // gate all agree on where the words live.
     ...(shotEntry ? { shotType: shotEntry.shotType } : {}),
+    ...(shotEntry && shotEntry.textSide ? { textSide: shotEntry.textSide } : {}),
     bookId,
     costTracker,
     // The identity anchor bytes still ride (the renderer's with-photo
