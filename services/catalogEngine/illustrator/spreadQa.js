@@ -64,6 +64,10 @@ The text must be ONE block on ONE side of the image (left or right),
 painted directly over the artwork. Text split into blocks on BOTH the left
 and right sides, or text sitting on a blank/solid/lightened band or strip
 (letterboxing) instead of over continuous artwork, is a placement defect.
+This image prints as TWO facing book pages: the vertical centerline of the
+image is the physical page FOLD, and any word crossing it is cut in half
+in print — text touching the middle tenth of the image width (roughly 45%
+to 55%) is a placement defect.
 
 The painted text must also look professionally TYPESET: every line straight,
 level, and horizontal; all lines left-aligned to one shared straight left
@@ -81,6 +85,7 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
       '"visible_text": "…",           // the exact text you can read in the image, verbatim ("" if none)',
       '"text_split_both_sides": true|false, // text appears in separate blocks on BOTH the left and right sides of the image',
       '"text_on_band": true|false,    // text sits on a blank, solid, or lightened band/strip/panel (letterbox) instead of being painted over the artwork',
+      '"text_in_center_gutter": true|false, // any word or letter of the painted text touches the middle tenth of the image width (the page fold, roughly 45%-55%)',
       '"text_lines_misaligned": true|false, // any text line is tilted, arched, or wavy; the lines do not share one straight left margin; or the line spacing is visibly uneven',
       '"text_style_inconsistent": true|false, // the painted text mixes more than one font family, size, weight, or fill color',
     );
@@ -189,7 +194,7 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
     // (`visible_text` is a best-effort string, not a gate: a verdict without
     // it still counts, it just can't be accuracy-checked.)
     const FIELDS = ['readable_text', 'child_absent', 'multiple_children', 'flat_or_photo_style'];
-    if (expectedText) FIELDS.push('text_split_both_sides', 'text_on_band', 'text_lines_misaligned', 'text_style_inconsistent');
+    if (expectedText) FIELDS.push('text_split_both_sides', 'text_on_band', 'text_in_center_gutter', 'text_lines_misaligned', 'text_style_inconsistent');
     // The shot/outfit fields are required booleans ONLY when the
     // corresponding spec was pinned — a verdict without them on a bare
     // render is complete, and a malformed one still fails open.
@@ -222,6 +227,7 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
         }
         if (json.text_split_both_sides) defects.push('embedded story text split across both sides of the image');
         if (json.text_on_band) defects.push('embedded story text sits on a blank band instead of over the artwork');
+        if (json.text_in_center_gutter) defects.push('embedded story text crosses the page fold (center gutter)');
         if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
         if (json.text_style_inconsistent) defects.push('embedded story text mixes fonts, sizes, or colors');
       }
@@ -573,6 +579,9 @@ function repairNote(defects, expectedText = null, opts = {}) {
     if (d.includes('blank band')) {
       notes.push('Paint the story text directly OVER the artwork on a calm area of the scene — NO blank, solid, or lightened band/strip/panel behind it; the illustration must fill the entire canvas edge to edge. Fix ONLY the text placement; keep the scene otherwise identical.');
     }
+    if (d.includes('crosses the page fold')) {
+      notes.push('This image prints as TWO facing book pages and the vertical centerline is the physical FOLD — any word crossing it is cut in half in print. Move the ENTIRE text block fully onto ONE page: completely within the left 35% or the right 35% of the image, with NO word or letter in the middle 30%. Fix ONLY the text placement; keep the scene otherwise identical.');
+    }
     if (d.includes('lines misaligned')) {
       notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin — every line beginning at the EXACT same horizontal position — with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');
     }
@@ -639,7 +648,7 @@ function buildSpreadQaPromptV2(o) {
   const layoutIntro = o.expectedText
     ? `You are checking one interior illustration of a children's picture book (the RENDER, the first image). The book's ONE child hero must appear exactly once; the story text below MUST be painted into the artwork, crisp and readable; the medium must be premium 3D CGI (a modern animated feature film still), never flat 2D, watercolor, or a photograph.
 
-The text must be ONE block on ONE side of the image (left or right), painted directly over the artwork — never split across both sides, never on a blank/solid/lightened band. It must look professionally TYPESET: straight, level lines, left-aligned to one shared margin (every line beginning at the EXACT same horizontal position), even spacing, ONE font, ONE size, ONE colour.
+The text must be ONE block on ONE side of the image (left or right), painted directly over the artwork — never split across both sides, never on a blank/solid/lightened band. This image prints as TWO facing book pages: the vertical centerline is the physical page FOLD, and any word crossing it is cut in half in print — text touching the middle tenth of the image width (roughly 45% to 55%) is a placement defect. It must look professionally TYPESET: straight, level lines, left-aligned to one shared margin (every line beginning at the EXACT same horizontal position), even spacing, ONE font, ONE size, ONE colour.
 
 STORY TEXT THAT MUST APPEAR IN THE IMAGE:
 "${o.expectedText}"`
@@ -651,10 +660,12 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
       '"visible_text": "…",           // the exact text you can read in the RENDER, verbatim ("" if none)',
       '"text_split_both_sides": true|false,',
       '"text_on_band": true|false,',
+      '"text_in_center_gutter": true|false, // any word or letter of the painted text touches the middle tenth of the image width (the page fold, roughly 45%-55%)',
+      '"text_bbox": {"x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1}, // tight bounding box around ALL the painted story text, fractions of the image (null if none)',
       '"text_lines_misaligned": true|false,',
       '"text_style_inconsistent": true|false,',
     );
-    required.push('text_split_both_sides', 'text_on_band', 'text_lines_misaligned', 'text_style_inconsistent');
+    required.push('text_split_both_sides', 'text_on_band', 'text_in_center_gutter', 'text_lines_misaligned', 'text_style_inconsistent');
   } else {
     fields.push('"readable_text": true|false,   // any readable words, letters, or numbers painted in the RENDER');
   }
@@ -852,6 +863,10 @@ const BLOCKING_PREFIXES = [
   // fails `consistency_unresolved` instead of shipping inconsistent.
   // The ce-4 typography findings (misaligned/inconsistent) stay advisory.
   'embedded story text split', 'embedded story text sits on a blank band',
+  // qa-5: the image prints as TWO facing pages — text crossing the vertical
+  // centerline is cut in half by the physical fold. Print-destroying, so
+  // blocking like band/split.
+  'embedded story text crosses the page fold',
 ];
 
 /**
@@ -1012,6 +1027,14 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         }
         if (json.text_split_both_sides) defects.push('embedded story text split across both sides of the image');
         if (json.text_on_band) defects.push('embedded story text sits on a blank band instead of over the artwork');
+        // The page fold: the boolean is the judge's call; the text bbox is a
+        // deterministic backstop — a box that straddles the middle tenth of
+        // the width sits on the fold whatever the boolean said (arithmetic
+        // on a rough box beats a raw geometric judgment; fail-open when the
+        // soft bbox is absent or malformed).
+        const textBbox = cleanBbox(json.text_bbox);
+        const straddlesFold = textBbox && textBbox.x < 0.55 && textBbox.x + textBbox.w > 0.45;
+        if (json.text_in_center_gutter || straddlesFold) defects.push('embedded story text crosses the page fold (center gutter)');
         if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
         if (json.text_style_inconsistent) defects.push('embedded story text mixes fonts, sizes, or colors');
       }

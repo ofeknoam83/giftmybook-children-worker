@@ -394,7 +394,16 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   and a residual fails `consistency_unresolved` instead of shipping one
   inconsistent spread (it used to ship as an advisory); the ce-4
   typography findings (misaligned / style-inconsistent) stay advisory.
-  STYLE_VERSION `ce-11`, QA_VERSION `qa-4`.
+  **The page fold (`ce-12`, 2026-09-03)**: an embedded render prints as
+  TWO facing pages, and text crossing the vertical centerline is cut in
+  half by the physical fold — the render prompt's TEXT PLACEMENT rule now
+  states that print reality, and QA gates `text_in_center_gutter`
+  (required with embedded text; a judged boolean PLUS a deterministic
+  straddle check on the new soft `text_bbox` against the middle tenth of
+  the width) as a BLOCKING placement defect with its own fold repair
+  note — enforcement for the middle-30% exclusion the prompt always
+  demanded but nothing verified. STYLE_VERSION `ce-12`, QA_VERSION
+  `qa-5`.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 

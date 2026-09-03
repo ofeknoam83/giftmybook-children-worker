@@ -31,8 +31,9 @@ const verdict = (json) => ({
   json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(json) }] } }] }),
 });
 const cleanBooleans = { child_absent: false, multiple_children: false, flat_or_photo_style: false };
-// Embedded verdicts also carry the ce-3 placement + ce-4 typography checks.
-const cleanPlacement = { text_split_both_sides: false, text_on_band: false };
+// Embedded verdicts also carry the ce-3 placement + ce-4 typography +
+// ce-12 page-fold checks.
+const cleanPlacement = { text_split_both_sides: false, text_on_band: false, text_in_center_gutter: false };
 const cleanTypography = { text_lines_misaligned: false, text_style_inconsistent: false };
 const cleanEmbedded = { ...cleanBooleans, ...cleanPlacement, ...cleanTypography };
 const sentPrompt = () => JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
@@ -147,6 +148,19 @@ describe('embedded text placement (ce-3: one block, one side, over artwork)', ()
     const qa = await checkSpreadRender(IMG, { expectedText: STORY_TEXT });
     expect(qa.pass).toBe(false);
     expect(qa.defects).toEqual(['embedded story text sits on a blank band instead of over the artwork']);
+  });
+
+  test('text touching the page fold (center gutter) is a defect with the fold repair note (ce-12)', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({
+      ...cleanEmbedded, readable_text: true, visible_text: STORY_TEXT, text_in_center_gutter: true,
+    }));
+    const qa = await checkSpreadRender(IMG, { expectedText: STORY_TEXT });
+    expect(qa.pass).toBe(false);
+    expect(qa.defects).toEqual(['embedded story text crosses the page fold (center gutter)']);
+    expect(sentPrompt()).toContain('TWO facing book pages');
+    const note = repairNote(qa.defects, STORY_TEXT);
+    expect(note).toContain('the vertical centerline is the physical FOLD');
+    expect(note).toContain('completely within the left 35% or the right 35%');
   });
 
   test('an embedded verdict missing the placement booleans is malformed (qaUnavailable), never a silent pass', async () => {
