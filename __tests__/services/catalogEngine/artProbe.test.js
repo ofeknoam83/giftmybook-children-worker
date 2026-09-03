@@ -705,9 +705,27 @@ describe('shot plan rides the render path (ce-8)', () => {
       }
       return geminiText(cleanVerdict);
     });
+    // Overlap probe: a repair render parks on a macrotask before resolving,
+    // so BOTH repairs are in flight together only if the second starts
+    // before the first finishes — under the old serial loop the peak never
+    // exceeded 1 (every await before the render call is an already-resolved
+    // mock, so both tasks deterministically reach the render while parked).
+    let activeRepairs = 0;
+    let peakActiveRepairs = 0;
     generateIllustration.mockClear();
+    generateIllustration.mockImplementation(async (scene) => {
+      if (scene.includes('WORLD CONSISTENCY REPAIR')) {
+        activeRepairs += 1;
+        peakActiveRepairs = Math.max(peakActiveRepairs, activeRepairs);
+        await new Promise(r => setImmediate(r));
+        await new Promise(r => setImmediate(r));
+        activeRepairs -= 1;
+      }
+      return 'https://x/render.png';
+    });
     const { worldQa, results } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));
     expect(worldQa.rerendered).toEqual([1, 3]);
+    expect(peakActiveRepairs).toBe(2);
     // 2 base renders + 2 corrective re-renders, each flagged spread repaired
     // against its own defect note.
     expect(generateIllustration).toHaveBeenCalledTimes(4);

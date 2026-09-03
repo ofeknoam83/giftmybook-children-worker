@@ -135,40 +135,46 @@ async function buildBookBible(p) {
   const advisories = [];
   const aHash = anchorHash(p.anchorUrl);
 
-  // The component families are independent — nothing chains except the
-  // outfit spec deriving FROM the sheet — so a cold anchor builds them
-  // CONCURRENTLY and pays for the slowest family, not the sum (a warm
-  // anchor's families are GCS-elected reads either way). Each branch
-  // collects its own advisories; they are appended in the fixed
-  // sheet → outfit → props order below so the manifest and callbacks stay
-  // byte-stable. Only the identity branch may throw (identity_kit_failed);
-  // every other family is fail-open by contract.
-
-  // 1+2. Character model sheet (required by default) and the outfit spec —
-  //      from the SHEET when there is one (every slot seen), else the ce-8
-  //      cover-derived lock (inferred slots) with an advisory.
-  const identityTask = (async () => {
-    const notes = [];
-    let sheet = null;
-    if (flags.characterSheetEnabled()) {
-      try {
-        sheet = await getCharacterSheet({
-          anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, childPhoto: p.childPhoto || null,
-          profile: p.profile, characterDescription: p.characterDescription || null,
-          costTracker: p.costTracker, log,
-        });
-        for (const a of (sheet && sheet.advisories) || []) notes.push(a);
-      } catch (err) {
-        if (flags.sheetRequired()) {
-          const e = new Error(`character model sheet could not be built (${err.message}) — the book needs review rather than rendering on the cover alone`);
-          e.failureCode = err.failureCode || 'identity_kit_failed';
-          e.advisories = err.advisories || [];
-          throw e;
-        }
-        log('warn', `character sheet unavailable (${err.message}) — rendering on the cover alone`);
-        notes.push({ stage: 'characterSheet', note: `renders are NOT anchored on a character model sheet (${err.message}); identity and outfit rely on the cover alone` });
+  // 1. Character model sheet (required by default) — resolved FIRST and
+  //    alone: it is the only family that can fail the run
+  //    (identity_kit_failed), and the optional families must not start —
+  //    or spend — until a sheet outcome exists (before 2026-09-03 the
+  //    families built fully serially; a first concurrency pass ran them
+  //    all from the start, which spent on props/plate/emotion even when
+  //    the identity kit was about to fail the run). Everything downstream
+  //    of the sheet outcome builds CONCURRENTLY below, so a cold anchor
+  //    pays the sheet plus the slowest remaining family, not the sum (a
+  //    warm anchor's families are GCS-elected reads either way).
+  let sheet = null;
+  if (flags.characterSheetEnabled()) {
+    try {
+      sheet = await getCharacterSheet({
+        anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, childPhoto: p.childPhoto || null,
+        profile: p.profile, characterDescription: p.characterDescription || null,
+        costTracker: p.costTracker, log,
+      });
+      for (const a of (sheet && sheet.advisories) || []) advisories.push(a);
+    } catch (err) {
+      if (flags.sheetRequired()) {
+        const e = new Error(`character model sheet could not be built (${err.message}) — the book needs review rather than rendering on the cover alone`);
+        e.failureCode = err.failureCode || 'identity_kit_failed';
+        e.advisories = err.advisories || [];
+        throw e;
       }
+      log('warn', `character sheet unavailable (${err.message}) — rendering on the cover alone`);
+      advisories.push({ stage: 'characterSheet', note: `renders are NOT anchored on a character model sheet (${err.message}); identity and outfit rely on the cover alone` });
     }
+  }
+
+  // The remaining families are independent of each other, fail-open by
+  // contract, and build concurrently. Each branch collects its own
+  // advisories; they are appended in the fixed outfit → props order below
+  // so the manifest and callbacks stay byte-stable.
+
+  // 2. Outfit spec — from the SHEET when there is one (every slot seen),
+  //    else the ce-8 cover-derived lock (inferred slots) with an advisory.
+  const outfitTask = (async () => {
+    const notes = [];
     let outfit = null;
     if (sheet) {
       outfit = await getOutfitLock({
@@ -184,7 +190,7 @@ async function buildBookBible(p) {
         notes.push({ stage: 'outfitLock', note: 'renders are NOT outfit-locked — the outfit spec could not be derived from the identity anchor; cross-spread outfit consistency relies on the reference images alone' });
       }
     }
-    return { sheet, outfit, notes };
+    return { outfit, notes };
   })();
 
   // 3. Prop + companion sheets (optional, fail-open).
@@ -224,10 +230,10 @@ async function buildBookBible(p) {
     }
   })();
 
-  const [identity, propsResult, worldPlate, emotion] = await Promise.all([identityTask, propsTask, plateTask, emotionTask]);
-  const { sheet, outfit } = identity;
+  const [outfitResult, propsResult, worldPlate, emotion] = await Promise.all([outfitTask, propsTask, plateTask, emotionTask]);
+  const { outfit } = outfitResult;
   const { props, companion } = propsResult;
-  advisories.push(...identity.notes, ...propsResult.notes);
+  advisories.push(...outfitResult.notes, ...propsResult.notes);
 
   const manifest = {
     styleVersion: STYLE_VERSION,
