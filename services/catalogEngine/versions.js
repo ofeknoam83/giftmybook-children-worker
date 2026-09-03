@@ -119,7 +119,19 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // unsure go smaller", and the renderer's FONT SIZE line says to err on the
 // side of too small. Prompt text changed — ce-13 renders must never replay
 // as ce-14.
-const STYLE_VERSION = 'ce-14';
+// ce-15: painted text held to a FOOTPRINT and a REFERENCE — the renderer
+// states each spread's block size concretely (widest row → "about X% of
+// the width wide, Y% of the height tall"; the type never grows to fill the
+// column), forwards the shot plan's assigned text side at last (since
+// ce-13 generateIllustration dropped `textSide`, so every production
+// render got the "pick a side" wording), widens the no-panel rule to
+// cards/plaques/signs/boards/parchment/banners, adds a TEXT COLUMN calm-
+// scenery hint to the scene, ends the prompt with a TEXT FINAL CHECK, and
+// attaches the book's OWN first painted page (a text-side crop —
+// illustrator/textAnchor.js) as the TYPOGRAPHY REFERENCE for every other
+// embedded spread. Prompt assembly and the reference pack changed — ce-14
+// renders must never replay as ce-15.
+const STYLE_VERSION = 'ce-15';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
@@ -145,7 +157,14 @@ const STYLE_VERSION = 'ce-14';
  * truncation ("ron checked the ground" for "Aaron checked …" passed the
  * 25% word-bag threshold), so a block cut by the frame is garbled text.
  */
-const QA_VERSION = 'qa-6';
+/**
+ * qa-7 (ce-15): the ruler — the v2 verdict's `text_bbox` is held to the
+ * block's footprint (the same numbers the prompt stated): ≥ 1.6× too wide
+ * or too tall is the BLOCKING 'embedded story text too large', ≥ 1.3× the
+ * advisory 'embedded story text oversized'. Markers written under qa-6
+ * never measured size — replays re-check.
+ */
+const QA_VERSION = 'qa-7';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

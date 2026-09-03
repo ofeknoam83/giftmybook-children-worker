@@ -582,6 +582,11 @@ function repairNote(defects, expectedText = null, opts = {}) {
     if (d.includes('crosses the page fold')) {
       notes.push('This image prints as TWO facing book pages and the vertical centerline is the physical FOLD — any word crossing it is cut in half in print. Use a SMALLER font and re-wrap the text into MORE, SHORTER lines (about 5 words each) so the whole block fits its narrow column, then keep the ENTIRE block fully on ONE page: completely within the left 35% or the right 35% of the image, with NO word or letter in the middle 30%. Fix ONLY the text size and placement; keep the scene otherwise identical.');
     }
+    if (d.startsWith('embedded story text too large') || d.startsWith('embedded story text oversized')) {
+      const fp = opts.expectedBlock && Number(opts.expectedBlock.widthPercent) > 0 ? ` — at the book's fixed size this block is only about ${opts.expectedBlock.widthPercent}% of the image width wide and ${opts.expectedBlock.heightPercent}% of its height tall` : '';
+      const ref = Number.isInteger(opts.typographyRef) && opts.typographyRef > 0 ? ` — the exact size and style of the text in REFERENCE IMAGE ${opts.typographyRef}` : '';
+      notes.push(`The story text was painted far too LARGE${fp}. Repaint the SAME words with the SAME line breaks at SMALL book body type${ref}; the block must not grow to fill its column. Fix ONLY the text size; keep the scene otherwise identical.`);
+    }
     if (d.includes('lines misaligned')) {
       notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin — every line beginning at the EXACT same horizontal position — with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');
     }
@@ -867,7 +872,34 @@ const BLOCKING_PREFIXES = [
   // centerline is cut in half by the physical fold. Print-destroying, so
   // blocking like band/split.
   'embedded story text crosses the page fold',
+  // qa-7 (ce-15): the ruler — a block ≥ 1.6× its footprint is caption/
+  // poster scale, the exact defect the owner's round showed on half the
+  // spreads; blocking so the smaller candidate wins and a residual is
+  // never shipped. 'oversized' (≥ 1.3×) stays advisory (shades selection).
+  'embedded story text too large',
 ];
+
+/** qa-7 size ruler thresholds: painted-block / footprint (max of width and height ratios). */
+const TEXT_TOO_LARGE_RATIO = 1.6;
+const TEXT_OVERSIZED_RATIO = 1.3;
+
+/**
+ * How many times larger than its footprint the painted block is — the max
+ * of the width and height ratios (a bigger face grows the height; re-broken
+ * longer rows grow the width; both are wrong). Null when nothing to measure.
+ * Pure — exported for tests.
+ * @param {{x:number,y:number,w:number,h:number}|null} bbox the judged text bbox (fractions)
+ * @param {{widthPercent:number,heightPercent:number}|null} block expectedTextBlock(...)
+ * @returns {number|null}
+ */
+function textSizeRatio(bbox, block) {
+  if (!bbox || !block) return null;
+  const w = Number(block.widthPercent);
+  const h = Number(block.heightPercent);
+  if (!(w > 0) || !(h > 0)) return null;
+  const ratio = Math.max((bbox.w * 100) / w, (bbox.h * 100) / h);
+  return Number.isFinite(ratio) ? Math.round(ratio * 10) / 10 : null;
+}
 
 /**
  * Split a defect list into blocking vs advisory classes.
@@ -918,6 +950,11 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     beat: typeof opts.beat === 'string' && opts.beat.trim() ? qaData(opts.beat, 300) : null,
     emotion: opts.emotion && typeof opts.emotion.emotion === 'string' ? opts.emotion : null,
     emotionVocabulary: Array.isArray(opts.emotionVocabulary) ? opts.emotionVocabulary.filter(e => /^[a-z]+$/.test(e)) : [],
+    // qa-7: the block's footprint (the numbers the prompt stated) — the
+    // ruler the judged text bbox is held to; absent ⇒ no size check.
+    expectedBlock: opts.expectedBlock && Number(opts.expectedBlock.widthPercent) > 0 && Number(opts.expectedBlock.heightPercent) > 0
+      ? { widthPercent: Number(opts.expectedBlock.widthPercent), heightPercent: Number(opts.expectedBlock.heightPercent) }
+      : null,
     sheetRef: null,
   };
   if (o.emotion && (o.emotionVocabulary.length === 0 || !o.emotionVocabulary.includes(o.emotion.emotion))) o.emotion = null;
@@ -1035,6 +1072,11 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         const textBbox = cleanBbox(json.text_bbox);
         const straddlesFold = textBbox && textBbox.x < 0.55 && textBbox.x + textBbox.w > 0.45;
         if (json.text_in_center_gutter || straddlesFold) defects.push('embedded story text crosses the page fold (center gutter)');
+        // qa-7: the ruler — the SAME footprint numbers the prompt stated,
+        // held against the judged bbox (fail-open without a bbox).
+        const sizeRatio = textSizeRatio(textBbox, o.expectedBlock);
+        if (sizeRatio != null && sizeRatio >= TEXT_TOO_LARGE_RATIO) defects.push(`embedded story text too large (about ${sizeRatio}× the book's fixed size)`);
+        else if (sizeRatio != null && sizeRatio >= TEXT_OVERSIZED_RATIO) defects.push(`embedded story text oversized (about ${sizeRatio}× the book's fixed size)`);
         if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
         if (json.text_style_inconsistent) defects.push('embedded story text mixes fonts, sizes, or colors');
       }
@@ -1070,7 +1112,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
  * @returns {string}
  */
 function repairNoteV2(defects, expectedText = null, opts = {}) {
-  const base = repairNote(defects, expectedText, { shotType: opts.shotType || null, outfitSpec: null });
+  const base = repairNote(defects, expectedText, { shotType: opts.shotType || null, outfitSpec: null, expectedBlock: opts.expectedBlock || null, typographyRef: Number.isInteger(opts.typographyRef) ? opts.typographyRef : null });
   const notes = [];
   const sheetRef = Number.isInteger(opts.sheetRef) ? `REFERENCE ${opts.sheetRef}` : 'the character model sheet';
   const slotsBroken = [...new Set(defects.filter(d => d.startsWith('outfit break: ')).map(d => d.replace('outfit break: ', '').split(' ')[0]))];
@@ -1113,5 +1155,5 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   return notes.length > 0 ? `${base} ${notes.join(' ')}` : base;
 }
 
-module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, OUTFIT_SLOTS, BLOCKING_PREFIXES };
+module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, OUTFIT_SLOTS, BLOCKING_PREFIXES };
 

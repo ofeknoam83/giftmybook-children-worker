@@ -729,6 +729,9 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         // 'none' — the bench must be able to SEE a lock-less round (silent
         // lock-less renders are how outfit drift shipped unnoticed).
         outfitLockUsed: art.outfitLockUsed,
+        // ce-15: which page's painted text the other spreads were held to
+        // (`s{spread}.{hash8}`) or 'none' — the bench must SEE an anchor-less round.
+        typographyAnchorUsed: art.typographyAnchorUsed || 'none',
         // Book-level advisories (e.g. stage 'outfitLock' when the spec
         // could not be derived) — per-spread advisories ride qa.advisories.
         advisories: art.advisories,
@@ -758,6 +761,7 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         failures: [{ message: err.message, failureCode: err.failureCode || null }],
         illustrationTuningUsed: 'none',
         outfitLockUsed: 'none',
+        typographyAnchorUsed: 'none',
         advisories: [],
         // Same stable shape as the success payload: the gate never ran here.
         worldQa: null,
