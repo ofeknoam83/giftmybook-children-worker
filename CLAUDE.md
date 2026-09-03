@@ -418,7 +418,10 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   lines rather than grow. The fold repair note now says "smaller font,
   more shorter lines" first. `compareTexts` (qa-6) flags a missing FIRST
   or LAST word as edge truncation ("ron checked …" passed the 25% bag
-  threshold). STYLE_VERSION `ce-13`, QA_VERSION `qa-6`.
+  threshold). STYLE_VERSION `ce-13`, QA_VERSION `qa-6`. `ce-14` shrinks
+  the painted text again: cap height ≈ 1.5% of the image height (line
+  pitch ≈ 2.8%; the 3–8 tier nearer 1.3%), "about a third of the usual AI
+  caption size — when unsure, go smaller".
   Three false-positive guards landed the same day (each could fail a
   full book `consistency_unresolved` on its own): `compareTexts`
   normalizes glyphs before comparing (curly↔straight quotes, NFD-stripped

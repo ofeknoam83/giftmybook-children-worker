@@ -948,7 +948,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     // so the ONLY way every page comes out in the same font, size, and color
     // is pinning the identical spec (TEXT_RULES) on every render.
     parts.push(`- FONT (FIXED FOR THE WHOLE BOOK): ${tr.fontStyle}`);
-    parts.push(`- FONT SIZE (FIXED FOR THE WHOLE BOOK): ${tr.fontSize} The whole ${lineCount}-line block below must fit INSIDE the text column box at this size with even spacing; if it would not fit, use a SMALLER size — never a wider column, never fewer lines. Text at caption, poster, or headline scale will be REJECTED.`);
+    parts.push(`- FONT SIZE (FIXED FOR THE WHOLE BOOK): ${tr.fontSize} The whole ${lineCount}-line block below must fit INSIDE the text column box at this size with even spacing; if it would not fit, use a SMALLER size — never a wider column, never fewer lines. Err on the side of TOO SMALL: text at caption, poster, or headline scale will be REJECTED, while text that is small but crisp is always accepted.`);
     parts.push(`- TEXT COLOR (FIXED FOR THE WHOLE BOOK): ${tr.fontColor}`);
     parts.push(`- TEXT ALIGNMENT (CRITICAL): ${tr.textAlignment}`);
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');

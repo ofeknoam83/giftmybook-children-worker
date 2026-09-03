@@ -42,7 +42,8 @@ describe('embedded text is typeset BY PROMPT (ce-13): pre-wrapped lines, a concr
     expect(prompt).toContain('NO letter may come within 15% of the image width of the centerline');
     expect(prompt).toContain(`exactly ${n} short lines`);
     expect(prompt).toContain(lines.join('\n'));
-    expect(prompt).toContain('cap height about 2% of the image height');
+    expect(prompt).toContain('cap height about 1.5% of the image height');
+    expect(prompt).toContain('When unsure, go SMALLER, never larger.');
     expect(prompt).toContain(`The whole ${n}-line block below must fit INSIDE the text column box`);
     // The right side and the "pick a side" fallback are distinct wordings.
     const right = buildCharacterPrompt('scene', 'pixar_premium', 'Aaron', STORY, 'red t-shirt', null, null, null, { isSpread: true, spreadIndex: 3, totalSpreads: 12, embedText: true, childAge: 7, textSide: 'right' });

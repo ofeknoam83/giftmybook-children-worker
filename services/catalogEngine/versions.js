@@ -113,7 +113,13 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // became a concrete small body-type measure (cap height ≈ 2% of the image
 // height) that must fit the column with many lines rather than grow. The
 // embedded-text prompt changed — ce-12 renders must never replay as ce-13.
-const STYLE_VERSION = 'ce-13';
+// ce-14: smaller painted text — the FONT SIZE spec drops from cap height
+// ≈ 2% to ≈ 1.5% of the image height (line pitch ≈ 2.8%; the 3–8 tier
+// nearer 1.3%), framed as "about a third of the usual AI caption size, when
+// unsure go smaller", and the renderer's FONT SIZE line says to err on the
+// side of too small. Prompt text changed — ce-13 renders must never replay
+// as ce-14.
+const STYLE_VERSION = 'ce-14';
 
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
