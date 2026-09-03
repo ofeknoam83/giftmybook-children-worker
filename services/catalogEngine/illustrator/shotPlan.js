@@ -56,14 +56,17 @@ const SHOT_TYPE_QA_DESCRIPTIONS = {
 const STAGING_BY_SHOT = {
   wide: [
     'small within the vast environment, the scenery dominating the frame',
-    'seen from behind, the camera looking past them into the scene',
+    // ce-10: the pre-ce-10 'seen from behind' staging hid the face entirely —
+    // an identity the QA cannot verify and an emotion the reader cannot read.
+    // Every staging keeps at least the profile of the face in view.
+    'seen from a three-quarter back angle, the camera looking past them into the scene, head turned so the profile of their face stays visible',
     'placed off-center against sweeping depth — foreground, middle ground, and distant background all visible',
     'framed through natural foreground scenery (foliage, rocks, an opening) with depth between camera and child',
   ],
   medium: [
     'seen in profile, the point of interest beside them in frame',
     'seen from the front, the camera facing them',
-    'seen from a three-quarter back angle, the point of interest beyond them',
+    'seen from a three-quarter back angle, the point of interest beyond them, head turned so their face stays visible',
     'seen from a slight side angle, the point of interest in the near foreground',
   ],
   'close-up': [
@@ -185,6 +188,12 @@ function renderShotDirective(entry) {
       + 'composition; obey this one exactly):',
     `- SHOT TYPE: ${entry.shotType.toUpperCase()} — the image must read as ${SHOT_TYPE_QA_DESCRIPTIONS[entry.shotType]}.`,
     `- STAGING: the child is ${entry.staging} — performing exactly the ACTION described above.`,
+    // ce-10: fixed on every assignment — a picture-book reader (and the
+    // identity/emotion QA) needs the face; a staging must never be executed
+    // as a full back view. Phrased as "at least partly visible" so it never
+    // fights the assigned shot type (an overhead view is neither front,
+    // three-quarter, nor profile, yet legitimately shows the face).
+    '- FACE: keep the child\'s face at least partly visible in this framing — never render the child fully from behind with the face hidden.',
   ];
   if (entry.placement) {
     lines.push(`- PLACEMENT: position the child in the ${entry.placement === 'left-third' ? 'LEFT' : 'RIGHT'} third of the frame.`);

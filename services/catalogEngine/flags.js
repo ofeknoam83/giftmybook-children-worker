@@ -79,6 +79,12 @@
  *                                   and scored before selection (1-3, default 2).
  *  - CATALOG_DRIFT_MAX_REPAIRS=N  — (ce-9) extra corrective passes reserved
  *                                   for drift-class defects (0-4, default 2).
+ *  - CATALOG_RENDER_CONCURRENCY=N — spreads rendered in parallel (1-8,
+ *                                   default 6 — the refactor plan's key-pool
+ *                                   sizing; each spread slot fans out into
+ *                                   CATALOG_RENDER_CANDIDATES concurrent
+ *                                   image calls). Also bounds the set gates'
+ *                                   parallel corrective re-renders.
  *
  *  - CATALOG_GIFT_VIDEO=0          — (gv-1) disable the gift-video endpoints
  *                                   (`/v13/generate-video` answers 503).
@@ -148,6 +154,7 @@ module.exports = {
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 2, 1, 3),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 2, 0, 4),
+  renderConcurrency: () => envInt('CATALOG_RENDER_CONCURRENCY', 6, 1, 8),
   // gv-1 — the gift video (docs/GIFT_VIDEO_PLAN.md §5.3)
   giftVideoEnabled: () => !envOff('CATALOG_GIFT_VIDEO'),
   videoProviders: () => String(process.env.CATALOG_VIDEO_PROVIDERS || 'replicate')

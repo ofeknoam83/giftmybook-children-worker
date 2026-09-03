@@ -135,7 +135,16 @@ async function buildBookBible(p) {
   const advisories = [];
   const aHash = anchorHash(p.anchorUrl);
 
-  // 1. Character model sheet (required by default).
+  // 1. Character model sheet (required by default) — resolved FIRST and
+  //    alone: it is the only family that can fail the run
+  //    (identity_kit_failed), and the optional families must not start —
+  //    or spend — until a sheet outcome exists (before 2026-09-03 the
+  //    families built fully serially; a first concurrency pass ran them
+  //    all from the start, which spent on props/plate/emotion even when
+  //    the identity kit was about to fail the run). Everything downstream
+  //    of the sheet outcome builds CONCURRENTLY below, so a cold anchor
+  //    pays the sheet plus the slowest remaining family, not the sum (a
+  //    warm anchor's families are GCS-elected reads either way).
   let sheet = null;
   if (flags.characterSheetEnabled()) {
     try {
@@ -157,56 +166,74 @@ async function buildBookBible(p) {
     }
   }
 
+  // The remaining families are independent of each other, fail-open by
+  // contract, and build concurrently. Each branch collects its own
+  // advisories; they are appended in the fixed outfit → props order below
+  // so the manifest and callbacks stay byte-stable.
+
   // 2. Outfit spec — from the SHEET when there is one (every slot seen),
   //    else the ce-8 cover-derived lock (inferred slots) with an advisory.
-  let outfit = null;
-  if (sheet) {
-    outfit = await getOutfitLock({
-      anchorUrl: p.anchorUrl,
-      refPhoto: { base64: sheet.base64, mimeType: sheet.mimeType },
-      source: 'sheet', sourceHash: sheet.hash, log,
-    });
-    if (!outfit) advisories.push({ stage: 'outfitLock', note: 'outfit spec could not be derived from the character sheet — falling back to the cover-derived lock' });
-  }
-  if (!outfit) {
-    outfit = await getOutfitLock({ anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, log });
-    if (!outfit && flags.outfitLockEnabled()) {
-      advisories.push({ stage: 'outfitLock', note: 'renders are NOT outfit-locked — the outfit spec could not be derived from the identity anchor; cross-spread outfit consistency relies on the reference images alone' });
+  const outfitTask = (async () => {
+    const notes = [];
+    let outfit = null;
+    if (sheet) {
+      outfit = await getOutfitLock({
+        anchorUrl: p.anchorUrl,
+        refPhoto: { base64: sheet.base64, mimeType: sheet.mimeType },
+        source: 'sheet', sourceHash: sheet.hash, log,
+      });
+      if (!outfit) notes.push({ stage: 'outfitLock', note: 'outfit spec could not be derived from the character sheet — falling back to the cover-derived lock' });
     }
-  }
+    if (!outfit) {
+      outfit = await getOutfitLock({ anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, log });
+      if (!outfit && flags.outfitLockEnabled()) {
+        notes.push({ stage: 'outfitLock', note: 'renders are NOT outfit-locked — the outfit spec could not be derived from the identity anchor; cross-spread outfit consistency relies on the reference images alone' });
+      }
+    }
+    return { outfit, notes };
+  })();
 
   // 3. Prop + companion sheets (optional, fail-open).
-  let props = [];
-  let companion = null;
-  if (flags.propSheetsEnabled()) {
-    try {
-      const r = await getBibleProps({ evidence: p.story?.personalization_evidence || [], theme: p.theme, costTracker: p.costTracker, log });
-      props = (r && r.props) || [];
-      companion = (r && r.companion) || null;
-      for (const a of (r && r.advisories) || []) advisories.push(a);
-    } catch (err) {
-      log('warn', `prop sheets unavailable (${err.message}) — props ride as nouns`);
-      advisories.push({ stage: 'propSheet', note: `prop sheets unavailable (${err.message}); props ride as nouns only` });
+  const propsTask = (async () => {
+    const notes = [];
+    let props = [];
+    let companion = null;
+    if (flags.propSheetsEnabled()) {
+      try {
+        const r = await getBibleProps({ evidence: p.story?.personalization_evidence || [], theme: p.theme, costTracker: p.costTracker, log });
+        props = (r && r.props) || [];
+        companion = (r && r.companion) || null;
+        for (const a of (r && r.advisories) || []) notes.push(a);
+      } catch (err) {
+        log('warn', `prop sheets unavailable (${err.message}) — props ride as nouns`);
+        notes.push({ stage: 'propSheet', note: `prop sheets unavailable (${err.message}); props ride as nouns only` });
+      }
     }
-  }
+    return { props, companion, notes };
+  })();
 
-  // 4. World plate (ce-5, unchanged; fail-open).
-  const worldPlate = await getWorldPlate({ theme: p.theme, costTracker: p.costTracker, log });
+  // 4. World plate (ce-5, unchanged; fail-open inside getWorldPlate).
+  const plateTask = getWorldPlate({ theme: p.theme, costTracker: p.costTracker, log });
 
   // 5. Emotion plan (closed enum; fail-open to null) — ELECTED in GCS per
   //    story so every instance and retry pins the SAME plan: the classifier
   //    refinement is fail-open and only cached in-process, and the plan's
   //    hash rides the render cache key, so an un-elected plan would fork
   //    the key across instances (orphaning bench-approved renders).
-  let emotion = null;
-  if (flags.emotionPlanEnabled()) {
+  const emotionTask = (async () => {
+    if (!flags.emotionPlanEnabled()) return null;
     try {
-      emotion = await electEmotionPlan({ book: p.book, story: p.story, ageBand: p.ageBand, log });
+      return await electEmotionPlan({ book: p.book, story: p.story, ageBand: p.ageBand, log });
     } catch (err) {
       log('warn', `emotion plan unavailable (${err.message}) — rendering without one`);
-      emotion = null;
+      return null;
     }
-  }
+  })();
+
+  const [outfitResult, propsResult, worldPlate, emotion] = await Promise.all([outfitTask, propsTask, plateTask, emotionTask]);
+  const { outfit } = outfitResult;
+  const { props, companion } = propsResult;
+  advisories.push(...outfitResult.notes, ...propsResult.notes);
 
   const manifest = {
     styleVersion: STYLE_VERSION,

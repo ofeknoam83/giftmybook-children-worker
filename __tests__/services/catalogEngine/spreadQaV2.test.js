@@ -232,6 +232,28 @@ test('an unknown emotion value, an HTTP failure, and an exception all fail open 
   expect(body.contents[0].parts[0].text).not.toContain('EMOTION:');
 });
 
+test('a fully hidden face and an undeclared personal object are ADVISORY with fixed strings and their own repair notes (ce-10)', async () => {
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ face_fully_hidden: true, undeclared_object: true })));
+  const r = await checkSpreadRenderV2(IMG, fullOpts());
+  expect(r.pass).toBe(false);
+  expect(r.blocking).toEqual([]);
+  expect(r.advisory).toEqual(expect.arrayContaining([
+    'face hidden: the child is rendered fully from behind',
+    'undeclared personal object in the scene',
+  ]));
+  // Both checks ride every v2 prompt (soft fields — an absent answer stays unclaimed).
+  const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+  expect(prompt).toContain('FACE VISIBILITY:');
+  expect(prompt).toContain('PROP DISCIPLINE:');
+  // An absent child suppresses the face finding (there is no one to turn around).
+  fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ face_fully_hidden: true, child_absent: true })));
+  const r2 = await checkSpreadRenderV2(IMG, fullOpts());
+  expect(r2.defects).not.toContain('face hidden: the child is rendered fully from behind');
+  const note = repairNoteV2(['face hidden: the child is rendered fully from behind', 'undeclared personal object in the scene'], null, {});
+  expect(note).toContain('FACE REPAIR: turn the child\'s head or body so their face is at least partly visible');
+  expect(note).toContain('PROP DISCIPLINE REPAIR: remove every personal object');
+});
+
 test('hostile pinned data is quoted inertly (quotes/control chars stripped, capped)', async () => {
   fetchWithTimeout.mockResolvedValue(answer(cleanVerdict({ props: [] })));
   await checkSpreadRenderV2(IMG, {

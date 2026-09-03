@@ -349,6 +349,29 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   locked outfit and the character sheet as REFERENCE 1
   (`CATALOG_UPSELL_OUTFIT_LOCK=0` frees them). `qaAdvisories` is capped at
   80 with blocking-class notes first.
+  **Bench-feedback generalization (`ce-10`, 2026-09-02)** folds the Art
+  Bench judges' recurring findings into fixed engine rules: (1) FACE
+  VISIBILITY — the shot plan's staging vocabulary no longer contains a full
+  back view (`seen from behind` gained a face-visible head turn), every
+  composition directive pins a fixed FACE line (at least partly visible,
+  never fully from behind — phrased so it never fights the assigned shot
+  type, e.g. overhead), and QA v2 reports `face_fully_hidden` (advisory
+  `face hidden: …` + its own repair note); (2) PROP DISCIPLINE — the
+  personal-object set is CLOSED: scene prompts and the bible PROPS block
+  forbid invented toys/gadgets/trinkets beyond declared props + the beat's
+  own needs, QA v2 reports `undeclared_object` (advisory `undeclared
+  personal object in the scene` + repair note); (3) carried comfort objects
+  are VISUALLY SUBDUED (muted, never attention-grabbing — the face and
+  action stay the focus); (4) the outfit-mismatch definition (v1+v2) now
+  names a missing/added/different garment pattern, print, or graphic (the
+  spec always captured them; QA never checked them); (5) the pinned EMOTION
+  line ends with an anti-generic-smile sentence; (6) embedded typography
+  alignment (TEXT_RULES + QA + repair notes) demands every line start at
+  the EXACT same horizontal position; (7) the world gate's WORLD dimension
+  and `materials_physics` repair pin ONE biome/vegetation family per book.
+  Both new QA fields are soft and advisory-class — they shade candidate
+  selection and steer repairs, never fail a book. STYLE_VERSION `ce-10`,
+  QA_VERSION `qa-3`.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -411,7 +434,13 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 2, clamped 1-3),
   `CATALOG_DRIFT_MAX_REPAIRS` (default 2, clamped 0-4),
   `CATALOG_CONTACT_MAX_RERENDERS` (default 3), `CATALOG_SHEET_CANDIDATES`
-  (default 3, clamped 1-4).
+  (default 3, clamped 1-4), `CATALOG_RENDER_CONCURRENCY` (default 6,
+  clamped 1-8 — spreads rendered in parallel, each fanning out into
+  `CATALOG_RENDER_CANDIDATES` image calls; also bounds the set gates'
+  corrective re-renders, which run CONCURRENTLY since 2026-09-03 — before
+  that up to 3+3 full re-render cycles ran one at a time and dominated a
+  many-spread run's wall clock; the bible's component families build
+  concurrently too, and the illustrator logs per-phase durations).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
@@ -460,7 +489,12 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   illustrationTuningUsed, costs}` (+dispatchId echo). Renders a SUBSET of an
   existing validated story's spreads through the exact production path — zero
   writer spend, no PDFs/cover/upsell; per-spread render errors land in
-  `failures`, never fail the probe. `rerenderSpreads` (a unique subset of
+  `failures`, never fail the probe. Probe and `/v13/generate-stories` runs
+  register in the watchdog's activity tracking under their own
+  `probe:`/`stories:` map keys (2026-09-03; before that the global idle
+  check `process.exit(0)`'d the instance ~10 min into an unregistered
+  background run — every long probe died with no callback), with the
+  illustrator's 30s heartbeats wired to `touchActivity`. `rerenderSpreads` (a unique subset of
   `spreads`) is the per-spread force: the listed spreads render FRESH while
   the rest replay from cache as world-gate references, so the gate can
   correct the fresh render against the set it must match — the

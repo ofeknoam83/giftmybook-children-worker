@@ -111,7 +111,7 @@ const TEXT_RULES = {
   fontStyle: 'A plain, traditional book serif resembling Georgia or Book Antiqua, regular weight. Upright (never italic), round and even letterforms, moderate x-height, consistent stroke contrast. STRICTLY FORBIDDEN: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded sans-serif, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, thin modern sans, condensed, stenciled. If in doubt, render as plain Georgia regular.',
   // Lines must read as professionally typeset — the single most visible
   // "AI-painted" tell is wavy baselines and a drifting left edge.
-  textAlignment: 'Every line of text PERFECTLY horizontal and level — never tilted, arched, wavy, curved, or stair-stepped. All lines LEFT-ALIGNED to one shared, perfectly straight left margin (a ragged right edge is correct); the line spacing between every pair of adjacent lines is identical. The block must look like professionally typeset book text, not hand-placed lettering.',
+  textAlignment: 'Every line of text PERFECTLY horizontal and level — never tilted, arched, wavy, curved, or stair-stepped. All lines LEFT-ALIGNED to one shared, perfectly straight left margin — every line begins at the EXACT same horizontal position (a ragged right edge is correct); the line spacing between every pair of adjacent lines is identical. The block must look like professionally typeset book text, not hand-placed lettering.',
   // One art-director spec for the whole book — models drift if each spread
   // re-invents type. Each render is a STATELESS call: this pinned spec (not
   // any earlier frame) is the anchor, and it is identical on every spread.

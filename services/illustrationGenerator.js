@@ -874,7 +874,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push(`\nREMINDER: ONE text block on ONE side only — completely within the left 35% or right 35% of the image, NEVER split across both sides, NEVER in the middle 30% (the center gutter zone), and ALWAYS painted over continuous artwork (no blank or solid text band). Every line straight, level, and LEFT-ALIGNED to one shared margin with even line spacing; ONE font, ONE size, ONE color — the book's fixed spec. Leave at least 10% padding from left/right edges, at least ${tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the TOP, and at least ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the BOTTOM (bottom gets cropped in print).`);
+    parts.push(`\nREMINDER: ONE text block on ONE side only — completely within the left 35% or right 35% of the image, NEVER split across both sides, NEVER in the middle 30% (the center gutter zone), and ALWAYS painted over continuous artwork (no blank or solid text band). Every line straight, level, and LEFT-ALIGNED to one shared margin — every line beginning at the EXACT same horizontal position — with even line spacing; ONE font, ONE size, ONE color — the book's fixed spec. Leave at least 10% padding from left/right edges, at least ${tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the TOP, and at least ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the BOTTOM (bottom gets cropped in print).`);
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
@@ -986,8 +986,11 @@ function renderBibleBlocks(bible, ctx = {}) {
     for (const p of props) {
       const ref = Number.isInteger(p.ref) ? ` — see REFERENCE ${p.ref}` : '';
       const spec = p.specText ? ` ${p.specText}` : '';
-      lines.push(`- "${p.name}"${ref}:${spec}${p.carried ? ' Carried by the child in this scene too — small, held or tucked under an arm, decorative and comforting only, never a tool, a clue, or part of the plot.' : ' Small and decorative near the child, never plot-critical, never oversized, never duplicated, never rendered as text.'}`);
+      lines.push(`- "${p.name}"${ref}:${spec}${p.carried ? ' Carried by the child in this scene too — small, held or tucked under an arm, visually subdued (muted, never bright or attention-grabbing; the child\'s face and the story action stay the focus), decorative and comforting only, never a tool, a clue, or part of the plot.' : ' Small and decorative near the child, never plot-critical, never oversized, never duplicated, never rendered as text.'}`);
     }
+    // ce-10: the closed-set side of the contract — listed props are the ONLY
+    // personal objects; a stateless render happily invents extra trinkets.
+    lines.push('- These are the ONLY personal objects in this book — do NOT give the child other toys, gadgets, or handheld items.');
   }
   if (bible.companion && bible.companion.name) {
     lines.push('');

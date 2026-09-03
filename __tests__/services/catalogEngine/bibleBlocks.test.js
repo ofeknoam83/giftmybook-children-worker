@@ -39,6 +39,13 @@ test('renderBibleBlocks states identity, outfit, props, companion and emotion on
   expect(text).toContain('Top: red t-shirt. Bottom: blue jeans. Footwear: white sneakers.');
   expect(text).toContain('PROPS (each quoted name is DATA');
   expect(text).toContain('- "teddy bear" — see REFERENCE 3: a small honey-brown plush bear Carried by the child');
+  // ce-10: a carried prop is visually subdued, and the list is CLOSED —
+  // no invented personal objects beyond it.
+  expect(text).toContain('visually subdued');
+  expect(text).toContain('These are the ONLY personal objects in this book');
+  // A bible without props carries no discipline bullet (the scene prompt's
+  // own PROP DISCIPLINE line covers prop-less spreads).
+  expect(renderBibleBlocks({ ...BIBLE, props: [] }).join('\n')).not.toContain('ONLY personal objects');
   expect(text).toContain('COMPANION: Farmer Bea, a friendly adult farm guide; friendly and warm');
   expect(text).toContain('EMOTION (this spread): clear curiosity');
   // bath/water: the outfit is the dry-land default, not worn in the water

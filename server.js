@@ -238,6 +238,11 @@ function authenticate(req, res, next) {
   if (!crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(API_KEY))) {
     return res.status(403).json({ success: false, error: 'Forbidden: invalid API key' });
   }
+  // Every authenticated request resets the global idle clock: the watchdog's
+  // clean-exit path must never fire while a SYNC endpoint (cover render,
+  // prepare-identity) is mid-request on an instance whose last tracked book
+  // finished ~10 minutes ago. Health checks deliberately bypass this.
+  global.__lastGlobalActivity = Date.now();
   next();
 }
 
@@ -498,6 +503,12 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
 
   res.status(202).json({ success: true, bookId, accepted: bookIds });
 
+  // Same watchdog registration as the render probe below: a story run is
+  // background work after the 202, and an unregistered run is killed by the
+  // global idle exit ~10 minutes in (structural retries + repair passes on
+  // three stories can legitimately run longer than that).
+  const storiesKey = `stories:${bookId}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const storiesContext = createBookContext(bookId, { mapKey: storiesKey, callbackUrl });
   (async () => {
     const started = Date.now();
     let done = 0;
@@ -509,6 +520,7 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
         locale,
         tuning: req.body?.writerTuning || null,
         onProgress: ({ bookId: candidateId, status }) => {
+          storiesContext.touchActivity();
           if (status === 'done' || status === 'failed') done += 1;
           if (progressCallbackUrl) {
             reportProgress(progressCallbackUrl, {
@@ -549,6 +561,8 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
           success: false, bookId, engine: 'catalog-v13', ...(dispatchId ? { dispatchId } : {}), stories: [], failures: [{ message: err.message }],
         });
       }
+    } finally {
+      removeBookContext(storiesKey);
     }
   })();
 });
@@ -641,6 +655,16 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
 
   res.status(202).json({ success: true, bookId, accepted: [...spreads].sort((a, b) => a - b), engine: 'catalog-v13' });
 
+  // Register the probe in the per-book activity tracking under its OWN map
+  // key (never the raw bookId — a running probe must not 409 a concurrent
+  // /generate-book of the same workbench book). Without this the run is
+  // invisible to the watchdog: activeBooks stays empty, so the global idle
+  // check exits the process 10 minutes after the last tracked activity —
+  // killing a long probe mid-render with no callback ever sent (a 12-spread
+  // ce-9 run takes well over 10 minutes; the bench then stalls out at its
+  // 45-minute reconcile with nothing in the logs but a clean exit).
+  const probeKey = `probe:${bookId}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const probeContext = createBookContext(bookId, { mapKey: probeKey, callbackUrl });
   const costTracker = new CostTracker();
   (async () => {
     const started = Date.now();
@@ -669,6 +693,11 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         probeNonce: body.probeNonce || null,
         costTracker,
         forceRerender: !!body.forceRerender,
+        // The illustrator's 30s phase heartbeats (bible build, render loop,
+        // both set gates) land here and keep the per-book watchdog's idle
+        // clock at zero for a healthy run — the same wiring /generate-book
+        // has always had.
+        onProgress: () => probeContext.touchActivity(),
         log: (level, msg) => console.log(`[renderSpreads:${bookId}] ${msg}`),
       });
       const renders = art.results.filter(r => r.buffer).map(r => ({
@@ -738,7 +767,11 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         costs: costTracker.getSummary(),
       };
     }
-    await postWithRetry(callbackUrl, payload);
+    try {
+      await postWithRetry(callbackUrl, payload);
+    } finally {
+      removeBookContext(probeKey);
+    }
   })();
 });
 
