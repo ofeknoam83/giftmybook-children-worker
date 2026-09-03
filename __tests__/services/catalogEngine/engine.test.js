@@ -475,6 +475,22 @@ describe('slim illustrator scene prompts', () => {
     expect(absent).not.toContain('Companion present');
   });
 
+  test('the companion signal ignores the theme world name and a child who shares the companion name', () => {
+    // thanksgiving: companion "Maple", world "Maple Harvest Hall" — the world
+    // name is REQUIRED in every story, so it must never summon the squirrel.
+    const thanks = { theme_id: 'thanksgiving', display_name: 'Thanksgiving', world_name: 'Maple Harvest Hall', companion: { name: 'Maple', type: 'small red squirrel' } };
+    const beat = { beat: 'Child arrives at the celebration.' };
+    expect(companionOnSpread(beat, 'Emma stepped into Maple Harvest Hall.', thanks.companion, { theme: thanks, childName: 'Emma' })).toBe(false);
+    expect(companionOnSpread(beat, 'Maple scampered down from the beam.', thanks.companion, { theme: thanks, childName: 'Emma' })).toBe(true);
+    // A child named Maple: the story text cannot tell child from companion —
+    // only the beat counts (the pre-ce-11 signal), never every spread.
+    expect(companionOnSpread(beat, 'Maple laughed and ran ahead.', thanks.companion, { theme: thanks, childName: 'Maple' })).toBe(false);
+    expect(companionOnSpread({ beat: 'Child meets Maple.' }, 'Maple laughed.', thanks.companion, { theme: thanks, childName: 'Maple' })).toBe(true);
+    // The real jungle book still pins Tiko from the manuscript with the context passed.
+    const jungle = getBook('jungle_6_7_footprint_trail');
+    expect(companionOnSpread(jungle.book.beats[4], 'Tiko fluttered above her.', jungle.theme.companion, { theme: jungle.theme, childName: 'Mila' })).toBe(true);
+  });
+
   test('companion NAME matching is case-sensitive whole-word — "a patch of mud" never summons Patch the parrot', () => {
     const beat = { beat: 'Child checks the immediate area.' };
     const patch = { name: 'Patch', type: 'friendly green parrot' };

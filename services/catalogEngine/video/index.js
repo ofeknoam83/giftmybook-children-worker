@@ -263,7 +263,7 @@ async function generateGiftVideo(p) {
     const spreadText = s.kind === 'spread' ? (story.spreads.find(x => x.spread === s.spread) || {}).text || '' : '';
     // ce-11 signal (beat OR manuscript names the companion) — the film's
     // segments attach the companion ref on the same spreads the book does.
-    const companionPresent = !!(beat && companionDrawable && companionOnSpread(beat, spreadText, theme.companion));
+    const companionPresent = !!(beat && companionDrawable && companionOnSpread(beat, spreadText, theme.companion, { theme, childName: profile?.name }));
     const declared = beat ? visualPropsForSpread(evidence, s.spread) : [];
     const carried = beat && flags.propContinuityEnabled() ? continuityPropsForSpread(evidence, s.spread) : [];
     const propValues = [...new Set([...declared, ...carried])];
