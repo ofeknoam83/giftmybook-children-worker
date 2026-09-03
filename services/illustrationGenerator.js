@@ -376,7 +376,17 @@ function wrapStoryLines(text, maxChars = 30) {
 }
 
 function compareTexts(expected, extracted) {
-  const normalize = (s) => s.toLowerCase().replace(/[^\w\s']/g, '').replace(/\s+/g, ' ').trim();
+  // Glyph-insensitive normalization: the manuscript and the OCR transcript
+  // routinely disagree on curly vs straight apostrophes/quotes, accented
+  // letters (\w is ASCII-only), and dash/ellipsis spacing — none of which is
+  // a painted-text defect. Fold them before comparing so "Mila’s" == "Mila's",
+  // "José" == "Jose", and "home—fast" == "home — fast".
+  const normalize = (s) => String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[‘’‚‛′]/g, "'")
+    .replace(/[“”„‟″]/g, '"')
+    .replace(/[‐-―…]/g, ' ')
+    .toLowerCase().replace(/[^\w\s']/g, '').replace(/\s+/g, ' ').trim();
   const toWordBag = (s) => {
     const bag = {};
     for (const w of normalize(s).split(' ').filter(Boolean)) {
@@ -417,8 +427,12 @@ function compareTexts(expected, extracted) {
   if (expectedWords.length >= 3 && normalizedExtracted.length > 0) {
     const first = expectedWords[0];
     const last = expectedWords[expectedWords.length - 1];
-    if (!extractedBag[first]) issues.push(`first word "${first}" missing — text truncated at the start`);
-    if (last !== first && !extractedBag[last]) issues.push(`last word "${last}" missing — text truncated at the end`);
+    // Present as a token OR inside a merged token ("Whosetracks" for "Whose
+    // tracks" is an OCR spacing slip, not a missing word) — the rule exists
+    // to catch a word that is genuinely gone.
+    const present = (w) => !!extractedBag[w] || normalizedExtracted.includes(w);
+    if (!present(first)) issues.push(`first word "${first}" missing — text truncated at the start`);
+    if (last !== first && !present(last)) issues.push(`last word "${last}" missing — text truncated at the end`);
   }
 
   // NEW: Character-level similarity check

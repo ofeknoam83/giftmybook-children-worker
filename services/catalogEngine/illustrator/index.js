@@ -225,7 +225,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // reference pack, the COMPANION prompt block, and the QA companion check,
   // so a companion the story puts on a mid-book spread is always rendered
   // against its sheet and verified, never freestyled.
-  const companionPresent = !!(beat && companionOnSpread(beat, spreadText, theme.companion));
+  const companionPresent = !!(beat && companionOnSpread(beat, spreadText, theme.companion, { theme, childName: profile?.name }));
   const { pack, refs } = buildReferencePack(bible, {
     refPhoto,
     propValues: [...declaredProps, ...carriedProps],
@@ -656,11 +656,23 @@ async function applySetRepairs({ results, flagged, budget, stage, rerender, note
       // for composition_duplicate, the spread's own pinned plan directive)
       // — f.note is free-form diagnostics and never reaches a prompt.
       const repaired = await rerender(f.spread, noteFor(f));
-      if (repaired.buffer) {
+      const worse = repaired.buffer && (repaired.blocking || []).length > (entry.blocking || []).length;
+      if (repaired.buffer && !worse) {
         // Keep the audit trail: the gate finding + the fresh render's own
         // advisories ride together on the replacing entry.
         results[idx] = { ...repaired, advisories: [...entry.advisories, ...repaired.advisories] };
         rerendered.push(f.spread);
+      } else if (worse) {
+        // A set repair must never turn a spread the ship policy would pass
+        // into one it fails: a re-render that came back with MORE blocking
+        // defects than the flagged render keeps its own candidate bytes
+        // but does not replace the entry (the set finding stays advisory).
+        // The re-render already overwrote the canonical key — restore the
+        // shipped bytes so cache, URL, and PDF stay one image.
+        await uploadBuffer(entry.buffer, entry.storageKey, 'image/png').catch((restoreErr) => {
+          log('warn', `Spread ${f.spread}: could not restore the shipped render after a worse set re-render (${restoreErr.message})`);
+        });
+        entry.advisories.push({ stage, spread: f.spread, note: `set re-render carried blocking defects (${repaired.blocking.join('; ')}); kept the flagged render` });
       } else {
         entry.advisories.push({ stage, spread: f.spread, note: 'set re-render failed; shipped the flagged render' });
       }

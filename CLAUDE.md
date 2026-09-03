@@ -419,6 +419,16 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   more shorter lines" first. `compareTexts` (qa-6) flags a missing FIRST
   or LAST word as edge truncation ("ron checked …" passed the 25% bag
   threshold). STYLE_VERSION `ce-13`, QA_VERSION `qa-6`.
+  Three false-positive guards landed the same day (each could fail a
+  full book `consistency_unresolved` on its own): `compareTexts`
+  normalizes glyphs before comparing (curly↔straight quotes, NFD-stripped
+  accents, dash/ellipsis spacing) and treats an edge word inside a merged
+  OCR token as present; `companionOnSpread` masks the theme's world and
+  display names ("Maple Harvest Hall" must never summon Maple) and falls
+  back to the beat-only signal when the child shares the companion's
+  name; and a set-gate re-render that comes back with MORE blocking
+  defects than the flagged render is never adopted (the shipped bytes are
+  restored to the key, the finding stays advisory).
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 

@@ -734,6 +734,28 @@ describe('shot plan rides the render path (ce-8)', () => {
     expect(results.find(r => r.spread === 3).advisories.some(a => a.stage === 'worldQa' && a.note.includes('colder palette'))).toBe(true);
   });
 
+  test('a set re-render that comes back WORSE (blocking defects) never replaces a clean flagged render', async () => {
+    // Base QA passes both spreads; the gate flags spread 3; every QA call
+    // from the corrective re-render onwards reports a missing child (a
+    // BLOCKING defect). The ship policy must keep the clean original.
+    let spreadQaCalls = 0;
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      if (prompt.includes('CROSS-SPREAD CONSISTENCY')) {
+        return geminiText(JSON.stringify({ consistent: false, flagged: [{ spread: 3, defect: 'palette_lighting', note: 'colder palette' }] }));
+      }
+      spreadQaCalls += 1;
+      if (spreadQaCalls > 2) return geminiText(JSON.stringify({ readable_text: false, child_absent: true, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false }));
+      return geminiText(cleanVerdict);
+    });
+    const { worldQa, results, unresolved } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));
+    const s3 = results.find(r => r.spread === 3);
+    expect(worldQa.rerendered).toEqual([]);
+    expect(s3.blocking).toEqual([]);
+    expect(s3.advisories.some(a => a.stage === 'worldQa' && a.note.includes('kept the flagged render'))).toBe(true);
+    expect(unresolved || []).toEqual([]);
+  });
+
   test('bath/water spreads reach the world gate as outfit-exempt', async () => {
     isModestBathWaterScene.mockImplementation(scene => scene.includes('Scene 3 of 12'));
     let gatePrompt = null;

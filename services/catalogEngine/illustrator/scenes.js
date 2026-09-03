@@ -113,14 +113,29 @@ function escapeRegExp(s) {
  * companion solely on spreads 1/12, so mid-book spreads whose STORY put
  * the companion in the scene rendered it reference-less and unchecked,
  * and every such spread drew a different-looking creature.
+ * Two false-positive guards (a spurious hit arms a BLOCKING "companion
+ * missing" check on that spread): the theme's own world/display names are
+ * masked from the text first — the thanksgiving world "Maple Harvest Hall"
+ * contains the companion "Maple", and the world name is REQUIRED in every
+ * story — and when the child shares the companion's name (a child called
+ * Nova, Pip, Maple…) the story text cannot tell them apart, so only the
+ * beat text counts, exactly as before ce-11.
  * @param {object} beat
  * @param {string} spreadText the spread's manuscript text
  * @param {object} companion {name, type}
+ * @param {{theme?: object, childName?: string}} [ctx] masking sources
  * @returns {boolean}
  */
-function companionOnSpread(beat, spreadText, companion) {
+function companionOnSpread(beat, spreadText, companion, ctx = {}) {
   if (!companion?.name) return false;
-  const hay = `${beat?.beat || ''}\n${spreadText || ''}`;
+  const name = String(companion.name).trim();
+  const childName = String(ctx.childName || '').trim();
+  const collides = !!childName && childName.toLowerCase() === name.toLowerCase();
+  let hay = `${beat?.beat || ''}\n${collides ? '' : (spreadText || '')}`;
+  for (const mask of [ctx.theme?.world_name, ctx.theme?.display_name]) {
+    const m = String(mask || '').trim();
+    if (m && m.toLowerCase() !== name.toLowerCase()) hay = hay.split(m).join('\n');
+  }
   // Unicode lookarounds, not \b: companion naming is overlay-patchable and
   // \b is ASCII-only — an accented name ("José") would never match at all.
   const bounded = (term, flags) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term)}(?![\\p{L}\\p{N}])`, flags);
@@ -152,7 +167,7 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
   lines.push(`Scene ${spread} of 12 in "${theme.display_name}" world "${theme.world_name}".`);
   lines.push(`ACTION (paint exactly this moment): ${beat.beat}`);
   lines.push(`The child ${profile.name} (age ${profile.age}) is the active protagonist — exactly ONE instance of ${profile.name} in the scene, matching the reference character's face, hair, and outfit.`);
-  if (companionOnSpread(beat, spreadText, theme.companion)) {
+  if (companionOnSpread(beat, spreadText, theme.companion, { theme, childName: profile?.name })) {
     lines.push(`Companion present: ${theme.companion.name}, a ${theme.companion.type} — friendly and warm, secondary to the child.`);
   }
   if (spreadText) {

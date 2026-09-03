@@ -68,6 +68,17 @@ describe('embedded text is typeset BY PROMPT (ce-13): pre-wrapped lines, a concr
     // Too short to have meaningful edges: only the existing bag rules speak.
     expect(compareTexts('Hi there', 'Hi').issues).not.toEqual(expect.arrayContaining([expect.stringContaining('truncated')]));
   });
+
+  test('compareTexts is glyph-insensitive: curly quotes, accents, dash spacing, and merged edge tokens are not defects', () => {
+    const expected = "Mila’s toucan swooped down—fast… “Whose tracks?” asked José.";
+    // The OCR transcript with straight quotes, no accents, spaced dashes.
+    expect(compareTexts(expected, "Mila's toucan swooped down — fast... \"Whose tracks?\" asked Jose.").valid).toBe(true);
+    // The reverse direction too (manuscript straight, OCR curly).
+    expect(compareTexts("Mila's day at Maple Harvest Hall.", "Mila’s day at Maple Harvest Hall.").valid).toBe(true);
+    // An OCR spacing slip that merges the first two words is not a missing first word.
+    expect(compareTexts('Whose tracks are these, she wondered.', 'Whosetracks are these, she wondered.').issues)
+      .not.toEqual(expect.arrayContaining([expect.stringContaining('first word')]));
+  });
 });
 
 describe('buildGenericSafePrompt (NSFW last-resort variant keeps identity)', () => {
