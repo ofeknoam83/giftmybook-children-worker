@@ -104,6 +104,15 @@ const STYLE_VERSION = 'ce-10';
  */
 const QA_VERSION = 'qa-3';
 
+/**
+ * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip
+ * cache namespace (`children-jobs/{bookId}/gift-video/{VIDEO_VERSION}/…`).
+ * Bump on any change to the film plan rules, the duration table, the clip
+ * brief template, or the stitch graph: gv-(N-1) films must never replay as
+ * gv-N. Provider and model are inside the clip hash, not this version.
+ */
+const VIDEO_VERSION = 'gv-1';
+
 module.exports = {
   WRITER_ENGINE_VERSION,
   AGE_ENGINE_VERSION,
@@ -113,4 +122,5 @@ module.exports = {
   PROMPT_TEMPLATE_VERSION,
   STYLE_VERSION,
   QA_VERSION,
+  VIDEO_VERSION,
 };

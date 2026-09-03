@@ -854,6 +854,192 @@ app.post('/v13/pick-candidate', authenticate, async (req, res) => {
   }
 });
 
+// POST /v13/generate-video — the GIFT VIDEO (gv-1, docs/GIFT_VIDEO_PLAN.md):
+// a 10-second, text-free, fully animated film of a finished book — the
+// approved cover coming alive, the opening spread, the emotional peak, the
+// resolution — one image-to-video clip per segment starting on the exact
+// shipped render, identity pinned by the Book Bible's character sheet as
+// the video model's reference and verified per clip, stitched by ffmpeg.
+// 202 + callback like /v13/render-spreads: every validation happens BEFORE
+// the 202 (the app's render KEYS are validated as canonical keys of THIS
+// book; a story pair is re-validated; the provider/model must be enabled);
+// the run registers a book context so the idle watchdog sees a job that
+// polls a vendor for minutes. A segment whose candidates all fail
+// verification fails the film `video_unresolved` with the scored candidates
+// attached — never a silent degrade to stills.
+app.post('/v13/generate-video', authenticate, async (req, res) => {
+  if (!catalogEngine.flags.giftVideoEnabled()) {
+    return res.status(503).json({ success: false, error: 'the gift video is disabled on this revision (CATALOG_GIFT_VIDEO=0)', failureCode: 'gift_video_disabled' });
+  }
+  const body = req.body || {};
+  const { bookId, callbackUrl, progressCallbackUrl, dispatchId } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (!callbackUrl) {
+    return res.status(400).json({ success: false, error: 'callbackUrl is required — the film is delivered by callback only' });
+  }
+  const { validateRenders } = require('./services/catalogEngine/video/stills');
+  const rendersCheck = validateRenders(String(bookId), body.renders);
+  if (!rendersCheck.ok) {
+    return res.status(400).json({ success: false, error: rendersCheck.error, failureCode: 'video_no_sources' });
+  }
+  let profile;
+  try {
+    profile = catalogEngine.normalizeProfile(body.profile);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+  const videoTuningError = catalogEngine.validateArtTuningInput(body.illustrationTuning);
+  if (videoTuningError) {
+    return res.status(400).json({ success: false, error: videoTuningError });
+  }
+  if (body.seed !== undefined && body.seed !== null && !Number.isInteger(body.seed)) {
+    return res.status(400).json({ success: false, error: 'seed must be an integer' });
+  }
+  const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
+  if (!storyPair) {
+    return res.status(400).json({ success: false, error: 'story {request, response} is required — the film animates an existing validated story, never a fresh one' });
+  }
+  const { resolveProvider } = require('./services/catalogEngine/video/providers');
+  const providerPick = resolveProvider({ provider: body.provider || null, model: body.model || null });
+  if (!providerPick.ok) {
+    return res.status(400).json({ success: false, error: providerPick.error, failureCode: 'video_provider_unavailable' });
+  }
+  const aspect = body.aspect === undefined || body.aspect === null ? '16:9' : body.aspect;
+  if (aspect !== '16:9' && aspect !== '9:16') {
+    return res.status(400).json({ success: false, error: "aspect must be '16:9' or '9:16'" });
+  }
+  const music = body.music === undefined || body.music === null ? catalogEngine.flags.videoMusic() : body.music;
+  if (typeof music !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(music)) {
+    return res.status(400).json({ success: false, error: "music must be 'none' or a bundled track name" });
+  }
+  const isHttp = u => typeof u === 'string' && /^https?:\/\//i.test(u);
+  const approvedCoverUrl = isHttp(body.approvedCoverUrl) ? body.approvedCoverUrl : null;
+  const childPhotoUrl = Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls.find(isHttp) || null : null;
+  if (!approvedCoverUrl && !childPhotoUrl) {
+    return res.status(400).json({ success: false, error: 'no approvedCoverUrl and no childPhotoUrls — the clips would have no identity reference', failureCode: 'missing_identity_reference' });
+  }
+  let story;
+  try {
+    story = await resolveStory({
+      storyPair,
+      checkpointStory: null,
+      bookDefinitionId: null,
+      profile,
+      sessionId: body.sessionId || bookId,
+      log: (level, msg) => console.log(`[giftVideo:${bookId}] ${msg}`),
+    });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message, failureCode: err.failureCode || null });
+  }
+  const videoBookDef = await catalogEngine.getBookForTag(story.request.book_id, story.request?.versions?.catalog);
+  if (!videoBookDef) {
+    return res.status(400).json({
+      success: false,
+      error: `story pins catalog '${story.request?.versions?.catalog}' which is no longer resolvable — regenerate the story`,
+      failureCode: 'missing_book_definition',
+    });
+  }
+  const videoVersion = catalogEngine.versions.VIDEO_VERSION;
+  res.status(202).json({
+    success: true, bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion,
+    provider: providerPick.provider, model: providerPick.model,
+    accepted: { spreads: rendersCheck.entries.map(e => e.spread) },
+  });
+
+  const costTracker = new CostTracker();
+  const mapKey = `video:${bookId}`;
+  const ctx = createBookContext(bookId, { mapKey, callbackUrl, progressCallbackUrl: progressCallbackUrl || null });
+  (async () => {
+    const started = Date.now();
+    const stable = { bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion, provider: providerPick.provider, model: providerPick.model };
+    let payload;
+    try {
+      const { generateGiftVideo } = require('./services/catalogEngine/video');
+      const r = await generateGiftVideo({
+        bookId,
+        story: story.response,
+        bookDef: videoBookDef,
+        profile,
+        renders: rendersCheck.entries.map(e => ({ spread: e.spread, storageKey: e.storageKey })),
+        approvedCoverUrl,
+        childPhotoUrl,
+        characterDescription: body.characterDescription || null,
+        textLayout: normalizeTextLayout(body.textLayout),
+        tuning: body.illustrationTuning || null,
+        identityKeyed: body.identityKeyed === true,
+        seed: Number.isInteger(body.seed) ? body.seed : null,
+        probeNonce: body.probeNonce || null,
+        provider: providerPick.provider,
+        model: providerPick.model,
+        aspect,
+        music,
+        forceNew: !!body.forceNew,
+        // The app injects its Replicate token into every worker request
+        // body; the revision's own env wins when set (providers/replicate.js).
+        providerToken: typeof body.REPLICATE_API_TOKEN === 'string' ? body.REPLICATE_API_TOKEN : null,
+        costTracker,
+        onProgress: (fraction, message) => {
+          ctx.touchActivity();
+          if (progressCallbackUrl) {
+            reportProgress(progressCallbackUrl, { bookId, stage: 'video', progress: Math.round(Math.max(0, Math.min(1, fraction)) * 100), message, ...(dispatchId ? { dispatchId } : {}) }).catch(() => {});
+          }
+        },
+        touch: () => ctx.touchActivity(),
+        abortSignal: ctx.abortSignal,
+        log: (level, msg) => ctx.log(level, msg),
+      });
+      payload = {
+        success: true, ...stable, provider: r.provider, model: r.model,
+        video: r.video, plan: r.plan, textGate: r.textGate, bookBible: r.bookBible,
+        unresolved: r.unresolved || [], advisories: r.advisories, warnings: r.warnings,
+        costs: costTracker.getSummary(), failureCode: null, error: null,
+      };
+      console.log(`[v13] generate-video for ${bookId}: ${r.video.cached ? 'replayed' : 'built'} ${r.video.durationSeconds}s in ${Date.now() - started}ms`);
+    } catch (err) {
+      console.error(`[v13] generate-video failed for ${bookId}:`, err.message);
+      const d = err.details || {};
+      payload = {
+        success: false, ...stable,
+        video: null, plan: d.plan || [], textGate: d.textGate || [], bookBible: d.bookBible || null,
+        unresolved: d.unresolved || [], advisories: d.advisories || [], warnings: d.warnings || [],
+        costs: costTracker.getSummary(), failureCode: err.failureCode || null, error: err.message,
+      };
+    } finally {
+      removeBookContext(mapKey);
+    }
+    await postWithRetry(callbackUrl, payload);
+  })();
+});
+
+// POST /v13/pick-clip — promote one scored candidate clip (from a
+// video_unresolved failure payload) to its segment's canonical clip key
+// with an admin-vouched marker, so the next /v13/generate-video dispatch
+// (no forceNew) replays it and only re-stitches (gv-1, mirrors
+// /v13/pick-candidate).
+app.post('/v13/pick-clip', authenticate, async (req, res) => {
+  if (!catalogEngine.flags.giftVideoEnabled()) {
+    return res.status(503).json({ success: false, error: 'the gift video is disabled on this revision (CATALOG_GIFT_VIDEO=0)', failureCode: 'gift_video_disabled' });
+  }
+  const body = req.body || {};
+  const { bookId, storageKey } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (typeof storageKey !== 'string' || storageKey.length > 512) {
+    return res.status(400).json({ success: false, error: 'storageKey (a candidate clip key of this book) is required' });
+  }
+  try {
+    const { pickClip } = require('./services/catalogEngine/video/clips');
+    const r = await pickClip({ bookId, candidateKey: storageKey, log: (level, msg) => console.log(`[pickClip:${bookId}] ${msg}`) });
+    return res.json({ success: true, bookId, segment: r.segment, storageKey: r.storageKey, clipHash: r.clipHash });
+  } catch (err) {
+    console.error(`[pickClip:${bookId}] failed:`, err.message);
+    return res.status(err.statusCode || 500).json({ success: false, bookId, error: err.message });
+  }
+});
+
 // POST /v13/generate-cover-image — admin probe-anchor cover for the
 // illustration feedback loop (docs/AI_ILLUSTRATION_FEEDBACK_LOOP_PLAN.md
 // §5.1): render ONLY the front-cover key art from a child photo through the
