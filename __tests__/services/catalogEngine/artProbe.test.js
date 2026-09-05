@@ -291,7 +291,8 @@ describe('bounded spread-QA repair loop (CATALOG_SPREAD_QA_MAX_REPAIRS)', () => 
     fetchWithTimeout.mockRejectedValue(new Error('offline test'));
   });
 
-  test('each repair pass is steered by the LATEST check\'s defects, up to the default budget of 2', async () => {
+  test('each repair pass is steered by the LATEST check\'s defects, up to a configured budget of 2', async () => {
+    process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '2';
     // Check 1: painted text → repair 1. Check 2: child missing (a DIFFERENT
     // defect) → repair 2 must carry the child fix, not the stale text fix.
     // Check 3: clean → no residual advisory.
@@ -307,6 +308,23 @@ describe('bounded spread-QA repair loop (CATALOG_SPREAD_QA_MAX_REPAIRS)', () => 
     expect(generateIllustration.mock.calls[2][0]).not.toContain('ABSOLUTELY NO text');
     expect(results[0].advisories).toEqual([]);
     expect(results[0].fresh).toBe(true);
+  });
+
+  test('the total candidate cap overrides large general and drift budgets', async () => {
+    process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '4';
+    process.env.CATALOG_DRIFT_MAX_REPAIRS = '4';
+    process.env.CATALOG_RENDER_CANDIDATES = '3';
+    try {
+      fetchWithTimeout.mockResolvedValue(qaVerdict({ child_absent: true }));
+      generateIllustration.mockClear();
+      const { results } = await probeOne();
+      expect(generateIllustration).toHaveBeenCalledTimes(3);
+      expect(results[0].blocking).toContain('child hero missing from the scene');
+      expect(results[0].candidateFiles).toHaveLength(3);
+    } finally {
+      delete process.env.CATALOG_DRIFT_MAX_REPAIRS;
+      process.env.CATALOG_RENDER_CANDIDATES = '1';
+    }
   });
 
   test('a spread still failing when the budget runs out ships with the residual advisory', async () => {
@@ -676,6 +694,24 @@ describe('shot plan rides the render path (ce-8)', () => {
     expect(opts.shotType).toBeUndefined();
   });
 
+  test('set-level repairs share the same per-spread candidate budget', async () => {
+    process.env.CATALOG_RENDER_BUDGET_PER_SPREAD = '1';
+    try {
+      fetchWithTimeout.mockImplementation(async (url, opts) => {
+        const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+        return geminiText(prompt.includes('CROSS-SPREAD CONSISTENCY')
+          ? JSON.stringify({ consistent: false, flagged: [{ spread: 3, defect: 'composition_duplicate', note: 'duplicate' }] })
+          : cleanVerdict);
+      });
+      generateIllustration.mockClear();
+      const result = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));
+      expect(generateIllustration).toHaveBeenCalledTimes(2); // one per spread, no set repair
+      expect(result.worldQa.rerendered).toEqual([]);
+      expect(result.results.every(r => r.buffer)).toBe(true);
+      expect(result.results.find(r => r.spread === 3).advisories.some(a => a.note.includes('budget exhausted'))).toBe(true);
+    } finally { delete process.env.CATALOG_RENDER_BUDGET_PER_SPREAD; }
+  });
+
   test('a composition_duplicate gate finding re-renders the flagged spread against its OWN plan directive', async () => {
     fetchWithTimeout.mockImplementation(async (url, opts) => {
       const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
@@ -815,9 +851,8 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     // The anchor spread's own renders: no typography reference; the others: the crop LAST, cited by index, with the assigned side forwarded.
     const calls = generateIllustration.mock.calls;
     const forSpread = (n) => calls.filter(([scene]) => scene.includes(`Scene ${n} of 12`)).map(c => c[3]);
-    // ce-16: the anchor page renders CATALOG_TEXT_ANCHOR_CANDIDATES (3) so a small
-    // page exists to elect; the rest keep this file's CATALOG_RENDER_CANDIDATES (1).
-    expect(forSpread(1)).toHaveLength(3);
+    // The anchor and remaining spreads each start with a single candidate.
+    expect(forSpread(1)).toHaveLength(1);
     expect(forSpread(3)).toHaveLength(1);
     for (const o of forSpread(1)) {
       expect(o.typographyRef).toBeUndefined();

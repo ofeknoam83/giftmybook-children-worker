@@ -10,11 +10,12 @@
  *    input as pixels + schema-validated specs, hashed into the cache key
  *    and attached to every render as a labeled REFERENCE PACK;
  *  - every spread renders N CANDIDATES (CATALOG_RENDER_CANDIDATES, default
- *    2), each scored by the structured QA verdict v2 (spreadQa.js — checked
+ *    1), each scored by the structured QA verdict v2 (spreadQa.js — checked
  *    AGAINST the sheets) plus deterministic metrics (metrics.js), and the
  *    best is selected; bounded corrective re-renders run only while
  *    BLOCKING defects remain (CATALOG_SPREAD_QA_MAX_REPAIRS + a separate
- *    CATALOG_DRIFT_MAX_REPAIRS budget for identity/outfit/prop defects);
+ *    CATALOG_DRIFT_MAX_REPAIRS budget for identity/outfit/prop defects),
+ *    all sharing CATALOG_RENDER_BUDGET_PER_SPREAD across set gates;
  *  - the set-level gate keeps the ce-5 world check and adds ce-9 CONTACT
  *    SHEETS (contactSheet.js): the child crops of every spread beside the
  *    model sheet, and the prop crops beside their sheets, in one call each;
@@ -110,7 +111,7 @@ function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') 
  */
 const SPREAD_QA_MAX_REPAIRS = () => {
   const n = Number(process.env.CATALOG_SPREAD_QA_MAX_REPAIRS);
-  return Number.isInteger(n) && n >= 0 && n <= 4 ? n : 2;
+  return Number.isInteger(n) && n >= 0 && n <= 4 ? n : 1;
 };
 
 /**
@@ -158,9 +159,9 @@ const CONTACT_QA_MAX_RERENDERS = () => {
 function needsRepair(qa) {
   if (!qa || qa.qaUnavailable) return false;
   if (Array.isArray(qa.blocking) && qa.blocking.length > 0) return true;
-  // ce-16: the 'oversized' advisory (1.25–1.5× the footprint) shades
+  // The 'oversized' advisory (2–4× the footprint) shades
   // selection only — the judged bbox is too rough on small blocks to spend
-  // repair renders on; 'too large' (≥ 1.5×) is blocking and repairs.
+  // repair renders on; 'too large' (≥ 4×) is blocking and repairs.
   return (qa.advisory || []).some(d => d.startsWith('embedded story text') && !d.startsWith('embedded story text oversized'));
 }
 
@@ -197,7 +198,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, ageBand, typographyAnchor = null, candidateCount = null, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, ageBand, typographyAnchor = null, candidateCount = null, renderBudget, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -457,8 +458,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   let best = null;
 
   const renderCandidates = async (sceneText, passLabel, pass = 0) => {
-    const list = await Promise.all(Array.from({ length: nCandidates }, (_, i) => i + 1).map(async (k) => {
-      const key = pass > 0 || nCandidates > 1 ? candidateKey(storageKey, k, pass) : storageKey;
+    const available = renderBudget ? Math.max(0, renderBudget.limit - (renderBudget.used.get(spread) || 0)) : nCandidates;
+    const count = Math.min(nCandidates, available);
+    if (renderBudget) renderBudget.used.set(spread, (renderBudget.used.get(spread) || 0) + count);
+    const list = await Promise.all(Array.from({ length: count }, (_, i) => i + 1).map(async (k) => {
+      const key = candidateKey(storageKey, k, pass);
       const attemptLog = [];
       let cUrl = null;
       try {
@@ -491,7 +495,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   } else {
     const list = await renderCandidates(baseScene, 'base');
     const rendered = list.filter(c => c.buffer);
-    if (rendered.length === 0 && list.every(c => c.error)) throw list[0].error;
+    if (rendered.length === 0 && list.length && list.every(c => c.error)) throw list[0].error;
     if (rendered.length === 0) {
       const attempts = list.flatMap(c => c.attemptLog);
       advisories.push({
@@ -528,7 +532,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   let generalUsed = 0;
   let driftUsed = 0;
   let repairAborted = false;
-  while (!checkerUnavailable && !repairAborted && needsRepair(best.qa)) {
+  while (!checkerUnavailable && !repairAborted && needsRepair(best.qa) && (!renderBudget || (renderBudget.used.get(spread) || 0) < renderBudget.limit)) {
     const drift = hasDriftDefect(best.qa.blocking);
     let budgetName;
     if (generalUsed < generalBudget) { generalUsed += 1; budgetName = `${generalUsed}/${generalBudget}`; } else if (drift && driftUsed < driftBudget) { driftUsed += 1; budgetName = `drift ${driftUsed}/${driftBudget}`; } else break;
@@ -1031,6 +1035,7 @@ async function renderStorySpreads(params) {
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
   const { book, theme } = bookDef;
+  const renderBudget = { limit: flags.renderBudgetPerSpread(), used: new Map() };
   const { identityKeyed = false, seed = null } = params;
   const tuning = normalizeArtTuning(params.tuning || null);
   // 'embedded' and 'half' both render FULL-SPREAD wide compositions; only
@@ -1184,7 +1189,7 @@ async function renderStorySpreads(params) {
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-    reviewedOnly, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    reviewedOnly, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     ...(typographyAnchor ? { typographyAnchor } : {}),
     ...extra,
   });
@@ -1272,7 +1277,12 @@ async function renderStorySpreads(params) {
 
   results.sort((a, b) => a.spread - b.spread);
 
-  const rerender = (spread, note) => renderSpread(spreadArgs(spread, { worldNote: note, forceRerender: true }));
+  const rerender = (spread, note) => {
+    if ((renderBudget.used.get(spread) || 0) >= renderBudget.limit) {
+      throw new Error(`Automatic render budget exhausted for spread ${spread} (${renderBudget.limit} candidates); review existing candidates`);
+    }
+    return renderSpread(spreadArgs(spread, { worldNote: note, forceRerender: true }));
+  };
 
   // Book-level world-consistency gate: check the set together, re-render
   // flagged FRESH spreads once (through the same full per-spread path).
