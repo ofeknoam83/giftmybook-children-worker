@@ -172,7 +172,7 @@ async function runBookPipeline(params) {
     bookId, bookDefinitionId, sessionId, storyPair, checkpoint, saveCheckpoint,
     approvedCoverUrl, childPhotoUrl, characterDescription,
     textLayout = 'caption', heartfeltNote, bookFrom, bindingType,
-    forceRerender = false, costTracker, onProgress = () => {}, log,
+    forceRerender = false, reviewedOnly = false, costTracker, onProgress = () => {}, log,
   } = params;
   const profile = normalizeProfile(params.profile);
 
@@ -224,6 +224,7 @@ async function runBookPipeline(params) {
     seed: Number.isInteger(params.seed) ? params.seed : null,
     costTracker,
     forceRerender,
+    reviewedOnly,
     onProgress: (frac, message) => onProgress('illustration', 0.2 + frac * 0.6, message),
     log,
   });

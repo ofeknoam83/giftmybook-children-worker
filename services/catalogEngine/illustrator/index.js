@@ -197,7 +197,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, ageBand, typographyAnchor = null, candidateCount = null, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, ageBand, typographyAnchor = null, candidateCount = null, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -386,6 +386,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const metricsFor = (buffer, qa) => runMetrics({ buffer, qa, bible, shotType: qaOpts.shotType, aspect, textLayout, ageBand, log });
 
   // ── Replay ──────────────────────────────────────────────────────────────
+  if (reviewedOnly && forceRerender) throw new Error('Reviewed rebuild cannot generate new artwork');
   let cachedBuffer = null;
   let url = null;
   if (!forceRerender) {
@@ -424,11 +425,13 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         // No marker (crash between upload and check), a marker for other
         // pixels, or an older checker — re-check the cached image instead
         // of approving it.
+        if (reviewedOnly) throw markerErr;
         log('warn', `Spread ${spread}: cached render not QA-vouched (${markerErr.message}) — re-checking before replay`);
         cachedBuffer = cached;
         url = await getSignedUrl(storageKey, SIGNED_URL_TTL_MS);
       }
-    } catch {
+    } catch (err) {
+      if (reviewedOnly) throw new Error(`Reviewed artwork unavailable for spread ${spread}: ${err.message}. Restore or explicitly re-render this spread.`);
       // cache miss — render fresh
     }
   } else {
@@ -1024,7 +1027,7 @@ async function renderStorySpreads(params) {
     bookId, story, bookDef, profile,
     approvedCoverUrl, childPhotoUrl, characterDescription,
     textLayout = 'caption', spreads = null, rerenderSpreads = null, probeNonce = null,
-    costTracker, forceRerender = false,
+    costTracker, forceRerender = false, reviewedOnly = false,
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
   const { book, theme } = bookDef;
@@ -1181,7 +1184,7 @@ async function renderStorySpreads(params) {
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-    tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    reviewedOnly, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     ...(typographyAnchor ? { typographyAnchor } : {}),
     ...extra,
   });
@@ -1274,7 +1277,7 @@ async function renderStorySpreads(params) {
   // Book-level world-consistency gate: check the set together, re-render
   // flagged FRESH spreads once (through the same full per-spread path).
   const worldGateStart = Date.now();
-  const worldQa = await runWorldConsistencyGate({
+  const worldQa = reviewedOnly ? null : await runWorldConsistencyGate({
     results,
     embeddedText: textLayout === 'embedded',
     planDirectiveFor: spread => (shotPlan ? renderShotDirective(shotPlan[spread]) || null : null),
@@ -1286,11 +1289,11 @@ async function renderStorySpreads(params) {
   // ce-9 contact-sheet gate: character crops vs the model sheet, prop crops
   // vs their sheets.
   const contactGateStart = Date.now();
-  const contactQa = await runContactSheetGate({ results, bible, evidence: story.personalization_evidence || [], rerender, onProgress, log });
+  const contactQa = reviewedOnly ? null : await runContactSheetGate({ results, bible, evidence: story.personalization_evidence || [], rerender, onProgress, log });
   if (contactQa) log('info', `Contact gate done in ${Math.round((Date.now() - contactGateStart) / 1000)}s (${contactQa.rerendered?.length || 0} re-render(s))`);
   // ce-18 ink gate: every spread's measured text ink vs the book's median.
   const inkGateStart = Date.now();
-  const textInkQa = await runInkConsistencyGate({
+  const textInkQa = reviewedOnly ? null : await runInkConsistencyGate({
     results,
     inkHex: textLayout === 'embedded' && flags.textInkQaEnabled() ? resolvePictureBookTextRules(profile?.age).fontColorHex : null,
     rerender,

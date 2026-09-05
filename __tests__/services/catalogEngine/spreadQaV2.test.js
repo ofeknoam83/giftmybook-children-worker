@@ -515,3 +515,19 @@ describe('qa-10 (ce-18): the painted INK colour is measured against the book\'s 
     expect(bare).not.toContain('hex');
   });
 });
+
+test('an optional outerwear mismatch must be confirmed before blocking', async () => {
+  const mismatch = cleanVerdict({ outfit: { ...cleanVerdict().outfit, outerwear: 'mismatch' } });
+  fetchWithTimeout.mockResolvedValueOnce(answer(mismatch)).mockResolvedValueOnce(answer(cleanVerdict()));
+  const r = await checkSpreadRenderV2(IMG, fullOpts());
+  expect(r.blocking).not.toContain('outfit break: outerwear differs from the locked outfit spec');
+  expect(r.advisory).toEqual(expect.arrayContaining([expect.stringContaining('not confirmed')]));
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+});
+
+test('a confirmed optional garment mismatch remains blocking', async () => {
+  fetchWithTimeout.mockResolvedValue(answer(cleanVerdict({ outfit: { ...cleanVerdict().outfit, outerwear: 'mismatch' } })));
+  const r = await checkSpreadRenderV2(IMG, fullOpts());
+  expect(r.blocking).toContain('outfit break: outerwear differs from the locked outfit spec');
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+});

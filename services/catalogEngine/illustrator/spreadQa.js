@@ -704,7 +704,7 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
     const against = o.sheet ? `the CHARACTER MODEL SHEET (image ${o.sheetRef}) and ` : '';
     sections.push(`OUTFIT: the child's outfit is LOCKED for the whole book. Check it garment by garment against ${against}this spec (quoted as data):
 "${o.outfitSpec}"
-For EACH slot answer "match" (the visible garment matches), "mismatch" (a different garment, a different colour family, a missing, added, or different pattern/print/graphic on a garment the spec describes one for, a visibly different length/cut, an added item, or a garment clearly absent from a body region that IS in view), or "not_visible" (the framing crops that body region — never guess). Lighting shifts and fold/shading differences are a match.`);
+For EACH slot answer "match" (the visible garment matches), "mismatch" (a different garment, a different colour family, a missing, added, or different pattern/print/graphic on a garment the spec describes one for, a visibly different length/cut, an added item, or a garment clearly absent from a body region that IS in view), or "not_visible" (the framing crops that body region — never guess). Lighting shifts and fold/shading differences are a match. Outerwear means a separate coat, jacket, or outer layer, not the top itself. Optional outerwear/accessories absent from both the spec and reference are a match when absent in the render. An unspecified slot is not evidence of a missing garment. Only mark a mismatch when the reference or explicit spec establishes a visible difference; occlusion and uncertain details are not_visible.`);
     fields.push('"outfit": {"top": "match|mismatch|not_visible", "bottom": "match|mismatch|not_visible", "footwear": "match|mismatch|not_visible", "outerwear": "match|mismatch|not_visible", "accessories": "match|mismatch|not_visible"},');
     required.push('outfit');
   }
@@ -1131,7 +1131,21 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     } else if (json.readable_text) {
       defects.push('painted text in the illustration');
     }
+    // Optional clothing is especially prone to invented requirements. Require
+    // an independent second verdict before spending repair budget on it.
+    const optionalDefects = defects.filter(d => /^outfit break: (outerwear|accessories) /.test(d));
+    const uncertainOutfit = [];
+    if (optionalDefects.length && !opts._confirmOptionalOutfit) {
+      const confirmation = await checkSpreadRenderV2(imageBuffer, { ...opts, _confirmOptionalOutfit: true });
+      for (const defect of optionalDefects) {
+        if (!confirmation.blocking.includes(defect)) {
+          defects.splice(defects.indexOf(defect), 1);
+          uncertainOutfit.push(`Needs visual review: ${defect} (not confirmed by a second check)`);
+        }
+      }
+    }
     const { blocking, advisory } = classifyDefects(defects);
+    advisory.push(...uncertainOutfit);
     return {
       pass: defects.length === 0,
       defects, blocking, advisory,
