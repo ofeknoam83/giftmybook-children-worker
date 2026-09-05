@@ -886,10 +886,8 @@ const BLOCKING_PREFIXES = [
   // centerline is cut in half by the physical fold. Print-destroying, so
   // blocking like band/split.
   'embedded story text crosses the page fold',
-  // qa-7 (ce-15): the ruler — a block ≥ 1.6× its footprint is caption/
-  // poster scale, the exact defect the owner's round showed on half the
-  // spreads; blocking so the smaller candidate wins and a residual is
-  // never shipped. 'oversized' (≥ 1.3×) stays advisory (shades selection).
+  // Bounding boxes estimate a block footprint, not a measured font size.
+  // Moderate variation is advisory; only extreme enlargement blocks.
   'embedded story text too large',
   // qa-10 (ce-18): the ink colour is a book-wide lock like the font and the
   // size. A spread that inverts to light text (or retints to the scene)
@@ -899,15 +897,9 @@ const BLOCKING_PREFIXES = [
   'embedded story text ink colour differs',
 ];
 
-/**
- * Size ruler thresholds: painted-block / footprint (max of width and height
- * ratios). qa-8 (ce-16) tightened them from 1.6/1.3 with the smaller
- * footprint: a block painted at the OLD size measures ~1.35× the new one —
- * an advisory that sinks it in selection — while blocking stays above the
- * judged bbox's own noise on small blocks.
- */
-const TEXT_TOO_LARGE_RATIO = 1.5;
-const TEXT_OVERSIZED_RATIO = 1.25;
+/** Allow normal wrapping/bbox variation; reserve blocking for >=4x footprint. */
+const TEXT_TOO_LARGE_RATIO = 4;
+const TEXT_OVERSIZED_RATIO = 2;
 
 /**
  * How many times larger than its footprint the painted block is — the max

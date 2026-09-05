@@ -76,9 +76,11 @@
  *                                   identity metrics (embedding similarity)
  *                                   beside vision QA; off until calibrated.
  *  - CATALOG_RENDER_CANDIDATES=N  — (ce-9) candidates rendered per spread
- *                                   and scored before selection (1-3, default 2).
+ *                                   and scored before selection (1-3, default 1).
  *  - CATALOG_DRIFT_MAX_REPAIRS=N  — (ce-9) extra corrective passes reserved
- *                                   for drift-class defects (0-4, default 2).
+ *                                   for drift-class defects (0-4, default 0).
+ *  - CATALOG_RENDER_BUDGET_PER_SPREAD=N — total automatic candidates per spread
+ *                                   per run across all gates (1-12, default 3).
  *  - CATALOG_RENDER_CONCURRENCY=N — spreads rendered in parallel (1-8,
  *                                   default 6 — the refactor plan's key-pool
  *                                   sizing; each spread slot fans out into
@@ -96,9 +98,9 @@
  *                                   other).
  *
  *  - CATALOG_TEXT_ANCHOR_CANDIDATES=N — (ce-16) candidates rendered for the
- *                                   typography anchor page (1-4, default 3):
+ *                                   typography anchor page (1-4, default 1):
  *                                   the whole book copies the elected page's
- *                                   type size, so it gets more rolls.
+ *                                   type size, with no extra rolls by default.
  *  - CATALOG_EMBEDDED_IMAGE_SIZE=2K — (ce-16, OPT-IN) request this output
  *                                   size ('1K'|'2K'|'4K') on embedded renders
  *                                   (more pixels per glyph keeps small
@@ -179,13 +181,14 @@ module.exports = {
   contactQaEnabled: () => !envOff('CATALOG_CONTACT_QA'),
   shipOnExhaustion: () => envOn('CATALOG_SHIP_ON_EXHAUSTION'),
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
-  renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 2, 1, 3),
-  driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 2, 0, 4),
+  renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 1, 1, 3),
+  driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 0, 0, 4),
+  renderBudgetPerSpread: () => envInt('CATALOG_RENDER_BUDGET_PER_SPREAD', 3, 1, 12),
   renderConcurrency: () => envInt('CATALOG_RENDER_CONCURRENCY', 6, 1, 8),
   // ce-15 — the typography anchor (the book's first painted page as the
   // type reference for its other embedded spreads)
   textAnchorEnabled: () => !envOff('CATALOG_TEXT_ANCHOR'),
-  textAnchorCandidates: () => envInt('CATALOG_TEXT_ANCHOR_CANDIDATES', 3, 1, 4),
+  textAnchorCandidates: () => envInt('CATALOG_TEXT_ANCHOR_CANDIDATES', 1, 1, 4),
   // ce-18 — the painted text's ink colour
   textInkQaEnabled: () => !envOff('CATALOG_TEXT_INK_QA'),
   textInkMaxRerenders: () => envInt('CATALOG_TEXT_INK_MAX_RERENDERS', 2, 0, 4),
