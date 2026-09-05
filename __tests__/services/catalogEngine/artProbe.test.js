@@ -967,3 +967,26 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(failed.results[1].storageKey).not.toContain('-ta');
   });
 });
+
+test('reviewed rebuild never generates replacement art on a cache miss', async () => {
+  generateIllustration.mockClear();
+  downloadBuffer.mockRejectedValue(new Error('missing'));
+  const { results } = await renderStorySpreads(baseParams({ reviewedOnly: true }));
+  expect(generateIllustration).not.toHaveBeenCalled();
+  expect(results.every(r => !r.buffer)).toBe(true);
+});
+
+
+test('reviewed rebuild preserves cached pixels and skips automatic repair gates', async () => {
+  const { fnv1a } = require('../../../services/catalogEngine/selection');
+  const { QA_VERSION } = require('../../../services/catalogEngine/versions');
+  const png = Buffer.from('reviewed-pixels');
+  downloadBuffer.mockImplementation(async key => key.endsWith('.qa.json')
+    ? Buffer.from(JSON.stringify({ renderHash: fnv1a(png.toString('base64')).toString(36), qaVersion: QA_VERSION, adminPicked: true })) : png);
+  generateIllustration.mockClear();
+  const result = await renderStorySpreads(baseParams({ reviewedOnly: true }));
+  expect(result.results.every(r => r.buffer.equals(png))).toBe(true);
+  expect(generateIllustration).not.toHaveBeenCalled();
+  expect(result.contactQa).toBeNull();
+  expect(result.worldQa).toBeNull();
+});
