@@ -800,7 +800,11 @@ async function applySetRepairs({ results, flagged, budget, stage, rerender, note
       // for composition_duplicate, the spread's own pinned plan directive)
       // — f.note is free-form diagnostics and never reaches a prompt.
       const repaired = await rerender(f.spread, noteFor(f));
-      const worse = repaired.buffer && (repaired.blocking || []).length > (entry.blocking || []).length;
+      const oldText = entry.qa?.textVerification?.status;
+      const newText = repaired.qa?.textVerification?.status;
+      const worsensText = oldText === 'verified' && newText !== 'verified';
+      const fixesText = !!oldText && oldText !== 'verified' && newText === 'verified';
+      const worse = repaired.buffer && (worsensText || (!fixesText && (repaired.blocking || []).length > (entry.blocking || []).length));
       if (repaired.buffer && !worse) {
         // Keep the audit trail: the gate finding + the fresh render's own
         // advisories ride together on the replacing entry.
@@ -816,7 +820,7 @@ async function applySetRepairs({ results, flagged, budget, stage, rerender, note
         await uploadBuffer(entry.buffer, entry.storageKey, 'image/png').catch((restoreErr) => {
           log('warn', `Spread ${f.spread}: could not restore the shipped render after a worse set re-render (${restoreErr.message})`);
         });
-        entry.advisories.push({ stage, spread: f.spread, note: `set re-render carried blocking defects (${repaired.blocking.join('; ')}); kept the flagged render` });
+        entry.advisories.push({ stage, spread: f.spread, note: `set re-render carried blocking defects (${worsensText ? 'story spelling is no longer verified' : repaired.blocking.join('; ')}); kept the flagged render` });
       } else {
         entry.advisories.push({ stage, spread: f.spread, note: 'set re-render failed; shipped the flagged render' });
       }

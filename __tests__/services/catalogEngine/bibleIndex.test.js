@@ -544,3 +544,18 @@ test.each(['mismatch', 'unverified'])('automatic shipping cannot complete a book
   });
   expect(uploadBuffer.mock.calls.some(([, key]) => key.endsWith('/reviewed-art.json'))).toBe(true);
 });
+
+test.each([
+  ['verified', 'unverified', [], [], false],
+  ['verified', 'mismatch', [], ['bad text'], false],
+  ['mismatch', 'verified', ['bad text'], ['outfit break', 'prop missing'], true],
+])('set repairs preserve correct words: %s to %s', async (before, after, oldBlocking, newBlocking, adopt) => {
+  const { runWorldConsistencyGate } = require('../../../services/catalogEngine/illustrator');
+  const { checkWorldConsistency } = require('../../../services/catalogEngine/illustrator/spreadQa');
+  checkWorldConsistency.mockResolvedValueOnce({ pass: false, flagged: [{ spread: 1, defect: 'palette_lighting', note: 'Palette differs' }] });
+  const original = { spread: 1, buffer: Buffer.from('original'), storageKey: 'spread-1.png', fresh: true, blocking: oldBlocking, advisories: [], qa: { textVerification: { status: before } } };
+  const replacement = { ...original, buffer: Buffer.from('replacement'), blocking: newBlocking, advisories: [], qa: { textVerification: { status: after } } };
+  const results = [original, { ...original, spread: 2 }];
+  await runWorldConsistencyGate({ results, rerender: async () => replacement, log: () => {} });
+  expect(results[0].buffer.toString()).toBe(adopt ? 'replacement' : 'original');
+});
