@@ -2,10 +2,9 @@
  * Cover Generator — Creates Lulu-compliant wrap-around cover PDF
  * (back cover + spine + front cover) with 0.125" bleed.
  *
- * Back cover: Gemini-generated TEXT-FREE illustration matching the front
- * cover style; synopsis, heartfelt note, and branding are TYPESET with
- * pdf-lib on top (never painted — painted text ships garbled words).
- * Picture books include a scannable internal book-reference barcode.
+ * Picture-book back cover: Gemini designs artwork and embedded typography
+ * against the approved front. Exact QR/barcode pixels are composed last.
+ * Other formats and emergency fallbacks retain deterministic typesetting.
  * Spine: Color-matched to front cover, no text for books under 80 pages.
  */
 
@@ -26,6 +25,7 @@ const { downloadBuffer } = require('./gcsStorage');
 const { TEXT_RULES } = require('./shared/illustration/config');
 const sharp = require('sharp');
 const { drawBookBackCover } = require('./backCoverLayout');
+const { backCoverCopy, pictureBackCoverPrompt, embedBackCoverCodes, pictureBackCoverCachePath } = require('./pictureBackCover');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
 const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image';
@@ -453,7 +453,7 @@ function drawBackCoverTypeset(page, geom, fonts, content) {
  * @param {string} apiKey
  * @returns {Promise<{pass: boolean, reason: string|null}>}
  */
-async function qaBackCoverArtwork(imageBuffer, apiKey) {
+async function qaBackCoverArtwork(imageBuffer, apiKey, opts = {}) {
   const prompt = `You are checking artwork that will be printed as the BACK COVER of a children's book. The image must be FLAT, full-bleed scene artwork.
 
 Answer STRICT JSON only:
@@ -461,13 +461,16 @@ Answer STRICT JSON only:
   "book_mockup": true|false,   // does the image DEPICT a physical book/product (a book lying on a surface, a 3D book mockup with visible pages/spine/cover shadow)?
   "framed_object": true|false, // is the artwork shown as an object ON a background (frame, border, tabletop, wall, room) instead of filling the whole image edge to edge?
   "photo_surface": true|false, // does it contain photographic/real-world surfaces (a real table, real paper texture, a photographed room) rather than artwork?
-  "readable_text": true|false  // any readable words, letters, or numbers painted in the image?
-}`;
+  "readable_text": true|false, // any readable words, letters, or numbers painted in the image?
+  "text_mismatch": true|false // required copy missing, misspelled or illegible (false if no required copy)
+}
+${opts.embeddedText ? `This design intentionally includes text. Check spelling and completeness against these exact copy values: ${JSON.stringify(backCoverCopy(opts))}. Ignore line breaks, capitalization, punctuation style, and blank values. Do not reject correct text merely because it is embedded in artwork. QR and barcode graphics are added later; their absence is expected.` : 'No readable text belongs in this artwork.'}`;
   try {
     const resp = await fetch(
       `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
+        signal: AbortSignal.timeout(45_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{
@@ -492,7 +495,8 @@ Answer STRICT JSON only:
       json.book_mockup && 'depicts a book/product mockup',
       json.framed_object && 'artwork framed as an object instead of full-bleed',
       json.photo_surface && 'photographic real-world surface',
-      json.readable_text && 'readable text painted in the artwork',
+      !opts.embeddedText && json.readable_text && 'readable text painted in the artwork',
+      opts.embeddedText && json.text_mismatch && 'back-cover copy is missing, misspelled or illegible',
     ].filter(Boolean);
     if (failures.length > 0) return { pass: false, reason: failures.join('; ') };
     return { pass: true, reason: null };
@@ -625,7 +629,8 @@ A normal child has exactly two hands and two arms. Only report what you can clea
 
 /**
  * Generate back cover illustration using Gemini, matching the front cover style.
- * ARTWORK ONLY — all back-cover text is typeset by drawBackCoverTypeset.
+ * Picture books opt into an integrated Gemini design; other formats keep
+ * text-free artwork with a separate deterministic text layer.
  *
  * @param {Buffer} frontCoverBuffer - Front cover image
  * @param {object} opts - { title, childName, synopsis, heartfeltNote, bookFrom, bookFormat }
@@ -636,14 +641,12 @@ async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
   const fmt = (bookFormat || '').toLowerCase();
   const isSquare = fmt === 'picture_book' || fmt === 'early_reader';
 
-  const refFromCorner = await buildBackCoverStyleReferenceBuffer(frontCoverBuffer);
+  const refFromCorner = opts.embeddedText
+    ? await sharp(frontCoverBuffer).rotate().resize(1024, 1024, { fit: 'inside' }).jpeg({ quality: 90 }).toBuffer()
+    : await buildBackCoverStyleReferenceBuffer(frontCoverBuffer);
 
-  // The back cover carries the most-read text on the book (the synopsis).
-  // It is TYPESET with pdf-lib after generation — the image model paints
-  // ARTWORK ONLY. Painted text shipped garbled words on a real customer
-  // book (audit 2026-07-15: "stofor", "swoown"), and image models cannot
-  // be trusted with letterforms. The prompt therefore reserves a calm
-  // upper region for the typeset text instead of asking for any text.
+  // Legacy formats still reserve room for PDF typesetting. Picture books
+  // use their integrated-design prompt below, with a bounded spelling QA.
   const layoutBlock = `LAYOUT REQUIREMENTS:
 - This is artwork FOR the back cover — paint the SCENE itself, edge to edge
 - Background: Use a softer, calmer version of the front cover's scene/colors — like a continuation of the world
@@ -679,16 +682,17 @@ ${layoutBlock}`;
   }
 
   console.log('[CoverGenerator] Generating back cover illustration with Gemini...', {
-    styleRef: refFromCorner ? 'corner-crop' : 'none (text-only)',
+    styleRef: refFromCorner ? (opts.embeddedText ? 'approved-front' : 'corner-crop') : 'none (text-only)',
   });
   const startTime = Date.now();
   const model = 'gemini-3.1-flash-image';
   const maxAttempts = refFromCorner ? 2 : 1;
+  let correction = '';
 
   try {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const useImage = refFromCorner && attempt === 0;
-      const prompt = useImage ? withRefBlock : noRefBlock;
+      const useImage = refFromCorner && (opts.embeddedText || attempt === 0);
+      const prompt = opts.embeddedText ? pictureBackCoverPrompt(opts, correction) : useImage ? withRefBlock : noRefBlock;
       const userParts = [{ text: prompt }];
       if (useImage) {
         userParts.push({ inline_data: { mimeType: 'image/jpeg', data: refFromCorner.toString('base64') } });
@@ -698,10 +702,13 @@ ${layoutBlock}`;
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
+          signal: AbortSignal.timeout(180_000),
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ role: 'user', parts: userParts }],
-            generationConfig: { responseModalities: ['TEXT', 'IMAGE'], maxOutputTokens: 8192 },
+            generationConfig: { responseModalities: ['TEXT', 'IMAGE'], maxOutputTokens: 8192,
+              ...(opts.embeddedText ? { imageConfig: { aspectRatio: '1:1', imageSize: '2K' } } : {}),
+            },
           }),
         }
       );
@@ -729,18 +736,19 @@ ${layoutBlock}`;
           // QA gate: a generated "back cover" that depicts a book mockup or
           // framed/photographic object must never reach print — reject and
           // fall through to the next attempt (or the typeset fallback panel).
-          const qa = await qaBackCoverArtwork(buffer, apiKey);
+          const qa = await qaBackCoverArtwork(buffer, apiKey, opts);
           if (!qa.pass) {
+            correction = qa.reason;
             console.warn(`[CoverGenerator] Back cover attempt ${attempt + 1} REJECTED by QA: ${qa.reason}`);
             break;
           }
           const ms = Date.now() - startTime;
           console.log(`[CoverGenerator] Back cover generated in ${ms}ms (attempt ${attempt + 1})`);
-          return buffer;
+          return opts.embeddedText ? await embedBackCoverCodes(buffer, opts.bookId) : buffer;
         }
       }
       if (!gotImage) logGeminiImageResponseDiagnostics(data, `back cover attempt ${attempt + 1} (no image)`);
-      if (refFromCorner && attempt === 0) {
+      if (refFromCorner && attempt === 0 && !opts.embeddedText) {
         console.warn('[CoverGenerator] Back cover: no image with corner-crop ref — retrying text-only');
       }
     }
@@ -1080,17 +1088,35 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const bookFrom = opts.bookFrom || '';
 
   let backCoverBuffer = null;
-  if (frontCoverBuffer && !opts.reuseApprovedArtworkOnly) {
+  let embeddedBackText = false;
+  const backOpts = { title, childName, synopsis, heartfeltNote, bookFrom, bookId: opts.bookId };
+  const backCachePath = frontCoverBuffer && isPictureBook && opts.bookId && opts.cacheBackCover
+    ? pictureBackCoverCachePath(frontCoverBuffer, backOpts) : null;
+  if (backCachePath) {
+    try {
+      const cached = await downloadBuffer(backCachePath);
+      const meta = await sharp(cached).metadata();
+      if (meta.width === 2550 && meta.height === 2550) {
+        backCoverBuffer = cached;
+        embeddedBackText = true;
+        console.log('[CoverGenerator] Reusing the matching finished Gemini back cover');
+      }
+    } catch { /* first render or unreadable cache: normal bounded generation */ }
+  }
+  if (!backCoverBuffer && frontCoverBuffer && (!opts.reuseApprovedArtworkOnly || opts.allowBackCoverGeneration)) {
     backCoverBuffer = await generateBackCoverImage(frontCoverBuffer, {
-      title,
-      childName,
-      synopsis,
-      heartfeltNote,
-      bookFrom,
+      ...backOpts,
+      embeddedText: isPictureBook && !!opts.bookId,
       costTracker: opts.costTracker,
       bookFormat,
       isHardcover,
     });
+    embeddedBackText = !!backCoverBuffer && isPictureBook && !!opts.bookId;
+    if (embeddedBackText && backCachePath) {
+      try {
+        await require('./gcsStorage').uploadBuffer(backCoverBuffer, backCachePath, 'image/png');
+      } catch (err) { console.warn('[CoverGenerator] Back-cover cache write failed:', err.message); }
+    }
   }
 
   // ── Build wrap-around PDF ──
@@ -1142,15 +1168,16 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
         right: 0,
       }))
         .toColorspace('srgb')
-        .jpeg({ quality: 95 })
+        .png()
         .toBuffer();
-      const img = await pdfDoc.embedJpg(resized);
+      const img = await pdfDoc.embedPng(resized);
       page.drawImage(img, { x: 0, y: 0, width: backWidth, height: totalHeight });
-      console.log('[CoverGenerator] Back cover illustration embedded (textless art)');
+      console.log('[CoverGenerator] Back cover illustration embedded');
     } catch (err) {
       console.error('[CoverGenerator] Failed to embed back cover illustration:', err.message);
       // Fall through to plain-color background
       backCoverBuffer = null;
+      embeddedBackText = false;
     }
   }
 
@@ -1164,9 +1191,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     });
   }
 
-  // Typeset ALL back-cover text with pdf-lib — on art or fallback alike.
-  // Never painted by the image model (see drawBackCoverTypeset).
-  if (isPictureBook && opts.bookId) {
+  // Only legacy artwork / emergency fallback needs an extra text layer.
+  if (embeddedBackText) {
+    // The final artwork already contains the copy and exact machine codes.
+  } else if (isPictureBook && opts.bookId) {
     await drawBookBackCover(page, { edgeBleed, trimWidth, totalHeight }, {
       title, synopsis, heartfeltNote, bookFrom, childName, bookId: opts.bookId,
     });
@@ -1239,7 +1267,9 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const trimHpx = Math.round(trimHeight / 72 * 300);
       const bleedPx = Math.round(edgeBleed / 72 * 300);
       const trimFit = await sharp(frontCoverBuffer)
-        .resize(trimWpx, trimHpx, { fit: 'cover', position: 'center' })
+        .resize(trimWpx, trimHpx, { fit: opts.preserveApprovedCoverBounds ? 'contain' : 'cover', position: 'center',
+          ...(opts.preserveApprovedCoverBounds ? { background: { r: Math.round(coverColor.r * 255), g: Math.round(coverColor.g * 255), b: Math.round(coverColor.b * 255) } } : {}),
+        })
         .toBuffer();
       const resized = await sharp(await extendWithSoftWrap(trimFit, {
         top: bleedPx,
@@ -1290,6 +1320,8 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     coverPdfBuffer: Buffer.from(pdfBytes),
     frontCoverImageUrl,
     backCoverImageUrl,
+    backCoverDesignAdvisory: isPictureBook && opts.bookId && !embeddedBackText
+      ? 'The Gemini back-cover design was unavailable; a readable cover fallback was used.' : null,
     // P0: null when the cover passed anatomy QA (or QA was unavailable); a
     // human-readable string when a residual limb-count defect shipped and the
     // book should be flagged for review.

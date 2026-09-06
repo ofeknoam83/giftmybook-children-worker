@@ -90,7 +90,7 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
     const { augmentsFor } = require('./augments');
     const pinnedMapVersion = request.versions?.personalization_map || 'none';
     const nameOnly = pinnedMapVersion === 'none';
-    const currentMap = augmentsFor(request.book_id).personalizationMap;
+    const currentMap = hit.personalizationMap || augmentsFor(request.book_id).personalizationMap;
     const mapUnavailable = !nameOnly && (!currentMap || currentMap.map_version !== pinnedMapVersion);
     if (mapUnavailable) {
       log('warn', `stored story for ${request.book_id} was written with map ${pinnedMapVersion} but the approved map is ${currentMap ? `now ${currentMap.map_version}` : 'gone'} — skipping evidence re-validation only`);
@@ -289,7 +289,7 @@ async function runBookPipeline(params) {
         frontCoverBuffer,
         bookTitle,
         {
-          costTracker, characterDescription: characterDescription || null, theme: getBook(story.request.book_id).themeId,
+          costTracker, characterDescription: characterDescription || null, theme: bookDef.themeId,
           // ce-9: the upsell spread prints INSIDE the same book — its four
           // renders wear the book's locked outfit and anchor on the character
           // model sheet, not on a 256px cover thumbnail alone.
@@ -363,6 +363,11 @@ async function runBookPipeline(params) {
           costTracker, bookId, pageCount, synopsis,
           heartfeltNote, bookFrom, bindingType,
           requireCompleteCover: true,
+          cacheBackCover: true,
+          ...(story.request.versions?.catalog?.startsWith('upsell-v1-') ? { reuseApprovedArtworkOnly: true, preserveApprovedCoverBounds: true } : {}),
+          // Rebuilds preserve the approved front and every interior spread.
+          // A missing designed back is generated once, then cached for reuse.
+          allowBackCoverGeneration: attempt === 0,
           // A second assembly attempt uses the approved front and the existing
           // typeset, color-matched back/spine fallback, without another AI render.
           ...(attempt > 0 || reviewedOnly || resumeArtwork ? { reuseApprovedArtworkOnly: true } : {}),
@@ -396,6 +401,7 @@ async function runBookPipeline(params) {
       if (!coverPdfUrl) throw new Error('Cover PDF download link was not produced');
       if (attempt > 0) warnings.push('Cover PDF recovered automatically using saved artwork.');
       if (coverData.coverAnatomyAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverAnatomyAdvisory });
+      if (coverData.backCoverDesignAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverDesignAdvisory });
     } catch (coverErr) {
       coverError = coverErr;
       log('warn', `Cover PDF attempt ${attempt + 1} failed: ${coverErr.message}${attempt === 0 ? ' — retrying automatically with saved artwork' : ''}`);
