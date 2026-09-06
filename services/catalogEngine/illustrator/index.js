@@ -322,8 +322,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // ce-15: the pack index of the TYPOGRAPHY REFERENCE (the renderer's
     // text rules cite it: "match REFERENCE IMAGE N").
     ...(Number.isInteger(refs.typographyRef) ? { typographyRef: refs.typographyRef } : {}),
-    // ce-16: opt-in output size for embedded renders (CATALOG_EMBEDDED_IMAGE_SIZE) —
-    // more pixels per glyph is what keeps SMALL painted text crisp at print.
+    // Full-canvas manuscript templates default to 4K so small painted
+    // glyphs retain detail. The explicit size override remains available.
     ...(embedText && (flags.embeddedImageSize() || typographyAnchor?.kind === 'template') ? { imageSize: flags.embeddedImageSize() || '4K' } : {}),
     bookId,
     costTracker,
@@ -1193,13 +1193,14 @@ async function renderStorySpreads(params) {
     try {
       bookTextInk = await chooseBookTextInk(refPhoto);
       let candidate = await createTypographyGuide({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text });
-      if (flags.typographyTemplateEnabled?.()) {
+      {
         const template = await createTypographyTemplate({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text,
           side: shotPlan?.[story.spreads?.[0]?.spread]?.textSide || 'left' });
         // Keep existing guide renders on ordinary retries. A new template is
         // a different cache namespace, never a reason to rebuy saved art.
+        // Disabling it affects new books; partial template books still resume.
         const useTemplate = await canUseTypographyGuide({
-          enabled: true, reviewedOnly, forceRerender,
+          enabled: flags.typographyTemplateEnabled?.() ?? false, reviewedOnly, forceRerender, resumeWhenDisabled: true,
           legacyPaths: [anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)),
             ...book.beats.flatMap(b => [renderCachePath(bookId, storyHash, b.spread, cacheAspect, tuningTag),
               renderCachePath(bookId, `${storyHash}-ta${candidate.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag)])],

@@ -67,13 +67,14 @@ async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread 
 
 // A new reference changes every cache key. Ordinary retries of an older
 // book must keep its existing namespace, including partially generated books.
-async function canUseTypographyGuide({ enabled, reviewedOnly, forceRerender, legacyPaths, guidePaths = [] }, exists = require('../../gcsStorage').objectExists) {
-  if (!enabled || reviewedOnly) return false;
-  if (forceRerender) return true;
+async function canUseTypographyGuide({ enabled, reviewedOnly, forceRerender, legacyPaths, guidePaths = [], resumeWhenDisabled = false }, exists = require('../../gcsStorage').objectExists) {
+  if (reviewedOnly || (!enabled && !resumeWhenDisabled)) return false;
+  if (forceRerender) return !!enabled;
   try {
     // A previous explicit upgrade may coexist with old paid-for renders.
     // Resume the new guide namespace once any of its renders exists.
     if ((await Promise.all(guidePaths.map(key => exists(key)))).some(Boolean)) return true;
+    if (!enabled) return false;
     return !(await Promise.all(legacyPaths.map(key => exists(key)))).some(Boolean);
   }
   catch { return false; } // a failed existence check must not invalidate saved artwork

@@ -339,3 +339,52 @@ describe('ART TUNING block survives prompt sanitization verbatim', () => {
     expect(prompt.trimEnd().endsWith(prompt.match(/FINAL STYLE REMINDER[^\n]*/)[0])).toBe(true);
   });
 });
+
+
+describe('full-spread template request and fallback', () => {
+  test('every fallback keeps the actual manuscript and small lettering instructions', async () => {
+    const realFetch = global.fetch;
+    const bodies = [];
+    global.fetch = jest.fn(async (url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: false, status: 400, text: async () => 'SAFETY blocked' };
+    });
+    try {
+      await generateIllustration('A forest path.', 'https://p/x.png', 'pixar_premium', {
+        childName: 'Test', childAge: 6, isSpread: true, embedText: true,
+        pageText: 'The bells rang.', typographyTemplate: true, typographyRef: 2,
+        textSide: 'right', bookTextInk: 'light', imageSize: '4K', aspectRatio: '16:9',
+        _cachedPhotoBase64: 'YQ==',
+        referencePack: [
+          { kind: 'cover', label: 'IDENTITY', base64: 'YQ==', mimeType: 'image/png' },
+          { kind: 'typography-template', label: 'EDIT BASE', base64: 'Yg==', mimeType: 'image/png' },
+        ],
+      });
+    } finally { global.fetch = realFetch; }
+    expect(bodies).toHaveLength(3);
+    for (const body of bodies) {
+      expect(body.generationConfig.imageConfig).toEqual({ aspectRatio: '16:9', imageSize: '4K' });
+      const parts = body.contents[0].parts;
+      expect(parts[0].text).toContain('The bells rang.');
+      expect(parts[0].text).toContain('Playfair Display Regular');
+      expect(parts[0].text).toContain('cap height 0.95%');
+      expect(parts[0].text).toContain('EXACT MANUSCRIPT ONLY');
+      expect(parts[1].text).toContain('REFERENCE IMAGE 2');
+      expect(parts[2].inline_data.data).toBe('Yg==');
+    }
+  });
+  test('4K generation records its higher output cost without adding another call', async () => {
+    const realFetch = global.fetch;
+    const costTracker = { addImageGeneration: jest.fn() };
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({
+      candidates: [{ content: { parts: [{ inlineData: { data: 'YQ==', mimeType: 'image/png' } }] } }],
+    }) }));
+    try {
+      await generateIllustration('A forest path.', 'https://p/x.png', 'pixar_premium', {
+        _cachedPhotoBase64: 'YQ==', imageSize: '4K', costTracker,
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(costTracker.addImageGeneration).toHaveBeenCalledWith('gemini-3.1-flash-image:4K', 1);
+    } finally { global.fetch = realFetch; }
+  });
+});

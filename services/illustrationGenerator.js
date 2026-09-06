@@ -1392,6 +1392,15 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const bibleFallbackBlocks = opts.bible && typeof opts.bible === 'object'
     ? renderBibleBlocks(opts.bible, { bathWaterScene: isModestBathWaterScene(stripHairFromScene(sceneDescription), opts.pageText || '') }).join('\n')
     : '';
+  const genericSafeScene = buildGenericSafePrompt(artStyle, {
+    childName,
+    characterOutfit: opts.characterOutfit,
+    characterDescription: opts.characterDescription,
+  });
+  // The template's manuscript and geometry must survive a scene fallback.
+  const genericSafePrompt = opts.typographyTemplate
+    ? buildFullPrompt(genericSafeScene)
+    : genericSafeScene + (bibleFallbackBlocks ? `\n${bibleFallbackBlocks}` : '');
   const promptVariants = [
     { label: 'original', prompt: fullPrompt },
     { label: 'sanitized', prompt: opts.bible ? buildFullPrompt(sanitizePrompt(sceneDescription)) : sanitizePrompt(fullPrompt) },
@@ -1400,11 +1409,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       // opts.safeFallbackSuffix: caller-owned block that must survive even
       // this scene-discarding last resort (the catalog illustrator passes
       // the theme's world-law card — Layer 1 promises it on EVERY render).
-      prompt: buildGenericSafePrompt(artStyle, {
-        childName,
-        characterOutfit: opts.characterOutfit,
-        characterDescription: opts.characterDescription,
-      }) + (bibleFallbackBlocks ? `\n${bibleFallbackBlocks}` : '') + (opts.safeFallbackSuffix ? `\n${opts.safeFallbackSuffix}` : ''),
+      prompt: genericSafePrompt + (opts.safeFallbackSuffix ? `\n${opts.safeFallbackSuffix}` : ''),
     },
   ];
 
@@ -1442,7 +1447,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
 
       if (costTracker) {
-        costTracker.addImageGeneration('gemini-3.1-flash-image', 1);
+        costTracker.addImageGeneration(photoBase64 && opts.imageSize === '4K'
+          ? 'gemini-3.1-flash-image:4K' : 'gemini-3.1-flash-image', 1);
       }
 
       // Verify embedded text accuracy (skip on last attempt — accept best effort)

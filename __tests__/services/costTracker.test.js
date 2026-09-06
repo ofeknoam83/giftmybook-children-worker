@@ -37,6 +37,11 @@ describe('CostTracker', () => {
     expect(summary.breakdown['flux-dev'].imageCount).toBe(3);
   });
 
+  test('4K image output is estimated separately from legacy image calls', () => {
+    tracker.addImageGeneration('gemini-3.1-flash-image:4K', 12);
+    expect(tracker.getSummary().breakdown['gemini-3.1-flash-image:4K']).toEqual({ imageCount: 12, cost: 1.8144 });
+  });
+
   test('combines text and image costs', () => {
     tracker.addTextUsage('gpt-5.4', 10000, 5000);
     tracker.addImageGeneration('flux-dev', 10);

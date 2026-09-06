@@ -1076,8 +1076,8 @@ test('reviewed rebuild preserves cached pixels and skips automatic repair gates'
 
 
 describe('generated small-type guide', () => {
-  beforeEach(() => { process.env.CATALOG_TYPOGRAPHY_GUIDE = '1'; generateIllustration.mockClear(); });
-  afterEach(() => { process.env.CATALOG_TYPOGRAPHY_GUIDE = '0'; });
+  beforeEach(() => { process.env.CATALOG_TYPOGRAPHY_GUIDE = '1'; process.env.CATALOG_TYPOGRAPHY_TEMPLATE = '0'; generateIllustration.mockClear(); });
+  afterEach(() => { process.env.CATALOG_TYPOGRAPHY_GUIDE = '0'; delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE; });
   test('every Gemini spread gets the same guide, including the first, with no extra image attempts', async () => {
     const result = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' }));
     expect(generateIllustration).toHaveBeenCalledTimes(3);
@@ -1114,7 +1114,8 @@ describe('per-spread full-canvas lettering template', () => {
     delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
     objectExists.mockImplementation(async () => false);
   });
-  test('each request gets its own manuscript at the same size; a subset keeps the full-book namespace', async () => {
+  test('the default gives each request its own manuscript at the same size; a subset keeps the full-book namespace', async () => {
+    delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
     const params = { spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' };
     const result = await renderStorySpreads(baseParams(params));
     expect(generateIllustration).toHaveBeenCalledTimes(3);
@@ -1130,7 +1131,7 @@ describe('per-spread full-canvas lettering template', () => {
     expect(generateIllustration.mock.calls[0][3].referencePack.find(r => r.kind === 'typography-template').base64).toBe(refs[1].base64);
   });
   test('an existing guide book stays on its paid-for namespace unless explicitly upgraded', async () => {
-    delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
+    process.env.CATALOG_TYPOGRAPHY_TEMPLATE = '0';
     const params = { spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' };
     const old = await renderStorySpreads(baseParams(params));
     process.env.CATALOG_TYPOGRAPHY_TEMPLATE = '1';
@@ -1144,5 +1145,10 @@ describe('per-spread full-canvas lettering template', () => {
     objectExists.mockImplementation(async key => [old.results[1].storageKey, upgraded.results[0].storageKey].includes(key));
     const retry = await renderStorySpreads(baseParams(params));
     expect(retry.results.map(r => r.storageKey)).toEqual(upgraded.results.map(r => r.storageKey));
+    process.env.CATALOG_TYPOGRAPHY_TEMPLATE = '0';
+    generateIllustration.mockClear();
+    const rollbackRetry = await renderStorySpreads(baseParams(params));
+    expect(rollbackRetry.results.map(r => r.storageKey)).toEqual(upgraded.results.map(r => r.storageKey));
+    expect(generateIllustration).not.toHaveBeenCalled();
   });
 });

@@ -18,6 +18,9 @@ const RATES = {
   'replicate-flux': { perImage: 0.04 },
   'gemini-image': { perImage: 0.02 },
   'gemini-3.1-flash-image': { perImage: 0.02 },
+  // Requested 4K output: 2,520 image tokens at $60/M (Google pricing,
+  // 2026-09-06). Image-output estimate only; excludes input/thinking tokens.
+  'gemini-3.1-flash-image:4K': { perImage: 0.1512 },
   'gemini-2.5-flash-image': { perImage: 0.02 },
   // The v3 illustrator's default renderer (sheet + spread renders). Placeholder
   // rate pending published pro-tier image pricing — confirm before invoicing
