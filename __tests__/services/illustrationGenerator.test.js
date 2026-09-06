@@ -371,6 +371,10 @@ describe('full-spread template request and fallback', () => {
       expect(parts[0].text).toContain('EXACT MANUSCRIPT ONLY');
       expect(parts[1].text).toContain('REFERENCE IMAGE 2');
       expect(parts[2].inline_data.data).toBe('Yg==');
+      expect(parts[3].text).toContain('REFERENCE IMAGE 1');
+      expect(parts[4].inline_data.data).toBe('YQ==');
+      expect(parts[5].text).toContain('SCENE INTEGRATION (si-1)');
+      expect(parts[5].text).toContain('Preserve all manuscript and typography-template instructions exactly');
     }
   });
   test('4K generation records its higher output cost without adding another call', async () => {

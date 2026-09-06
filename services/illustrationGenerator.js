@@ -9,6 +9,11 @@
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
 const { resolveBookTextRules, resolveTypographyGuideRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
+const { SCENE_INTEGRATION_VERSION } = require('./catalogEngine/versions');
+
+// Place this AFTER the visual references, where it can distinguish design
+// fidelity from copying a studio-lit model sheet into a separate background.
+const SCENE_INTEGRATION_DIRECTION = `SCENE INTEGRATION (${SCENE_INTEGRATION_VERSION}): Create one coherent illustration, redrawing the referenced child as part of this scene. References lock identity, age, face, hair, natural skin tone, and outfit design, colours and materials; they do NOT lock source-image lighting, shading, highlights or edge treatment. Preserve those identity and outfit details, without adding or changing hair colours or facial markings. Re-render the child's skin, hair and clothing in the same visual medium, degree of stylization and surface detail as the environment. Light and shade the whole child from this scene's light sources, including environmental bounce light and shadows, with depth-appropriate sharpness and natural occlusion by nearby scenery. Never extract or paste the reference figure, keep its studio illumination, or surround it with a cutout halo. Show believable weight and contact with the surface supporting the child, with contact shadows and overlap at feet, hands or seat as appropriate to the action. Airborne or floating poses are allowed only when the stated story action calls for them. Keep the assigned action, camera and composition. Preserve all manuscript and typography-template instructions exactly.`;
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
@@ -1173,6 +1178,11 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
       { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
     ];
 
+  if (opts.isSpread) {
+    parts.push({ text: SCENE_INTEGRATION_DIRECTION });
+    console.log(`[illustrationGenerator] Scene integration: ${SCENE_INTEGRATION_VERSION}`);
+  }
+
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig,
@@ -1457,7 +1467,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       if (photoBase64) {
         // opts.worldPlate ({base64, mimeType}): the caller's fixed world
         // reference plate, attached as a second labeled reference image.
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null, worldPlate: opts.worldPlate || null, referencePack: opts.referencePack || null, imageSize: opts.imageSize || null });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, isSpread, seed: opts.seed ?? null, worldPlate: opts.worldPlate || null, referencePack: opts.referencePack || null, imageSize: opts.imageSize || null });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
