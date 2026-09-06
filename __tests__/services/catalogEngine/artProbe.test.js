@@ -1086,7 +1086,7 @@ describe('generated small-type guide', () => {
     expect(refs.every(Boolean)).toBe(true);
     expect(new Set(refs.map(r => r.base64)).size).toBe(1);
     expect(refs[0].label).toContain('TYPOGRAPHY SIZE AND INK GUIDE');
-    expect(options.every(o => o.embedText === true && o.bookTextInk === 'dark')).toBe(true);
+    expect(options.every(o => o.embedText === true && o.bookTextInk === 'dark' && o.typographyGuide === true)).toBe(true);
     expect(options.every(o => /-ta/.test(o.gcsPath))).toBe(true);
     expect(result.typographyAnchorUsed).toMatch(/^guide\./);
   });

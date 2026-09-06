@@ -219,6 +219,20 @@ function resolveBookTextRules(childAge, ink = 'dark') {
   };
 }
 
+/** The drawn guide and its Gemini instructions must describe identical type. */
+function resolveTypographyGuideRules(childAge, ink = 'dark') {
+  const rules = resolveBookTextRules(childAge, ink);
+  const capHeightPercent = rules.linePitchPercent <= 1.9 ? 0.95 : 1.1;
+  const edge = ink === 'light' ? 'deep cocoa (#2A1C12)' : 'warm off-white (#FFF9EF)';
+  return {
+    ...rules,
+    capHeightPercent,
+    fontStyle: 'Playfair Display Regular, exactly matching the supplied lettering guide. One upright serif face and regular weight for the entire book. Do not substitute Georgia, Book Antiqua or another typeface; do not switch to bold, italic, decorative or headline lettering.',
+    fontSize: `SMALL book body type: cap height ${capHeightPercent}% of the FULL illustration height, line pitch ${rules.linePitchPercent}% of its height, exactly matching the lettering guide at full height. This is the one target for every spread, including the first and last. Never scale type to fill the column or enlarge short passages. Keep short lines short and leave the remaining space as continuous scenery. Never poster, subtitle or headline scale.`,
+    fontColor: `ONE fixed fill for this entire book: ${rules.fontColorHex}, matching the lettering guide. Keep the SAME fill and regular weight on every spread regardless of scene lighting. A ${edge} hairline may hug each glyph: target thickness 0.03% of the FULL image height, never more than 0.05%. It must not thicken the letter or look like outlined display text. No thick contour, double stroke, shadow, glow, halo, panel or background patch.`,
+  };
+}
+
 /**
  * Bottom caption corners risk PDF crop + model drift; parents reading to infants
  * often hold the book low. For age &lt; 3 (years), map bottom → top on same side.
@@ -374,6 +388,7 @@ module.exports = {
   TEXT_RULES,
   resolvePictureBookTextRules,
   resolveBookTextRules,
+  resolveTypographyGuideRules,
   preferTopCornersOnlyUnderThree,
   PIXAR_STYLE,
   PARENT_THEMES,

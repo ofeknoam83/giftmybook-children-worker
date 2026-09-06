@@ -184,14 +184,14 @@ describe('ce-15: the text block has a FOOTPRINT, a no-panel rule that names the 
 describe('ce-15: generateIllustration forwards the assigned text side and the typography reference into the prompt it SENDS', () => {
   const STORY = 'Aaron checked the ground nearby first. No cracked earth, no steep drop, no thorny patch blocked the way.';
 
-  test.each(['dark', 'light'])('the Gemini request carries pinned %s ink, column, and reference image parts in pack order', async (bookTextInk) => {
+  test.each([['dark', false], ['light', false], ['dark', true], ['light', true]])('the Gemini request carries pinned %s ink and guide=%s into its actual request', async (bookTextInk, typographyGuide) => {
     const bodies = [];
     const realFetch = global.fetch;
     global.fetch = jest.fn(async (url, init) => { bodies.push(JSON.parse(init.body)); throw new Error('offline test'); });
     try {
       await expect(generateIllustration('Aaron stands on a warm rock.', 'https://p/x.png', 'pixar_premium', {
         bookId: 'b1', childName: 'Aaron', isSpread: true, spreadIndex: 3, totalSpreads: 12, embedText: true, pageText: STORY, childAge: 7,
-        aspectRatio: '16:9', textSide: 'left', typographyRef: 2, bookTextInk,
+        aspectRatio: '16:9', textSide: 'left', typographyRef: 2, bookTextInk, typographyGuide,
         childPhotoUrl: 'https://p/x.png', _cachedPhotoBase64: 'YmFzZTY0', _cachedPhotoMime: 'image/jpeg',
         referencePack: [
           { kind: 'cover', label: 'APPROVED COVER (identity only)', base64: 'YQ==', mimeType: 'image/jpeg' },
@@ -209,7 +209,14 @@ describe('ce-15: generateIllustration forwards the assigned text side and the ty
     expect(prompt).not.toContain('pick a single side');
     expect(prompt).toContain('TYPOGRAPHY REFERENCE (REFERENCE IMAGE 2');
     expect(prompt).toContain('TEXT — FINAL CHECK');
-    if (bookTextInk === 'light') {
+    if (typographyGuide) {
+      expect(prompt).toContain('Playfair Display Regular');
+      expect(prompt).not.toContain('resembling Georgia');
+      expect(prompt).toContain('cap height 0.95%');
+      expect(prompt).not.toContain('cap height about 1.1%');
+      expect(prompt).toContain('never more than 0.05%');
+      expect(prompt).toContain(bookTextInk === 'light' ? 'fixed fill for this entire book: #FFF4DE' : 'fixed fill for this entire book: #2A1C12');
+    } else if (bookTextInk === 'light') {
       expect(prompt).toContain('warm ivory (#FFF4DE)');
       expect(prompt).not.toContain('NEVER white, ivory');
       expect(prompt).not.toContain('never invert to light text');

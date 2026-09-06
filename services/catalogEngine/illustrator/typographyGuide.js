@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const fontkit = require('@pdf-lib/fontkit');
 const { createHash } = require('crypto');
-const { resolveBookTextRules } = require('../../shared/illustration/config');
+const { resolveTypographyGuideRules } = require('../../shared/illustration/config');
 const { wrapStoryLines } = require('../../shared/illustration/textBlock');
 
 // A reference, never an overlay on the output. Gemini still paints every
@@ -32,9 +32,9 @@ async function chooseBookTextInk(reference) {
 }
 
 async function createTypographyGuide({ childAge, ink = 'dark', text }) {
-  const rules = resolveBookTextRules(childAge, ink);
+  const rules = resolveTypographyGuideRules(childAge, ink);
   const f = guideFont();
-  const capPercent = rules.linePitchPercent <= 1.9 ? 0.95 : 1.1;
+  const capPercent = rules.capHeightPercent;
   const capHeight = GUIDE_HEIGHT * capPercent / 100;
   const h = f.glyphForCodePoint('H'.codePointAt(0)).bbox;
   const scale = capHeight / (h.maxY - h.minY);
