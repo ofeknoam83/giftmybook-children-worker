@@ -1081,7 +1081,7 @@ describe('generated small-type guide', () => {
   test('every Gemini spread gets the same guide, including the first, with no extra image attempts', async () => {
     const result = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' }));
     expect(generateIllustration).toHaveBeenCalledTimes(3);
-    const options = generateIllustration.mock.calls.map(c => c[3]);
+    const options = generateIllustration.mock.calls.map(c => c[3]).sort((a, b) => a.spreadIndex - b.spreadIndex);
     const refs = options.map(o => o.referencePack.find(r => r.kind === 'typography'));
     expect(refs.every(Boolean)).toBe(true);
     expect(new Set(refs.map(r => r.base64)).size).toBe(1);
@@ -1118,7 +1118,7 @@ describe('per-spread full-canvas lettering template', () => {
     const params = { spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' };
     const result = await renderStorySpreads(baseParams(params));
     expect(generateIllustration).toHaveBeenCalledTimes(3);
-    const options = generateIllustration.mock.calls.map(c => c[3]);
+    const options = generateIllustration.mock.calls.map(c => c[3]).sort((a, b) => a.spreadIndex - b.spreadIndex);
     expect(options.every(o => o.typographyTemplate && o.imageSize === '4K')).toBe(true);
     const refs = options.map(o => o.referencePack.find(r => r.kind === 'typography-template'));
     expect(new Set(refs.map(r => r.base64)).size).toBe(3);
