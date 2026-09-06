@@ -108,7 +108,15 @@ describe('generateIllustration with a reference pack + bible', () => {
     expect(parts[2].inline_data.data).toBe('c2hlZXQ=');
     expect(parts[3].text).toBe('REFERENCE IMAGE 2 — APPROVED COVER');
     expect(parts[4].inline_data).toEqual({ mimeType: 'image/jpeg', data: 'Y292ZXI=' });
-    expect(parts).toHaveLength(5);
+    expect(parts).toHaveLength(6);
+    expect(parts[5].text).toContain('SCENE INTEGRATION (si-1)');
+    expect(parts[5].text).toContain('do NOT lock source-image lighting');
+    expect(parts[5].text).toContain('same visual medium, degree of stylization');
+    expect(parts[5].text).toContain('contact shadows and overlap');
+    expect(parts[5].text).toContain('only when the stated story action calls for them');
+    expect(parts[5].text).toContain('without adding or changing hair colours or facial markings');
+    expect(parts[5].text).toContain('Preserve all manuscript and typography-template instructions exactly');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(body.safetySettings).toEqual(GEMINI_IMAGE_SAFETY_SETTINGS);
     expect(attemptLog).toEqual([{ attempt: 1, variant: 'original', accepted: true }]);
   });
@@ -133,6 +141,26 @@ describe('generateIllustration with a reference pack + bible', () => {
     expect(prompts[2]).toContain('CHARACTER (THE ONLY CHILD');
     expect(prompts[2]).toContain('"teddy bear"');
     expect(prompts[2]).toContain('WORLD LAWS: fixed.');
+    // Every fallback receives the same integration instruction AFTER all
+    // reference pixels, without adding another image request or reference.
+    for (const call of fetchSpy.mock.calls) {
+      const parts = JSON.parse(call[1].body).contents[0].parts;
+      expect(parts.at(-1).text).toContain('SCENE INTEGRATION (si-1)');
+      expect(parts.filter(p => p.inline_data)).toHaveLength(1);
+    }
     expect(attemptLog.filter(a => a.accepted)).toEqual([{ attempt: 3, variant: 'generic-safe', accepted: true }]);
+  });
+
+  test('cover generation does not receive the spread-only redraw instruction', async () => {
+    fetchSpy.mockResolvedValue(okImage());
+    await generateIllustration('A cover portrait.', 'https://x/cover.png', 'pixar_premium', {
+      bookId: 'b1', childName: 'Emma', skipTextEmbed: true, isSpread: false,
+      _cachedPhotoBase64: 'Y292ZXI=', _cachedPhotoMime: 'image/jpeg',
+      gcsPath: 'children-jobs/b1/cover.png',
+    });
+    const parts = JSON.parse(fetchSpy.mock.calls[0][1].body).contents[0].parts;
+    expect(parts).toHaveLength(2);
+    expect(parts.some(p => p.text?.includes('SCENE INTEGRATION'))).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

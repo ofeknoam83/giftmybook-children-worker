@@ -163,6 +163,10 @@ const PROMPT_TEMPLATE_VERSION = '1.3.0'; // 1.3.0: explicit per-spread literal a
 // embedded render — ce-17 renders must never replay as ce-18.
 const STYLE_VERSION = 'ce-18';
 
+// Prompt-only revision, logged on fresh spread requests. Keep the render cache
+// namespace stable so deploying this direction never regenerates saved artwork.
+const SCENE_INTEGRATION_VERSION = 'si-1';
+
 /**
  * Spread-QA verdict version — written into every render's `.qa.json`
  * marker. A replay whose marker predates the current version re-checks the
@@ -237,6 +241,7 @@ module.exports = {
   SELECTOR_VERSION,
   PROMPT_TEMPLATE_VERSION,
   STYLE_VERSION,
+  SCENE_INTEGRATION_VERSION,
   QA_VERSION,
   VIDEO_VERSION,
 };
