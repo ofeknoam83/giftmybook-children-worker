@@ -582,7 +582,7 @@ function repairNote(defects, expectedText = null, opts = {}) {
       notes.push('Paint the story text directly OVER the artwork on a calm area of the scene — NO blank, solid, or lightened band/strip/panel behind it; the illustration must fill the entire canvas edge to edge. Fix ONLY the text placement; keep the scene otherwise identical.');
     }
     if (d.includes('treated backdrop')) {
-      notes.push('Remove the blur, fog, glow, darkening, or lightening behind and around the story text: the scenery under and around every letter must be exactly as SHARP, bright, and detailed as the rest of the image — as if the text were not there — and legibility comes ONLY from the letters\' own thin dark outline. Fix ONLY the text\'s backdrop; keep the scene otherwise identical.');
+      notes.push('Remove the blur, fog, glow, darkening, or lightening behind and around the story text: the scenery under and around every letter must be exactly as SHARP, bright, and detailed as the rest of the image — as if the text were not there — and legibility comes ONLY from the letters\' own thin contrasting hairline, matching the book-wide ink. Fix ONLY the text\'s backdrop; keep the scene otherwise identical.');
     }
     if (d.includes('crosses the page fold')) {
       notes.push('This image prints as TWO facing book pages and the vertical centerline is the physical FOLD — any word crossing it is cut in half in print. Use a SMALLER font and re-wrap the text into MORE, SHORTER lines (about 5 words each) so the whole block fits its narrow column, then keep the ENTIRE block fully on ONE page: completely within the left 35% or the right 35% of the image, with NO word or letter in the middle 30%. Fix ONLY the text size and placement; keep the scene otherwise identical.');
@@ -594,7 +594,10 @@ function repairNote(defects, expectedText = null, opts = {}) {
     }
     if (d.startsWith('embedded story text ink colour differs')) {
       const ink = typeof opts.inkHex === 'string' ? opts.inkHex : null;
-      notes.push(`The story text was painted in the WRONG COLOUR. Repaint the same words in the book's ONE fixed ink${ink ? `: deep warm cocoa-brown, almost black (hex ${ink})` : ''} — never white, ivory, cream, or any pale fill, and never a colour picked to suit this scene's palette. Keep it legible with a thin, tight pale hairline hugging each letter, not by inverting the fill. Fix ONLY the text colour; keep the scene otherwise identical.`);
+      const lightInk = ink?.toUpperCase() === '#FFF4DE';
+      notes.push(lightInk
+        ? `The story text was painted in the WRONG COLOUR. Repaint the same words in the book's ONE fixed warm ivory ink (hex #FFF4DE), matching the typography guide. Never switch to dark ink or recolour it for this scene. Use only a thin, tight dark cocoa hairline around each glyph for contrast. No panel, glow or background patch. Fix ONLY the text colour; keep the scene otherwise identical.`
+        : `The story text was painted in the WRONG COLOUR. Repaint the same words in the book's ONE fixed ink${ink ? `: deep warm cocoa-brown, almost black (hex ${ink})` : ''} — never white, ivory, cream, or any pale fill, and never a colour picked to suit this scene's palette. Keep it legible with a thin, tight pale hairline hugging each letter, not by inverting the fill. Fix ONLY the text colour; keep the scene otherwise identical.`);
     }
     if (d.includes('lines misaligned')) {
       notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin — every line beginning at the EXACT same horizontal position — with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');

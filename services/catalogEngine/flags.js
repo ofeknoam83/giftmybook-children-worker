@@ -189,6 +189,7 @@ module.exports = {
   // ce-15 — the typography anchor (the book's first painted page as the
   // type reference for its other embedded spreads)
   textAnchorEnabled: () => !envOff('CATALOG_TEXT_ANCHOR'),
+  typographyGuideEnabled: () => !envOff('CATALOG_TYPOGRAPHY_GUIDE'),
   textAnchorCandidates: () => envInt('CATALOG_TEXT_ANCHOR_CANDIDATES', 1, 1, 4),
   // ce-18 — the painted text's ink colour
   textInkQaEnabled: () => !envOff('CATALOG_TEXT_INK_QA'),

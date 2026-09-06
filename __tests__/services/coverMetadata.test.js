@@ -24,6 +24,19 @@ describe('cover-only rebuild metadata', () => {
   });
 });
 
+test('cover-only refresh writes a blurb from saved spread text rather than preserving the generic fallback', async () => {
+  const writer = jest.spyOn(require('../../services/catalogEngine/backCoverSynopsis'), 'createBackCoverSynopsis')
+    .mockResolvedValue('Amit discovers a mystery beneath the moonflowers.');
+  try {
+    const result = await resolveCoverRebuildMetadata({ refreshPictureBlurb: true, bookId: 'b1', title: 'Moonflowers',
+      childDetails: { name: 'Amit' }, storyContent: { entries: [{ type: 'spread', left: { text: 'Amit walks.' }, right: { text: 'Flowers glow.' } }] },
+    }, jest.fn());
+    expect(writer).toHaveBeenCalledWith({ title: 'Moonflowers', spreads: [{ text: 'Amit walks. Flowers glow.' }] },
+      expect.objectContaining({ cached: null, bookId: 'b1', childName: 'Amit' }));
+    expect(result.synopsis).toBe('Amit discovers a mystery beneath the moonflowers.');
+  } finally { writer.mockRestore(); }
+});
+
 describe('computePageCount', () => {
   test('picture book: 10 spreads → 32 (min clamp)', () => {
     const source = { entries: Array.from({ length: 10 }, () => ({ type: 'spread' })) };

@@ -138,3 +138,43 @@ test('the design does not duplicate a signed dedication or ask for painted machi
   expect(backCoverCopy({ ...opts, heartfeltNote: 'With love from Dad.', bookFrom: 'Dad' }).dedication).toBe('With love from Dad.');
   expect(pictureBackCoverPrompt(opts)).toContain('Do not draw your own QR');
 });
+
+test('Gemini copy excludes the deterministic footer and does not reserve visible code rectangles', () => {
+  const { backCoverArtworkCopy } = require('../../services/pictureBackCover');
+  expect(Object.keys(backCoverArtworkCopy(opts))).toEqual(['title', 'synopsis', 'dedication']);
+  const prompt = pictureBackCoverPrompt(opts);
+  expect(prompt).toContain('continuous, naturally calm scenery');
+  expect(prompt).not.toContain('x=8-22%');
+  expect(prompt).not.toContain('Create your next story');
+});
+
+test('an obvious painted QR panel triggers same-design cleanup instead of receiving another box', async () => {
+  let judges = 0;
+  fetchSpy.mockImplementation(async (url, init) => {
+    requests.push({ url, ...JSON.parse(init.body) });
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: String(url).includes('flash-image')
+      ? [{ inlineData: { mimeType: 'image/png', data: image.toString('base64') } }]
+      : [{ text: JSON.stringify(++judges === 1 ? { readable_text: true, text_mismatch: false, code_placeholder: true }
+        : { readable_text: false, code_placeholder: false }) }] } }] }) };
+  });
+  const result = await render();
+  expect(requests.filter(r => r.url.includes('flash-image'))).toHaveLength(2);
+  expect(result.backCoverRepairNote).toContain('Preserved');
+  expect(result.backCoverDiagnostics[0].message).toContain('empty footer label panel');
+});
+
+test('footer uses small, aligned, print-safe code areas with a compact stable reference', async () => {
+  const { buildBackCoverFooter, bookReference } = require('../../services/pictureBackCover');
+  const bookId = '29a74256-5adb-4691-a27f-9bb45b62901e';
+  const footer = await buildBackCoverFooter(bookId, opts);
+  expect(footer.reference).toMatch(/^GMB-[A-F0-9]{10}$/);
+  expect(bookReference(bookId)).toBe(footer.reference);
+  expect(bookReference('other')).not.toBe(footer.reference);
+  for (const bounds of [footer.qrBounds, footer.barcodeBounds]) {
+    expect(bounds.left).toBeGreaterThanOrEqual(200);
+    expect(bounds.left + bounds.width).toBeLessThanOrEqual(2350);
+    expect(bounds.top + bounds.height).toBe(2320);
+  }
+  expect(footer.qrBounds.width).toBeLessThanOrEqual(400);
+  expect(footer.barcodeBounds.width).toBeLessThan(800);
+});

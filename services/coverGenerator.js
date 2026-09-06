@@ -25,7 +25,7 @@ const { downloadBuffer } = require('./gcsStorage');
 const { TEXT_RULES } = require('./shared/illustration/config');
 const sharp = require('sharp');
 const { drawBookBackCover } = require('./backCoverLayout');
-const { backCoverCopy, pictureBackCoverPrompt, pictureBackCoverCleanupPrompt, typesetBackCoverCopy, embedBackCoverCodes, pictureBackCoverCachePath } = require('./pictureBackCover');
+const { backCoverArtworkCopy, pictureBackCoverPrompt, pictureBackCoverCleanupPrompt, typesetBackCoverCopy, embedBackCoverCodes, pictureBackCoverCachePath } = require('./pictureBackCover');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
 const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image';
@@ -462,10 +462,11 @@ Answer STRICT JSON only:
   "framed_object": true|false, // is the artwork shown as an object ON a background (frame, border, tabletop, wall, room) instead of filling the whole image edge to edge?
   "photo_surface": true|false, // does it contain photographic/real-world surfaces (a real table, real paper texture, a photographed room) rather than artwork?
   "readable_text": true|false, // any readable words, letters, or numbers painted in the image?
+  "code_placeholder": true|false, // obvious artificial QR/barcode symbols or empty rectangular label panels in the footer (natural scenery, flowers and lighting are NOT defects)
   "text_mismatch": true|false, // required copy missing, misspelled or illegible (false if no required copy)
   "text_issues": ["Name the affected field and the actual missing/incorrect words; empty if none"]
 }
-${opts.embeddedText ? `This design intentionally includes text. Check spelling and completeness against these exact copy values: ${JSON.stringify(backCoverCopy(opts))}. Ignore line breaks, capitalization, punctuation style, and blank values. Do not reject correct text merely because it is embedded in artwork. QR and barcode graphics are added later; their absence is expected.` : 'No readable text belongs in this artwork.'}`;
+${opts.embeddedText ? `This design intentionally includes text. Check spelling and completeness against these exact copy values: ${JSON.stringify(backCoverArtworkCopy(opts))}. Ignore line breaks, capitalization, punctuation style, and blank values. Do not reject correct text merely because it is embedded in artwork. Footer captions, QR and barcode graphics are added later; their absence is expected. Do not require a personal line, publisher or code caption. Explicit code symbols or artificial blank label panels are unwanted.` : 'No readable text belongs in this artwork.'}`;
   try {
     const resp = await fetch(
       `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -499,10 +500,11 @@ ${opts.embeddedText ? `This design intentionally includes text. Check spelling a
     ].filter(Boolean);
     const textMismatch = opts.embeddedText ? json.text_mismatch === true : json.readable_text === true;
     const textIssues = Array.isArray(json.text_issues) ? json.text_issues.filter(x => typeof x === 'string').join('; ').slice(0, 600) : '';
-    const failures = [...artworkFailures, ...(textMismatch ? [opts.embeddedText
+    const codePlaceholder = json.code_placeholder === true;
+    const failures = [...artworkFailures, ...(codePlaceholder ? ['painted machine code or empty footer label panel'] : []), ...(textMismatch ? [opts.embeddedText
       ? `back-cover copy is missing, misspelled or illegible${textIssues ? ` (${textIssues})` : ''}`
       : 'readable text painted in the artwork'] : [])];
-    if (failures.length > 0) return { pass: false, reason: failures.join('; '), textOnly: artworkFailures.length === 0 && textMismatch };
+    if (failures.length > 0) return { pass: false, reason: failures.join('; '), textOnly: artworkFailures.length === 0 && (textMismatch || codePlaceholder) };
     return { pass: true, reason: null, textFree: json.readable_text === false };
   } catch (err) {
     console.warn(`[CoverGenerator] back-cover QA failed to run (passing without QA): ${err.message}`);
@@ -765,7 +767,7 @@ ${layoutBlock}`;
           const ms = Date.now() - startTime;
           console.log(`[CoverGenerator] Back cover generated in ${ms}ms (attempt ${attempt + 1})`);
           const artwork = isCleanup ? await typesetBackCoverCopy(buffer, opts) : buffer;
-          const finished = opts.embeddedText ? await embedBackCoverCodes(artwork, opts.bookId) : artwork;
+          const finished = opts.embeddedText ? await embedBackCoverCodes(artwork, opts.bookId, opts) : artwork;
           if (isCleanup) opts.onDesignEvent?.('repaired', 'Preserved the Gemini design and replaced faulty lettering with exact typeset copy.');
           return finished;
         }

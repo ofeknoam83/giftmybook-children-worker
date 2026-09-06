@@ -16,7 +16,7 @@ const { generateStory } = require('./writer');
 const { validateStoryResponse } = require('./storyValidation');
 const { illustrateStory } = require('./illustrator');
 const { PDFDocument } = require('pdf-lib');
-const { backCoverSynopsis } = require('./backCoverSynopsis');
+const { createBackCoverSynopsis } = require('./backCoverSynopsis');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const FORMAT = 'PICTURE_BOOK';
@@ -238,7 +238,9 @@ async function runBookPipeline(params) {
   });
   const qaAdvisories = [...art.qaAdvisories];
   const warnings = [...art.warnings];
-  const synopsis = backCoverSynopsis(story.response, { cached: resumeArtwork ? checkpoint?.backCoverSynopsis : null });
+  const synopsis = await createBackCoverSynopsis(story.response, {
+    cached: resumeArtwork ? checkpoint?.backCoverSynopsis : null, bookId, childName: profile.name, costTracker, log,
+  });
   const illustrationCheckpoint = {
     engine: 'catalog-v13',
     completedStage: 'illustration',

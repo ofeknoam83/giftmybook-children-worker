@@ -207,6 +207,18 @@ function resolvePictureBookTextRules(childAge) {
   };
 }
 
+/** Resolve a closed book-wide ink choice for the generated typography guide. */
+function resolveBookTextRules(childAge, ink = 'dark') {
+  const rules = resolvePictureBookTextRules(childAge);
+  if (ink !== 'light') return rules;
+  return {
+    ...rules,
+    fontColorHex: '#FFF4DE',
+    fontColor: 'ONE fixed ink for this entire book: warm ivory (#FFF4DE), regular weight, matching the typography guide exactly. Every spread uses this same ivory fill, including brighter scenes. A hairline of deep cocoa (#2A1C12) may hug the glyphs for contrast; no glow, drop-shadow cloud, background panel, tinted rectangle or per-scene color change.',
+    textIntegration: 'Paint the small regular-weight letters directly into the continuous scene. Use natural open scenery for the text. Keep the same ink and size as the guide on every spread; do not make the text follow the scene lighting. Never add a panel, haze patch or background treatment behind the text.',
+  };
+}
+
 /**
  * Bottom caption corners risk PDF crop + model drift; parents reading to infants
  * often hold the book low. For age &lt; 3 (years), map bottom → top on same side.
@@ -361,6 +373,7 @@ module.exports = {
   TOTAL_SPREADS,
   TEXT_RULES,
   resolvePictureBookTextRules,
+  resolveBookTextRules,
   preferTopCornersOnlyUnderThree,
   PIXAR_STYLE,
   PARENT_THEMES,

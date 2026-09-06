@@ -145,7 +145,22 @@ async function resolveCoverRebuildMetadata(opts, downloadBuffer) {
   const selected = opts.chosenStory?.response;
   const excerpt = Array.isArray(selected?.spreads)
     ? require('./catalogEngine/backCoverSynopsis').backCoverSynopsis(selected) : '';
-  return { pageCount, synopsis: opts.storyContent?.synopsis || excerpt || computed?.synopsis || opts.synopsis || '' };
+  let synopsis = opts.storyContent?.synopsis || excerpt || computed?.synopsis || opts.synopsis || '';
+  if (opts.refreshPictureBlurb && !opts.flags?.isChapterBook && !opts.flags?.isGraphicNovel) {
+    const childName = opts.childDetails?.name || opts.childDetails?.childName;
+    const spreads = Array.isArray(selected?.spreads) ? selected.spreads
+      : (opts.storyContent?.entries || []).filter(e => e.type === 'spread').map(e => ({
+        text: e.captionText || e.text || [e.left?.text, e.right?.text].filter(Boolean).join(' '),
+      }));
+    const manuscript = { title: selected?.title || opts.title, spreads };
+    // The old generic fallback is not an approved blurb. Give the writer
+    // the saved manuscript even when chosenStory is no longer available.
+    const generic = synopsis === `A personalized bedtime story for ${childName || 'your child'}`;
+    synopsis = await require('./catalogEngine/backCoverSynopsis').createBackCoverSynopsis(manuscript, {
+      cached: generic ? null : synopsis, bookId: opts.bookId, childName, log: opts.log,
+    }) || synopsis;
+  }
+  return { pageCount, synopsis };
 }
 
 module.exports = {
