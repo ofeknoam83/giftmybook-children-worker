@@ -212,7 +212,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log);
     if (embedText && !textVerificationCurrent(saved.qa?.textVerification, spreadText)) {
       const verification = await verifyImageText(saved.buffer, spreadText, undefined, costTracker);
-      saved.qa = applyTextVerification(saved.qa || {}, verification);
+      saved.qa = applyTextVerification({ ...saved.qa, blocking: saved.blocking }, verification);
       saved.blocking = saved.qa.blocking;
       // Recheck existing pixels only. A reviewed rebuild NEVER buys art.
       const key = `${saved.storageKey}.qa.json`;
@@ -432,7 +432,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
         if (embedText && !textVerificationCurrent(marker.qa?.textVerification, spreadText)) {
           const verification = await verifyImageText(cached, spreadText, undefined, costTracker);
-          cachedQa = applyTextVerification(marker.qa || {}, verification);
+          cachedQa = applyTextVerification({ ...marker.qa, blocking: marker.qa?.blocking || (marker.unresolved ? ['saved artwork has unresolved QA findings'] : []) }, verification);
           marker = { ...marker, qa: cachedQa, unresolved: cachedQa.blocking.length > 0 };
           await uploadBuffer(Buffer.from(JSON.stringify(marker)), qaMarkerKey, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
           if (verification.status === 'mismatch') throw new Error('saved lettering needs correction');

@@ -54,3 +54,18 @@ test('a reader outage stops legacy image retries instead of generating five more
   })).rejects.toMatchObject({ failureCode: 'embedded_text_unverified' });
   expect(images).toBe(1);
 });
+
+test('a full-image reader that silently corrects a typo is overruled by two magnified glyph readings', async () => {
+  const sharp = require('sharp');
+  const source = await sharp({ create: { width: 1000, height: 600, channels: 3, background: '#123456' } }).png().toBuffer();
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ text_found: true, transcript: 'Silver leaves.', text_bbox: { x: 0.6, y: 0.2, w: 0.3, h: 0.3 } }) }] } }] }) })
+    .mockResolvedValue(reply(letters('Siiver leaves.')));
+  const result = await verifyImageText(source, 'Silver leaves.');
+  expect(result).toMatchObject({ status: 'mismatch', attempts: 3 });
+  expect(result.issues[0]).toContain('read "siiver"');
+  const body = JSON.parse(global.fetch.mock.calls[1][1].body);
+  const zoom = Buffer.from(body.contents[0].parts[0].inline_data.data, 'base64');
+  expect(zoom.equals(source)).toBe(false);
+  expect((await sharp(zoom).metadata()).width).toBe(2400);
+});

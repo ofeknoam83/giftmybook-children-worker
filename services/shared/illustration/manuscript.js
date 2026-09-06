@@ -66,7 +66,7 @@ function applyTextVerification(qa, verification) {
   const isOldTextFinding = d => d === TEXT_MISMATCH || d === 'embedded story text missing from the image' || d.startsWith('embedded story text garbled:');
   const defects = (qa.defects || []).filter(d => !isOldTextFinding(d));
   const blocking = (qa.blocking || []).filter(d => !isOldTextFinding(d));
-  const advisory = (qa.advisory || []).filter(d => !isOldTextFinding(d));
+  const advisory = (qa.advisory || []).filter(d => !isOldTextFinding(d) && d !== 'Story spelling could not be verified; saved artwork needs a text check.');
   if (verification.status === 'mismatch') { defects.push(TEXT_MISMATCH); blocking.push(TEXT_MISMATCH); }
   if (verification.status === 'unverified') advisory.push('Story spelling could not be verified; saved artwork needs a text check.');
   return { ...qa, defects, blocking, advisory, pass: defects.length === 0 && verification.status === 'verified', textVerification: verification };
