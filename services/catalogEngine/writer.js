@@ -18,7 +18,7 @@ const { callText, LlmParseError } = require('../shared/llm/openaiClient');
 const { getBook, loadAgeEngines, renderTitle, toWireBand, catalogVersion } = require('./catalog');
 const { augmentsFor } = require('./augments');
 const { normalizeProfile, usableDetails } = require('./profile');
-const { validateStoryResponse, containsTerm, evidenceTextAligned } = require('./storyValidation');
+const { validateStoryResponse, containsTerm, evidenceTextAligned, checkBeatAnchors } = require('./storyValidation');
 const flags = require('./flags');
 const versions = require('./versions');
 
@@ -630,6 +630,20 @@ function buildUserPrompt({ request, book, theme, ageBand, map, tuning = null, va
 
   const checkpoint = buildStyleCheckpoint(tuning);
   if (checkpoint) parts.push(checkpoint);
+
+  // These literal anchors are already enforced by validation. Give the
+  // writer the complete checklist before its first attempt, rather than
+  // revealing a changing subset of missing names after each full rewrite.
+  // Derive it from the same validator so new/private outlines cannot drift.
+  const anchors = checkBeatAnchors({ response: { spreads: [] }, book, theme });
+  if (anchors.length) {
+    parts.push('## REQUIRED STORY ANCHORS (check every spread before returning)');
+    parts.push('Use the stated world name in the story text. On EACH listed companion spread, '
+      + 'include the companion\'s proper name in that spread\'s text at least once; a pronoun or '
+      + 'species description alone does not satisfy this requirement. Keep these names even '
+      + 'when varying sentence openings. This is part of the fixed book contract.');
+    parts.push(anchors.map(anchor => `- ${anchor}`).join('\n'));
+  }
 
   // Retry corrections stay LAST — on a retry they are the most urgent read.
   if (validationErrors && validationErrors.length > 0) {

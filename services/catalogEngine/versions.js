@@ -25,7 +25,7 @@ const AGE_ENGINE_VERSION = '1.4.0'; // 1.4.0: tightened word budgets (1-3: 8-30/
 const MAP_SCHEMA_VERSION = '1.3.0';
 const BOOK_DEFINITION_VERSION = '1.1.0'; // the frozen V1.1 plots, per the handoff
 const SELECTOR_VERSION = '1.0.0';
-const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning frame + end-of-prompt style checkpoint + polish pass; 1.1.0: HARD LIMITS caps line + per-book detail pre-selection
+const PROMPT_TEMPLATE_VERSION = '1.3.0'; // 1.3.0: explicit per-spread literal anchors, derived from validation
 
 /** Illustration style version — bump to invalidate the render cache. */
 // ce-2: embedded layout paints the story text INTO the art (Gemini embedText
