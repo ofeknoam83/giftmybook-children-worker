@@ -62,7 +62,7 @@ async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread 
   const hash = createHash('sha256').update(fullSpread ? 'typography-template-v2' : 'typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
   return { kind: fullSpread ? 'template' : 'guide', spread: 0, side: fullSpread ? side : 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
     ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true,
-    ...(fullSpread ? { lines, width, height: height } : {}) };
+    ...(fullSpread ? { lines, width, height } : {}) };
 }
 
 // A new reference changes every cache key. Ordinary retries of an older

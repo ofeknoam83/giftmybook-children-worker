@@ -18,6 +18,7 @@ const { GEMINI_IMAGE_SAFETY_SETTINGS } = require('../../services/shared/illustra
 const save = (name, bytes) => { files[name] = Buffer.from(bytes).toString('base64'); };
 async function main() {
   const bookId = process.env.PROBE_BOOK_ID;
+  const imageModel = process.env.PROBE_IMAGE_MODEL || GEMINI_MODEL;
   if (!/^[a-f0-9-]{36}$/.test(bookId || '')) throw new Error('A source book UUID is required');
   const fixture = JSON.parse(process.env.PROBE_FIXTURE || '{}');
   const manifest = JSON.parse(await downloadBuffer(`children-jobs/${bookId}/reviewed-art.json`));
@@ -47,7 +48,7 @@ async function main() {
     save(`spread-${spread}-template.png`, Buffer.from(template.base64, 'base64'));
     save(`spread-${spread}-prompt.txt`, prompt);
     save(`spread-${spread}-before.png`, await downloadBuffer(manifest.renderKeys[spread]));
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${getNextApiKey()}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${getNextApiKey()}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(240000),
       body: JSON.stringify({ contents: [{ role: 'user', parts: buildReferenceParts(prompt, pack) }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '16:9', imageSize: '4K' } }, safetySettings: GEMINI_IMAGE_SAFETY_SETTINGS }),
     });
@@ -56,7 +57,7 @@ async function main() {
     const generated = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData;
     if (!generated) throw new Error(`No image returned for spread ${spread}: ${JSON.stringify(data)}`);
     save(`spread-${spread}-after.png`, Buffer.from(generated.data, 'base64'));
-    results.push({ spread, model: GEMINI_MODEL, side: shot.textSide, templateCapHeight: template.capHeightPercent, ink, lines: template.lines, usage: data.usageMetadata });
+    results.push({ spread, model: imageModel, side: shot.textSide, templateCapHeight: template.capHeightPercent, ink, lines: template.lines, usage: data.usageMetadata });
   }
   save('results.json', JSON.stringify(results, null, 2));
 }
