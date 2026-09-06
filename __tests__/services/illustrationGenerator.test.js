@@ -388,3 +388,16 @@ describe('full-spread template request and fallback', () => {
     } finally { global.fetch = realFetch; }
   });
 });
+
+
+test('character likeness permits scene lighting and shares the environment rendering instead of studio lighting', () => {
+  const prompt = buildCharacterPrompt('The child walks through a moonlit forest.', 'pixar_premium', 'Emma', null,
+    'red sweater and blue jeans', 'curly brown hair and olive skin', null, null, { isSpread: true, skipTextEmbed: true });
+  expect(prompt).toContain("Preserve the child's natural SKIN TONE");
+  expect(prompt).toContain("let the scene's light, shadows, and reflected colors illuminate the skin naturally");
+  expect(prompt).toContain('render the character and environment together');
+  expect(prompt).toContain('natural contact shadows where surfaces meet');
+  expect(prompt).not.toContain('regardless of scene lighting');
+  expect(prompt).not.toContain('studio key-fill-rim setup');
+  expect(prompt).toContain('FACE must have the same bone structure');
+});

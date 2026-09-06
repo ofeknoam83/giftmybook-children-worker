@@ -22,7 +22,6 @@ function backCoverCopy(opts = {}) {
     personalLine: `Made with love for ${clean(opts.childName) || 'you'}`,
     publisher: 'GiftMyBook.com',
     qrCaption: 'Create your next story',
-    barcodeCaption: 'BOOK REFERENCE',
   };
 }
 
@@ -115,7 +114,6 @@ async function buildBackCoverFooter(bookId, opts = {}) {
     [copy.personalLine, 300, 1810, 1950, 44, 'centre'],
     [copy.publisher, 300, 1875, 1950, 35, 'centre'],
     [copy.qrCaption, qrLeft, codeBottom - qrMeta.height - 65, 650, 34, 'left'],
-    ['BOOK REFERENCE', barLeft, codeBottom - barMeta.height - 65, barMeta.width, 30, 'centre'],
     [reference, barLeft, codeBottom + 16, barMeta.width, 28, 'centre'],
   ];
   for (const [text, left, top, width, size, align] of labels) {

@@ -283,7 +283,7 @@ const PIXAR_STYLE = {
     'soft subsurface skin scattering on faces, ears, and hands (warm backlit translucency), stylized — not real human skin',
     'individually rendered hair strands with light passing through, not painted hair shapes',
     'physically based materials — real fabric weave, real wood grain, real foliage geometry',
-    'ray-traced volumetric cinematic lighting with soft shadows, ambient occlusion, and studio key-fill-rim setup',
+    'ray-traced volumetric cinematic lighting with soft shadows and ambient occlusion; render the character and environment together with the same light direction, color temperature, exposure, and rendering finish, natural contact shadows where surfaces meet, and coherent edge softness — never a pasted cutout or an independently studio-lit figure',
     'true optical lens depth-of-field with genuine bokeh (circular highlights from physical lenses), not a painterly blur',
     'warm saturated color palette, emotionally expressive face and body acting',
     'magical, cinematic atmosphere',

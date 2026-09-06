@@ -142,6 +142,7 @@ test('the design does not duplicate a signed dedication or ask for painted machi
 test('Gemini copy excludes the deterministic footer and does not reserve visible code rectangles', () => {
   const { backCoverArtworkCopy } = require('../../services/pictureBackCover');
   expect(Object.keys(backCoverArtworkCopy(opts))).toEqual(['title', 'synopsis', 'dedication']);
+  expect(backCoverCopy(opts)).not.toHaveProperty('barcodeCaption');
   const prompt = pictureBackCoverPrompt(opts);
   expect(prompt).toContain('continuous, naturally calm scenery');
   expect(prompt).not.toContain('x=8-22%');
