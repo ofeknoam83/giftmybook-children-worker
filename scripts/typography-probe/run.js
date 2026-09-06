@@ -39,7 +39,7 @@ async function main() {
     const { pack, refs } = buildReferencePack(bible, { refPhoto, propValues: [], companionOnSpread: companionPresent, typographyAnchor: template });
     const promptBible = buildPromptBible(bible, refs, { spread, declaredProps: [], carriedProps: [], companionOnSpread: companionPresent, characterDescription: manifest.context.characterDescription });
     const scene = buildScenePrompt({ book, theme, spread, spreadText: text, profile, evidence: story.personalization_evidence, embedText: true }) + '\n' + renderShotDirective(shot);
-    const prompt = 'EDIT THE FULL-SPREAD LETTERING TEMPLATE: preserve its lettering at exactly its existing scale and position; complete the missing artwork throughout the canvas.\n' + buildCharacterPrompt(scene, 'pixar_premium', profile.name, text, stored.outfitSpec.text, manifest.context.characterDescription, null, null, {
+    const prompt = buildCharacterPrompt(scene, 'pixar_premium', profile.name, text, stored.outfitSpec.text, manifest.context.characterDescription, null, null, {
       embedText: true, isSpread: true, childAge: profile.age, spreadIndex: spread - 1, totalSpreads: 12,
       bookTextInk: ink, typographyTemplate: true, typographyRef: refs.typographyRef,
       textSide: shot.textSide, shotType: shot.shotType, bible: promptBible,
@@ -49,7 +49,7 @@ async function main() {
     save(`spread-${spread}-before.png`, await downloadBuffer(manifest.renderKeys[spread]));
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${getNextApiKey()}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(240000),
-      body: JSON.stringify({ contents: [{ role: 'user', parts: buildReferenceParts(prompt, pack) }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '16:9', imageSize: '2K' } }, safetySettings: GEMINI_IMAGE_SAFETY_SETTINGS }),
+      body: JSON.stringify({ contents: [{ role: 'user', parts: buildReferenceParts(prompt, pack) }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '16:9', imageSize: '4K' } }, safetySettings: GEMINI_IMAGE_SAFETY_SETTINGS }),
     });
     if (!response.ok) throw new Error(`Gemini returned HTTP ${response.status}: ${await response.text()}`);
     const data = await response.json();

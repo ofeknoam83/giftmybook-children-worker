@@ -32,18 +32,19 @@ async function chooseBookTextInk(reference) {
 }
 
 async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left' }) {
+  const height = fullSpread ? 3072 : GUIDE_HEIGHT;
   const rules = resolveTypographyGuideRules(childAge, ink);
   const f = guideFont();
   const capPercent = rules.capHeightPercent;
-  const capHeight = GUIDE_HEIGHT * capPercent / 100;
+  const capHeight = height * capPercent / 100;
   const h = f.glyphForCodePoint('H'.codePointAt(0)).bbox;
   const scale = capHeight / (h.maxY - h.minY);
-  const linePitch = GUIDE_HEIGHT * rules.linePitchPercent / 100;
+  const linePitch = height * rules.linePitchPercent / 100;
   const lines = wrapStoryLines(text || 'A small adventure begins. There is so much to discover.', rules.maxCharsPerLine);
-  const width = fullSpread ? Math.round(GUIDE_HEIGHT * 16 / 9) : GUIDE_WIDTH;
+  const width = fullSpread ? Math.round(height * 16 / 9) : GUIDE_WIDTH;
   const leftPercent = fullSpread && side === 'right' ? 100 - rules.activeSideMaxPercent : rules.edgePaddingPercent;
-  const x = GUIDE_HEIGHT * 16 / 9 * leftPercent / 100;
-  const y = GUIDE_HEIGHT * rules.topPaddingPercent / 100;
+  const x = height * 16 / 9 * leftPercent / 100;
+  const y = height * rules.topPaddingPercent / 100;
   const paths = [];
   lines.forEach((line, i) => {
     let cursor = x;
@@ -56,12 +57,12 @@ async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread 
       cursor += pos.xAdvance * scale;
     });
   });
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${GUIDE_HEIGHT}" viewBox="0 0 ${width} ${GUIDE_HEIGHT}">${paths.join('')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${paths.join('')}</svg>`;
   const bytes = await sharp(Buffer.from(svg)).png().toBuffer();
-  const hash = createHash('sha256').update(fullSpread ? 'typography-template-v1' : 'typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
+  const hash = createHash('sha256').update(fullSpread ? 'typography-template-v2' : 'typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
   return { kind: fullSpread ? 'template' : 'guide', spread: 0, side: fullSpread ? side : 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
     ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true,
-    ...(fullSpread ? { lines, width, height: GUIDE_HEIGHT } : {}) };
+    ...(fullSpread ? { lines, width, height: height } : {}) };
 }
 
 // A new reference changes every cache key. Ordinary retries of an older

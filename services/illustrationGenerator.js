@@ -540,6 +540,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const hairstyleDesc = characterDescription || '';
 
   const parts = [];
+  if (opts.typographyTemplate === true && opts.embedText && opts.typographyRef > 0) {
+    parts.push('EDIT THE FULL-SPREAD LETTERING TEMPLATE: preserve its lettering at exactly its existing scale and position; complete the missing artwork throughout the canvas.');
+  }
 
   // ce-9 BIBLE MODE: when a Book Bible rides the render, the identity and
   // outfit are stated ONCE, up front, as structured blocks that name their
@@ -913,6 +916,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     embedSummary = { block, textSide, typoRef, foldMargin, verticalBand };
     parts.push('TEXT RENDERING RULES:');
     parts.push('- This illustration MUST include the story text rendered directly INTO the image');
+    if (opts.typographyTemplate) parts.push('- EXACT MANUSCRIPT ONLY: preserve every word and its spelling. No other lettering anywhere: no title, labels, decorative words, sound-effect lettering or onomatopoeia outside the manuscript. Show sound and movement through visual action, never extra written words.');
     // The book-wide typographic lock: each spread renders in a STATELESS call,
     // so the ONLY way every page comes out in the same font, size, and color
     // is pinning the identical spec (TEXT_RULES) on every render.

@@ -190,6 +190,8 @@ module.exports = {
   // type reference for its other embedded spreads)
   textAnchorEnabled: () => !envOff('CATALOG_TEXT_ANCHOR'),
   typographyGuideEnabled: () => !envOff('CATALOG_TYPOGRAPHY_GUIDE'),
+  // Opt-in while the three-spread Gemini visual probe is being evaluated.
+  typographyTemplateEnabled: () => envOn('CATALOG_TYPOGRAPHY_TEMPLATE'),
   textAnchorCandidates: () => envInt('CATALOG_TEXT_ANCHOR_CANDIDATES', 1, 1, 4),
   // ce-18 — the painted text's ink colour
   textInkQaEnabled: () => !envOff('CATALOG_TEXT_INK_QA'),
