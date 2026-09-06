@@ -49,6 +49,7 @@ beforeEach(async () => {
 
 test('finishes both PDFs with QA warnings and uses the actual interior page count for the spine', async () => {
   const result = await runBookPipeline(input);
+  expect(illustrateStory).toHaveBeenCalledWith(expect.objectContaining({ automaticTextRecovery: true }));
   expect(result).toMatchObject({ pageCount: 36, interiorPdfUrl: expect.stringContaining('/interior.pdf'), coverPdfUrl: expect.stringContaining('/cover.pdf') });
   expect(result.qaAdvisories).toContainEqual(expect.objectContaining({ spread: 7 }));
   expect(generateCover.mock.calls[0][4]).toMatchObject({ pageCount: 36, requireCompleteCover: true, preGeneratedCoverBuffer: Buffer.from('approved-front') });

@@ -69,3 +69,27 @@ test('a full-image reader that silently corrects a typo is overruled by two magn
   expect(zoom.equals(source)).toBe(false);
   expect((await sharp(zoom).metadata()).width).toBe(2400);
 });
+
+test('lettering repair preserves pixels outside the text column and requests the same font and spacing', async () => {
+  const sharp = require('sharp');
+  const { repairImageText } = require('../../services/illustrationGenerator');
+  const source = await sharp({ create: { width: 1600, height: 900, channels: 3, background: '#123456' } }).png().toBuffer();
+  const changed = await sharp({ create: { width: 1600, height: 900, channels: 3, background: '#abcdef' } }).png().toBuffer();
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { data: changed.toString('base64') } }] } }] }) });
+  const edited = await repairImageText(source, 'Silver leaves.', { textBox: { x: 0.6, y: 0.2, w: 0.3, h: 0.4 } });
+  const untouched = { left: 0, top: 0, width: 800, height: 900 };
+  expect((await sharp(edited).extract(untouched).removeAlpha().raw().toBuffer()).equals(await sharp(source).extract(untouched).removeAlpha().raw().toBuffer())).toBe(true);
+  expect(edited.equals(source)).toBe(false);
+  const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+  expect(body.contents[0].parts[0].text).toContain('font face, weight, small letter size, ink colour, line spacing');
+  expect(body.contents[0].parts[0].text).toContain('blank line between sentences');
+  expect(body.contents[0].parts[0].text).toContain('5–7 words per line');
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+});
+
+test('an unreliable repair location is rejected without buying another image', async () => {
+  const { repairImageText } = require('../../services/illustrationGenerator');
+  global.fetch = jest.fn();
+  await expect(repairImageText(Buffer.from('image'), 'Silver.', { textBox: { x: 0, y: 0, w: 1, h: 1 } })).rejects.toThrow('reliable text-column');
+  expect(global.fetch).not.toHaveBeenCalled();
+});

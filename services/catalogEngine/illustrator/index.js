@@ -54,6 +54,7 @@ const { canUseTypographyGuide, createTypographyGuide, createTypographyTemplate, 
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
 const { resolveBookTextRules, resolveTypographyGuideRules } = require('../../shared/illustration/config');
 const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
+const { checkSavedText, recoverText } = require('./textRecovery');
 const { textVerificationCurrent, applyTextVerification, TEXT_MISMATCH } = require('../../shared/illustration/manuscript');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -200,7 +201,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, bookTextInk = 'dark', candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, bookTextInk = 'dark', candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -209,16 +210,31 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const spreadText = story.spreads.find(s => s.spread === spread)?.text || '';
   if (reviewedOnly) {
     if (forceRerender) throw new Error('Reviewed rebuild cannot generate new artwork');
-    const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log);
+    const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log,
+      buffer => checkSpreadRenderV2(buffer, { label: `reviewedRecovery:${bookId}:s${spread}`, expectedText: embedText ? spreadText : null, outfitSpec: bible?.outfit?.outfit || null }));
     if (embedText && !textVerificationCurrent(saved.qa?.textVerification, spreadText)) {
-      const verification = await verifyImageText(saved.buffer, spreadText, undefined, costTracker);
+      const check = automaticTextRecovery ? checkSavedText : (buffer, text, costs) => verifyImageText(buffer, text, undefined, costs);
+      let verification = await check(saved.buffer, spreadText, costTracker);
+      let repaired = false;
+      if (automaticTextRecovery && verification.status === 'mismatch') {
+        const recovery = await recoverText({ buffer: saved.buffer, text: spreadText, verification,
+          storageKey: saved.storageKey, spread, renderBudget, costTracker, log });
+        verification = recovery.verification;
+        if (recovery.repaired) {
+          const latest = await downloadBuffer(saved.storageKey);
+          if (renderContentHash(latest) !== renderContentHash(saved.buffer)) throw new Error('Saved artwork changed during lettering recovery; retry with the current selection.');
+          await uploadBuffer(recovery.buffer, saved.storageKey, 'image/png');
+          saved.buffer = recovery.buffer;
+          repaired = true;
+          saved.advisories.push({ stage: 'textRecovery', spread, note: 'Automatically repaired spelling in the saved illustration; original artwork retained.' });
+        }
+      }
       saved.qa = applyTextVerification({ ...saved.qa, blocking: saved.blocking }, verification);
       saved.blocking = saved.qa.blocking;
-      // Recheck existing pixels only. A reviewed rebuild NEVER buys art.
-      const key = `${saved.storageKey}.qa.json`;
-      const marker = JSON.parse((await downloadBuffer(key)).toString('utf8'));
-      if (marker.renderHash !== renderContentHash(saved.buffer)) throw new Error('Reviewed artwork changed during its spelling check');
-      await uploadBuffer(Buffer.from(JSON.stringify({ ...marker, qa: saved.qa, unresolved: saved.blocking.length > 0 })), key, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
+      const marker = { ...saved.marker, renderHash: renderContentHash(saved.buffer), qa: saved.qa,
+        unresolved: saved.blocking.length > 0, advisories: saved.advisories,
+        ...(repaired ? { textRepaired: true } : {}) };
+      await uploadBuffer(Buffer.from(JSON.stringify(marker)), `${saved.storageKey}.qa.json`, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
     }
     return saved;
   }
@@ -399,7 +415,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const runQa = async (buffer, label) => {
     const [qa, verification] = await Promise.all([
       checkSpreadRenderV2(buffer, { label, ...qaOpts }),
-      embedText ? verifyImageText(buffer, spreadText, undefined, costTracker) : null,
+      embedText ? (automaticTextRecovery ? checkSavedText(buffer, spreadText, costTracker) : verifyImageText(buffer, spreadText, undefined, costTracker)) : null,
     ]);
     return verification ? applyTextVerification(qa, verification) : qa;
   };
@@ -433,7 +449,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         if (marker.renderHash !== renderContentHash(cached)) throw new Error('marker does not match the cached render');
         if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
         if (embedText && !textVerificationCurrent(marker.qa?.textVerification, spreadText)) {
-          const verification = await verifyImageText(cached, spreadText, undefined, costTracker);
+          const verification = automaticTextRecovery ? await checkSavedText(cached, spreadText, costTracker) : await verifyImageText(cached, spreadText, undefined, costTracker);
           cachedQa = applyTextVerification({ ...marker.qa, blocking: marker.qa?.blocking || (marker.unresolved ? ['saved artwork has unresolved QA findings'] : []) }, verification);
           marker = { ...marker, qa: cachedQa, unresolved: cachedQa.blocking.length > 0 };
           await uploadBuffer(Buffer.from(JSON.stringify(marker)), qaMarkerKey, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
@@ -558,6 +574,18 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     advisories.push({ stage: 'render', spread, note: `rendered from the "${best.variant}" fallback prompt after a safety block — scene content may be reduced; QA verified the result against the bible` });
   }
 
+  if (automaticTextRecovery && best.qa?.textVerification?.status === 'mismatch') {
+    const recovery = await recoverText({ buffer: best.buffer, text: spreadText, verification: best.qa.textVerification,
+      storageKey, spread, renderBudget, costTracker, log });
+    best.qa = applyTextVerification(best.qa, recovery.verification);
+    if (recovery.repaired) {
+      best = { ...best, buffer: recovery.buffer, key: recovery.key, variant: 'text-repair' };
+      fresh = true;
+      advisories.push({ stage: 'textRecovery', spread, note: 'Automatically corrected painted spelling in the existing illustration.' });
+    }
+    best.score = scoreCandidate({ qa: best.qa, metrics: best.metrics });
+  }
+
   // ── Bounded corrective re-render loop ───────────────────────────────────
   // Runs only while the best candidate still carries BLOCKING (or embedded
   // text) defects; each pass renders N fresh candidates steered by the
@@ -570,7 +598,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   let generalUsed = 0;
   let driftUsed = 0;
   let repairAborted = false;
-  while (!checkerUnavailable && !repairAborted && needsRepair(best.qa) && (!renderBudget || (renderBudget.used.get(spread) || 0) < renderBudget.limit)) {
+  while (!checkerUnavailable && !repairAborted && !(automaticTextRecovery && best.qa?.textVerification?.status === 'mismatch') && needsRepair(best.qa) && (!renderBudget || (renderBudget.used.get(spread) || 0) < renderBudget.limit)) {
     const drift = hasDriftDefect(best.qa.blocking);
     let budgetName;
     if (generalUsed < generalBudget) { generalUsed += 1; budgetName = `${generalUsed}/${generalBudget}`; } else if (drift && driftUsed < driftBudget) { driftUsed += 1; budgetName = `drift ${driftUsed}/${driftBudget}`; } else break;
@@ -1071,7 +1099,7 @@ async function renderStorySpreads(params) {
     bookId, story, bookDef, profile,
     approvedCoverUrl, childPhotoUrl, characterDescription,
     textLayout = 'caption', spreads = null, rerenderSpreads = null, probeNonce = null,
-    costTracker, forceRerender = false, reviewedOnly = false,
+    costTracker, forceRerender = false, reviewedOnly = false, automaticTextRecovery = false,
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
   const { book, theme } = bookDef;
@@ -1283,7 +1311,7 @@ async function renderStorySpreads(params) {
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-    reviewedOnly, renderBudget, tuning, bible, bookTextInk, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    reviewedOnly, automaticTextRecovery, renderBudget, tuning, bible, bookTextInk, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
     legacyUnanchoredKey: reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
       ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag) : null,
