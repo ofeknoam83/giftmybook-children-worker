@@ -53,3 +53,16 @@ test('retry after an explicit typography upgrade stays with the new saved artwor
   expect(await canUseTypographyGuide({ enabled: true, legacyPaths: ['old1', 'old2'], guidePaths: ['new1', 'new2'] },
     async key => ['old1', 'old2', 'new1'].includes(key))).toBe(true);
 });
+
+
+test('guide geometry and prompt share one face and one numeric size for each age tier', () => {
+  const { resolveTypographyGuideRules } = require('../../../services/shared/illustration/config');
+  const compact = resolveTypographyGuideRules(6, 'dark');
+  expect(compact.fontStyle).toContain('Playfair Display Regular');
+  expect(compact.fontSize).toContain('cap height 0.95%');
+  expect(compact.fontSize).not.toContain('1.1%');
+  expect(compact.capHeightPercent).toBe(.95);
+  expect(compact.fontColor).toContain('never more than 0.05%');
+  expect(resolveTypographyGuideRules(2).fontSize).toContain('cap height 1.1%');
+  expect(resolveBookTextRules(6).fontStyle).toContain('resembling Georgia');
+});

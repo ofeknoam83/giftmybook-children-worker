@@ -302,6 +302,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     childName: profile.name,
     childAge: profile.age,
     bookTextInk,
+    typographyGuide: typographyAnchor?.kind === 'guide',
     characterDescription: characterDescription || null,
     // The outfit spec still rides as `characterOutfit` for the renderer's
     // generic-safe rung (its OUTFIT line) — bible mode states it ONCE in the

@@ -8,7 +8,7 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
-const { resolveBookTextRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
+const { resolveBookTextRules, resolveTypographyGuideRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
@@ -883,7 +883,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   const embedStoryText = opts.embedText && pageText && pageText.trim();
   let embedSummary = null; // ce-15: footprint/column/reference facts reused by the checklist and the final check
-  const textRulesForEmbed = embedStoryText ? resolveBookTextRules(opts.childAge, opts.bookTextInk) : null;
+  const guideRules = opts.typographyGuide === true && Number.isInteger(opts.typographyRef) && opts.typographyRef > 0;
+  const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules : resolveBookTextRules)(opts.childAge, opts.bookTextInk) : null;
   if (embedStoryText) {
     const tr = textRulesForEmbed;
     // ce-13: the geometry is stated as a CONCRETE column box on the shot
@@ -1329,6 +1330,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     totalSpreads: opts.totalSpreads || 13,
     childAge: opts.childAge,
     bookTextInk: opts.bookTextInk === 'light' ? 'light' : 'dark',
+    typographyGuide: opts.typographyGuide === true,
     promptInjection: opts.promptInjection,
     fontStyle: opts.fontStyle,
     additionalCoverCharacters: opts.additionalCoverCharacters || null,
