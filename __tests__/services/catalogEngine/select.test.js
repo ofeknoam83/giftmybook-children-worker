@@ -103,6 +103,33 @@ describe('ce-16: the measured text size shades selection — the smaller painted
   });
 });
 
+describe('small first-page typography references', () => {
+  const { typographyAnchorRejection } = require('../../../services/catalogEngine/illustrator/select');
+  test.each([null, undefined, 0, NaN, Infinity, 1.6, 2, 3])('does not copy unverified or oversized text (%s), while the illustration stays shippable', size => {
+    const verdict = qa([], [], { textSizeRatio: size });
+    expect(typographyAnchorRejection(verdict)).not.toBeNull();
+    expect(isClean({ qa: verdict })).toBe(true);
+  });
+  test.each([0.8, 1, 1.5])('accepts a measured small reference with normal tolerance (%s)', size => {
+    expect(typographyAnchorRejection(qa([], [], { textSizeRatio: size }))).toBeNull();
+  });
+  test('size does not excuse unverified or inconsistent typography', () => {
+    expect(typographyAnchorRejection(qa([], [], { textSizeRatio: 1, qaUnavailable: 'offline' }))).not.toBeNull();
+    expect(typographyAnchorRejection(qa([], ['embedded story text mixes fonts, sizes, or colors'], { textSizeRatio: 1 }))).not.toBeNull();
+  });
+  test('prefers a usable reference only on the first page, without overriding blocking defects or existing scores when none qualify', () => {
+    const big = { k: 1, score: 90, qa: qa([], [], { textSizeRatio: 1.8 }) };
+    const small = { k: 2, score: 80, qa: qa([], [], { textSizeRatio: 1.1 }) };
+    const defective = { k: 3, score: 100, qa: qa(['identity break'], [], { textSizeRatio: 1 }) };
+    const unknown = { k: 4, score: 85, qa: qa() };
+    expect(pickBest([big, small])).toBe(big);
+    expect(pickBest([big, small, defective], { preferTypographyAnchor: true })).toBe(small);
+    expect(pickBest([big, defective], { preferTypographyAnchor: true })).toBe(big);
+    expect(pickBest([big, unknown], { preferTypographyAnchor: true })).toBe(big);
+    expect(compareCandidates(big, small, { preferTypographyAnchor: true })).toBeLessThan(0);
+  });
+});
+
 describe('ce-18: the measured ink ΔE shades selection — the closest-to-spec render wins', () => {
   const { scoreCandidate, pickBest, WEIGHTS } = require('../../../services/catalogEngine/illustrator/select');
   const withInk = (k, deltaE) => ({ k, qa: { pass: true, blocking: [], advisory: [], textInk: deltaE == null ? null : { hex: '#2a1c12', deltaE } }, metrics: null });

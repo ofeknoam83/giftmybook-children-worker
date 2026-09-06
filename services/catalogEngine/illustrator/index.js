@@ -41,7 +41,7 @@ const { checkSpreadRenderV2, repairNoteV2, checkWorldConsistency, worldRepairNot
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
 const { buildShotPlan, renderShotDirective } = require('./shotPlan');
 const { buildBookBible, buildReferencePack, buildPromptBible, summarizeBible, propSheetFor } = require('./bible');
-const { candidateKey, scoreCandidate, isClean, pickBest, compareCandidates, residualBlocking, hasDriftDefect } = require('./select');
+const { candidateKey, scoreCandidate, isClean, pickBest, compareCandidates, residualBlocking, hasDriftDefect, typographyAnchorRejection } = require('./select');
 const metrics = require('./metrics');
 const { checkCharacterContactSheet, checkPropContactSheet, contactRepairNote } = require('./contactSheet');
 const { normalizePropValue } = require('./bible/propSheet');
@@ -198,7 +198,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, renderBudget, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -506,7 +506,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       });
       return { spread, buffer: null, storageKey, url: null, advisories, fresh: false, bathWater, blocking: [], candidates: candidateLog, qa: null, bbox: null };
     }
-    best = pickBest(rendered);
+    best = pickBest(rendered, { preferTypographyAnchor });
     fresh = true;
   }
   if (best.qa && best.qa.qaUnavailable) {
@@ -548,7 +548,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         repairAborted = true;
         break;
       }
-      const repairedBest = pickBest(rendered);
+      const repairedBest = pickBest(rendered, { preferTypographyAnchor });
       if (repairedBest.qa && repairedBest.qa.qaUnavailable) {
         // The checker went away mid-loop: an UNCHECKED repair never
         // replaces a render whose defects are known (the book fails
@@ -562,7 +562,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       // Tier first (checked > unchecked, blocking-free > blocking), score
       // within the tier — a repair that cleared the blocking defect is
       // adopted even when advisories/metrics leave its score lower.
-      if (compareCandidates(repairedBest, best) >= 0) {
+      if (compareCandidates(repairedBest, best, { preferTypographyAnchor }) >= 0) {
         best = repairedBest;
         fresh = true;
       }
@@ -1230,7 +1230,7 @@ async function renderStorySpreads(params) {
       onProgress(0.01, `Illustrating spread ${anchorSpreadNo} first (the book's typography anchor)...`);
       // The anchor page decides the whole book's type size: it renders more
       // candidates than the rest so a small one exists to elect.
-      [anchorSettled] = await Promise.allSettled([renderOne(wanted[0], { candidateCount: flags.textAnchorCandidates() })]);
+      [anchorSettled] = await Promise.allSettled([renderOne(wanted[0], { candidateCount: flags.textAnchorCandidates(), preferTypographyAnchor: true })]);
       const anchorBuffer = anchorSettled.status === 'fulfilled' && anchorSettled.value ? anchorSettled.value.buffer : null;
       const side = shotPlan && shotPlan[anchorSpreadNo] ? shotPlan[anchorSpreadNo].textSide : null;
       // ce-18: never elect an anchor whose OWN painted text is blocking —
@@ -1243,10 +1243,15 @@ async function renderStorySpreads(params) {
       // Replaying a saved first spread must not invent a typography pin and
       // send the rest of an existing unanchored book into a new namespace.
       const anchorIsFresh = anchorSettled.status === 'fulfilled' && anchorSettled.value?.fresh;
+      const anchorSizeRejection = anchorIsFresh && anchorTextDefects.length === 0
+        ? typographyAnchorRejection(anchorSettled.value.qa) : null;
       if (anchorTextDefects.length > 0) {
         anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo}'s own painted text is blocking (${anchorTextDefects.join('; ')}); the other spreads render on the text rules alone rather than copying it` });
       }
-      const elected = side && anchorTextDefects.length === 0 && anchorIsFresh
+      if (anchorSizeRejection) {
+        anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo}: ${anchorSizeRejection}; its illustration is kept, and the other spreads use the fixed small-text rules` });
+      }
+      const elected = side && anchorTextDefects.length === 0 && !anchorSizeRejection && anchorIsFresh
         ? await electTypographyAnchor({ buffer: anchorBuffer, side, spread: anchorSpreadNo, pinKey: anchorPinKey, reelect: !!forceRerender, log })
         : null;
       if (elected) {
@@ -1255,7 +1260,7 @@ async function renderStorySpreads(params) {
         typographyAnchor = toAnchorRef(elected);
         anchorSpreadNo = elected.spread;
         log('info', `Typography anchor: page ${elected.spread} (${elected.side} half, ${elected.pinned ? 'pinned' : 'elected'} ${elected.hash})`);
-      } else if (anchorTextDefects.length === 0 && (anchorIsFresh || !anchorBuffer)) {
+      } else if (anchorTextDefects.length === 0 && !anchorSizeRejection && (anchorIsFresh || !anchorBuffer)) {
         anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo} ${side ? 'produced no usable render to crop' : 'has no assigned text side'}; the other spreads render on the text rules alone` });
       }
     }
