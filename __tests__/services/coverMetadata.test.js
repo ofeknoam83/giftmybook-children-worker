@@ -2,7 +2,27 @@ const {
   computePageCount,
   computeSynopsis,
   computeCoverPdfMetadata,
+  resolveCoverRebuildMetadata,
 } = require('../../services/coverMetadata');
+
+describe('cover-only rebuild metadata', () => {
+  test('uses actual interior pages and the selected manuscript when storyContent is missing', async () => {
+    const { PDFDocument } = require('pdf-lib');
+    const pdf = await PDFDocument.create();
+    for (let i = 0; i < 36; i++) pdf.addPage();
+    const result = await resolveCoverRebuildMetadata({ interiorPdfUrl: 'saved-interior',
+      chosenStory: { response: { spreads: [{ text: 'Ziv follows a moonlit treasure map.' }] } },
+    }, async () => pdf.save());
+    expect(result).toEqual({ pageCount: 36, synopsis: 'Ziv follows a moonlit treasure map.' });
+  });
+  test('retains the saved synopsis and does not hide an unreadable interior', async () => {
+    expect(await resolveCoverRebuildMetadata({ storyContent: { synopsis: 'Approved blurb' },
+      chosenStory: { response: { spreads: [{ text: 'New excerpt' }] } },
+    }, jest.fn())).toEqual({ pageCount: 32, synopsis: 'Approved blurb' });
+    await expect(resolveCoverRebuildMetadata({ interiorPdfUrl: 'broken' }, async () => { throw new Error('missing PDF'); }))
+      .rejects.toThrow('missing PDF');
+  });
+});
 
 describe('computePageCount', () => {
   test('picture book: 10 spreads → 32 (min clamp)', () => {

@@ -132,9 +132,26 @@ function computeCoverPdfMetadata(source, childDetails, flags) {
   };
 }
 
+// A cover-only rebuild must match the PDF that already exists. An unreadable
+// supplied interior is an error, not a reason to silently guess the spine.
+async function resolveCoverRebuildMetadata(opts, downloadBuffer) {
+  const computed = opts.storyContent ? computeCoverPdfMetadata(opts.storyContent, opts.childDetails, opts.flags) : null;
+  let pageCount = computed?.pageCount || opts.pageCount || 32;
+  if (opts.interiorPdfUrl) {
+    const { PDFDocument } = require('pdf-lib');
+    pageCount = (await PDFDocument.load(await downloadBuffer(opts.interiorPdfUrl))).getPageCount();
+    if (pageCount < 32 || pageCount % 2 !== 0) throw new Error('Interior PDF has an unsupported page count');
+  }
+  const selected = opts.chosenStory?.response;
+  const excerpt = Array.isArray(selected?.spreads)
+    ? require('./catalogEngine/backCoverSynopsis').backCoverSynopsis(selected) : '';
+  return { pageCount, synopsis: opts.storyContent?.synopsis || excerpt || computed?.synopsis || opts.synopsis || '' };
+}
+
 module.exports = {
   normalizePageCount,
   computePageCount,
   computeSynopsis,
   computeCoverPdfMetadata,
+  resolveCoverRebuildMetadata,
 };
