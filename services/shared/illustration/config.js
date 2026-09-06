@@ -231,9 +231,13 @@ function resolveTypographyGuideRules(childAge, ink = 'dark', requestedScale = 1)
     capHeightPercent,
     linePitchPercent,
     charWidthPercent: rules.charWidthPercent * scale,
+    ...(scale === 1.5 ? {
+      sentenceStartsNewLine: true, minWordsPerLine: 5, maxWordsPerLine: 7,
+      maxCharsPerLine: Math.min(47, Math.floor((rules.activeSideMaxPercent - rules.edgePaddingPercent) / (rules.charWidthPercent * scale))),
+    } : {}),
     fontStyle: 'Playfair Display Regular, exactly matching the supplied lettering guide. One upright serif face and regular weight for the entire book. Do not substitute Georgia, Book Antiqua or another typeface; do not switch to bold, italic, decorative or headline lettering.',
     fontSize: `SMALL book body type: cap height ${capHeightPercent}% of the FULL illustration height, line pitch ${linePitchPercent}% of its height, exactly matching the lettering guide at full height. This is the one target for every spread, including the first and last. Never scale type to fill the column or enlarge short passages. Keep short lines short and leave the remaining space as continuous scenery. Never poster, subtitle or headline scale.`,
-    fontColor: `ONE fixed fill for this entire book: ${rules.fontColorHex}, matching the lettering guide. Keep the SAME fill and regular weight on every spread regardless of scene lighting. A ${edge} hairline may hug each glyph: target thickness 0.03% of the FULL image height, never more than 0.05%. It must not thicken the letter or look like outlined display text. No thick contour, double stroke, shadow, glow, halo, panel or background patch.`,
+    fontColor: `ONE fixed fill for this entire book: ${rules.fontColorHex}, matching the lettering guide. Keep the SAME fill and regular weight on every spread regardless of scene lighting. A ${edge} hairline may hug each glyph: target thickness ${scale === 1.5 ? '0.01%' : '0.03%'} of the FULL image height, never more than ${scale === 1.5 ? '0.02%' : '0.05%'}. It must not thicken the letter or look like outlined display text. No thick contour, double stroke, shadow, glow, halo, panel or background patch.`,
   };
 }
 

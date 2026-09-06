@@ -40,7 +40,7 @@ async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread 
   const h = f.glyphForCodePoint('H'.codePointAt(0)).bbox;
   const scale = capHeight / (h.maxY - h.minY);
   const linePitch = height * rules.linePitchPercent / 100;
-  const lines = wrapStoryLines(text || 'A small adventure begins. There is so much to discover.', rules.maxCharsPerLine);
+  const lines = wrapStoryLines(text || 'A small adventure begins. There is so much to discover.', rules.maxCharsPerLine, rules);
   const width = fullSpread ? Math.round(height * 16 / 9) : GUIDE_WIDTH;
   const leftPercent = fullSpread && side === 'right' ? 100 - rules.activeSideMaxPercent : rules.edgePaddingPercent;
   const x = height * 16 / 9 * leftPercent / 100;

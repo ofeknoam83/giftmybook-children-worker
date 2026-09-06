@@ -126,3 +126,29 @@ test('the intermediate template enlarges glyphs and line pitch together without 
   expect(rules.fontSize).toContain('line pitch 2.85%');
   expect((await createTypographyGuide({ ...input, typographyScale: 1.5 })).hash).toBe((await createTypographyGuide(input)).hash);
 });
+
+
+test('the readable template and actual prompt share sentence-led 5–7 word rows', async () => {
+  const { createTypographyTemplate } = require('../../../services/catalogEngine/illustrator/typographyGuide');
+  const { buildCharacterPrompt } = require('../../../services/illustrationGenerator');
+  const { expectedTextBlock } = require('../../../services/shared/illustration/textBlock');
+  const { resolveTypographyGuideRules } = require('../../../services/shared/illustration/config');
+  const text = 'The little fox walked slowly through the forest and listened to the leaves. She looked up. “Where did the little blue bird go?”';
+  const template = await createTypographyTemplate({ childAge: 6, text, typographyScale: 1.5 });
+  const block = expectedTextBlock(text, resolveTypographyGuideRules(6, 'dark', 1.5));
+  expect(template.lines).toEqual(block.lines);
+  expect(block.lines.join(' ')).toBe(text);
+  expect(block.lines).toContain('She looked up.');
+  expect(block.lines.at(-1)).toBe('“Where did the little blue bird go?”');
+  expect(block.lines.slice(0, 2).every(line => line.split(/\s+/).length >= 5 && line.split(/\s+/).length <= 7)).toBe(true);
+  const prompt = buildCharacterPrompt('A forest.', 'pixar_premium', 'Test', text, null, null, null, null, {
+    embedText: true, isSpread: true, childAge: 6, typographyTemplate: true, typographyScale: 1.5, typographyRef: 2,
+  });
+  expect(prompt).toContain(block.lines.join('\n'));
+  expect(prompt).toContain('Target 5–7 words per line');
+  expect(prompt).toContain('start every sentence on a fresh line');
+  expect(prompt).toContain('cap height 1.425%');
+  expect(prompt).not.toContain('Err on the side of TOO SMALL');
+  expect(prompt).not.toContain('Smaller is always safer');
+  expect(block.widthPercent).toBeLessThanOrEqual(27);
+});
