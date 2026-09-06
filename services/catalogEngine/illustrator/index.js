@@ -54,6 +54,7 @@ const flags = require('../flags');
 const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
 const { resolvePictureBookTextRules } = require('../../shared/illustration/config');
+const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Spreads rendered in parallel (each slot fans out into
@@ -198,12 +199,16 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, ageBand, typographyAnchor = null, candidateCount = null, renderBudget, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, renderBudget, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
   const embedText = textLayout === 'embedded';
-  const storageKey = renderCachePath(bookId, storyHash, spread, cacheAspect || aspect, tuningTag);
+  const storageKey = reviewedOnly && reviewedStorageKey ? reviewedStorageKey : renderCachePath(bookId, storyHash, spread, cacheAspect || aspect, tuningTag);
+  if (reviewedOnly) {
+    if (forceRerender) throw new Error('Reviewed rebuild cannot generate new artwork');
+    return readReviewedRender(spread, storageKey, legacyUnanchoredKey, log);
+  }
   // The render is uploaded to the cache key BEFORE QA runs, so the image
   // alone does not prove it was ever checked: only this marker (written
   // after QA/repair completes) lets a replay skip the check.
@@ -387,7 +392,6 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const metricsFor = (buffer, qa) => runMetrics({ buffer, qa, bible, shotType: qaOpts.shotType, aspect, textLayout, ageBand, log });
 
   // ── Replay ──────────────────────────────────────────────────────────────
-  if (reviewedOnly && forceRerender) throw new Error('Reviewed rebuild cannot generate new artwork');
   let cachedBuffer = null;
   let url = null;
   if (!forceRerender) {
@@ -426,13 +430,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         // No marker (crash between upload and check), a marker for other
         // pixels, or an older checker — re-check the cached image instead
         // of approving it.
-        if (reviewedOnly) throw markerErr;
         log('warn', `Spread ${spread}: cached render not QA-vouched (${markerErr.message}) — re-checking before replay`);
         cachedBuffer = cached;
         url = await getSignedUrl(storageKey, SIGNED_URL_TTL_MS);
       }
     } catch (err) {
-      if (reviewedOnly) throw new Error(`Reviewed artwork unavailable for spread ${spread}: ${err.message}. Restore or explicitly re-render this spread.`);
       // cache miss — render fresh
     }
   } else {
@@ -1045,6 +1047,14 @@ async function renderStorySpreads(params) {
   const aspect = textLayout === 'embedded' || textLayout === 'half' ? 'wide' : 'square';
   const cacheAspect = textLayout === 'half' ? 'wide-plain' : aspect;
   const characterRefUrl = approvedCoverUrl || childPhotoUrl || null;
+  const reviewContext = {
+    story: storyFingerprint(story), catalog: story?.versions?.catalog || null, textLayout,
+    identity: String(characterRefUrl || '').split('?')[0], characterDescription: characterDescription || null,
+    identityKeyed, seed,
+  };
+  const reviewedManifest = reviewedOnly
+    ? await readManifest(bookId, reviewContext, book.beats.map(b => b.spread), cacheAspect)
+    : null;
   if (!characterRefUrl) {
     // A render run with NO identity reference would render a different child
     // on every spread — that is a broken book, not an advisory. Coverless
@@ -1058,7 +1068,7 @@ async function renderStorySpreads(params) {
   // spreads would silently render unanchored.
   let refPhoto;
   try {
-    refPhoto = await downloadPhotoAsBase64(characterRefUrl);
+    if (!reviewedManifest) refPhoto = await downloadPhotoAsBase64(characterRefUrl);
   } catch (dlErr) {
     const err = new Error(`identity reference could not be downloaded (${dlErr.message}) — refusing to render unanchored spreads`);
     err.failureCode = 'missing_identity_reference';
@@ -1067,7 +1077,7 @@ async function renderStorySpreads(params) {
   // The raw photo beside a cover is a likeness aid for the character sheet
   // only (best-effort; a cover-anchored run never fails on the photo).
   let childPhoto = null;
-  if (approvedCoverUrl && childPhotoUrl && childPhotoUrl !== approvedCoverUrl) {
+  if (!reviewedManifest && approvedCoverUrl && childPhotoUrl && childPhotoUrl !== approvedCoverUrl) {
     try { childPhoto = await downloadPhotoAsBase64(childPhotoUrl); } catch (err) { log('warn', `child photo unavailable for the character sheet (${err.message})`); }
   }
 
@@ -1079,7 +1089,11 @@ async function renderStorySpreads(params) {
   let bible;
   try {
     onProgress(0, 'Building the book bible...');
-    bible = await buildBookBible({
+    bible = reviewedManifest ? {
+      hash: reviewedManifest.bookBible?.bibleHash || 'saved', advisories: [],
+      outfit: reviewedManifest.bookBible?.outfitSpec
+        ? { outfit: reviewedManifest.bookBible.outfitSpec.text, hash: reviewedManifest.bookBible.outfitSpec.hash } : null,
+    } : await buildBookBible({
       bookId, theme, book, story, profile, ageBand: bookDef.ageBand,
       anchorUrl: characterRefUrl, refPhoto, childPhoto, characterDescription: characterDescription || null,
       costTracker, log,
@@ -1171,12 +1185,12 @@ async function renderStorySpreads(params) {
   const anchorAdvisories = [];
   const anchorPinKey = anchorEnabled ? anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)) : null;
   const toAnchorRef = (e) => ({ spread: e.spread, side: e.side, base64: e.bytes.toString('base64'), mimeType: 'image/png', hash: e.hash, pinned: e.pinned });
-  const pinned = anchorEnabled && !forceRerender ? await readPinnedTypographyAnchor(anchorPinKey) : null;
+  const pinned = anchorEnabled && !forceRerender && !reviewedManifest ? await readPinnedTypographyAnchor(anchorPinKey) : null;
   let typographyAnchor = pinned ? toAnchorRef(pinned) : null;
   if (typographyAnchor) log('info', `Typography anchor: pinned page ${typographyAnchor.spread} reused (${typographyAnchor.hash})`);
   // The run's anchor spread: the pinned page, else (no pin yet) this run's
   // first spread — rendered alone first so its crop can be elected.
-  const electNow = anchorEnabled && !typographyAnchor && wanted.length > 1;
+  const electNow = !reviewedOnly && anchorEnabled && !typographyAnchor && wanted.length > 1;
   let anchorSpreadNo = typographyAnchor ? typographyAnchor.spread : (electNow ? wanted[0].spread : null);
   const hashFor = (spread) => {
     if (anchorOff) return `${storyHash}-ta0`;
@@ -1190,6 +1204,9 @@ async function renderStorySpreads(params) {
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
     reviewedOnly, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
+    legacyUnanchoredKey: reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
+      ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag) : null,
     ...(typographyAnchor ? { typographyAnchor } : {}),
     ...extra,
   });
@@ -1342,10 +1359,20 @@ async function renderStorySpreads(params) {
     advisories.push({ stage: 'shipPolicy', note: `shipped ${unresolved.length} spread(s) with BLOCKING residual defects (CATALOG_SHIP_ON_EXHAUSTION=1): ${unresolved.map(u => `s${u.spread}`).join(', ')}` });
   }
 
-  const bookBible = await summarizeBible(bible);
+  const bookBible = reviewedManifest ? reviewedManifest.bookBible : await summarizeBible(bible);
+  const typographyAnchorUsed = reviewedManifest?.typographyAnchorUsed
+    || (typographyAnchor && (!reviewedOnly || results.some(r => /-ta[^/]+\/spread-/.test(r.storageKey)))
+      ? `s${typographyAnchor.spread}.${typographyAnchor.hash.slice(0, 8)}` : 'none');
+  const usedTuningTag = reviewedManifest?.tuningTag || tuningTag;
+  // Persist before illustrateStory throws its review/missing-art gate. Probe
+  // subsets must never replace the full book's chosen render paths. A reviewed
+  // retry must also leave this record untouched if any image is unavailable.
+  if (params.recordRenderManifest && (!reviewedOnly || results.every(r => r.buffer))) {
+    await saveManifest(bookId, reviewContext, results, { bookBible, typographyAnchorUsed, tuningTag: usedTuningTag });
+  }
   return {
     results, aspect, storyHash,
-    tuningTag: tuning ? tuning.tag : 'none',
+    tuningTag: usedTuningTag,
     worldQa,
     contactQa,
     textInkQa,
@@ -1353,7 +1380,7 @@ async function renderStorySpreads(params) {
     // ce-15: which page's painted text the other spreads were held to
     // (`s{spread}.{hash8}`), or 'none' — an anchor-less embedded run also
     // carries a stage 'typographyAnchor' advisory.
-    typographyAnchorUsed: typographyAnchor ? `s${typographyAnchor.spread}.${typographyAnchor.hash.slice(0, 8)}` : 'none',
+    typographyAnchorUsed,
     bible,
     bookBible,
     unresolved,
@@ -1374,7 +1401,7 @@ async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
   const { results, aspect, tuningTag, worldQa, contactQa, textInkQa, outfitLockUsed, typographyAnchorUsed, bookBible, bible, unresolved, advisories: bookAdvisories } = await renderStorySpreads({
-    ...params, spreads: null, rerenderSpreads: null, probeNonce: null,
+    ...params, spreads: null, rerenderSpreads: null, probeNonce: null, recordRenderManifest: true,
   });
   const qaAdvisories = [...bookAdvisories, ...results.flatMap(r => r.advisories)];
   // Residual advisory defects ship with advisories, but the ABSENCE of an
@@ -1383,8 +1410,10 @@ async function illustrateStory(params) {
   const failed = results.filter(r => !r.buffer);
   if (failed.length > 0) {
     const missing = failed.map(r => r.spread);
-    const err = new Error(`render failed for spread(s) ${missing.join(', ')} — the book cannot complete with blank art; retry re-renders only the missing spreads`);
-    err.failureCode = 'render_failed';
+    const err = new Error(params.reviewedOnly
+      ? `Reviewed artwork unavailable for spread(s) ${missing.join(', ')} — no new illustrations were generated. Restore the saved artwork or explicitly re-render these spreads before rebuilding the PDFs.`
+      : `render failed for spread(s) ${missing.join(', ')} — the book cannot complete with blank art; retry re-renders only the missing spreads`);
+    err.failureCode = params.reviewedOnly ? 'reviewed_art_unavailable' : 'render_failed';
     // The throw discards qaAdvisories, so the per-spread diagnostics must
     // ride the error for the /generate-book failure callback to serialize.
     err.renderFailures = failed.map(r => ({

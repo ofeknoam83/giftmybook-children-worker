@@ -109,6 +109,8 @@ test('one thrown spread render costs ONLY that spread — the others keep their 
 });
 
 test('the full-book path still fails the run when any spread has no buffer', async () => {
+  const { uploadBuffer } = require('../../../services/gcsStorage');
+  uploadBuffer.mockClear();
   generateIllustration.mockImplementation(async (scene) => {
     if (scene.includes('Scene 3 of 12')) throw new Error('boom');
     return 'https://x/render.png';
@@ -117,6 +119,11 @@ test('the full-book path still fails the run when any spread has no buffer', asy
     spreadNos: Array.from({ length: 12 }, (_, i) => i + 1),
     spreads: null,
   }))).rejects.toMatchObject({ failureCode: 'render_failed' });
+  const saved = uploadBuffer.mock.calls.find(([, key]) => key.endsWith('/reviewed-art.json'));
+  expect(saved).toBeDefined();
+  const manifest = JSON.parse(saved[0]);
+  expect(Object.keys(manifest.renderKeys)).toHaveLength(12);
+  expect(manifest.renderKeys[3]).toContain('/spread-3.square.png');
 });
 
 describe('identity-keyed probe cache', () => {
@@ -1005,7 +1012,7 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
 
 test('reviewed rebuild never generates replacement art on a cache miss', async () => {
   generateIllustration.mockClear();
-  downloadBuffer.mockRejectedValue(new Error('missing'));
+  downloadBuffer.mockRejectedValue(Object.assign(new Error('missing'), { code: 404 }));
   const { results } = await renderStorySpreads(baseParams({ reviewedOnly: true }));
   expect(generateIllustration).not.toHaveBeenCalled();
   expect(results.every(r => !r.buffer)).toBe(true);
@@ -1016,8 +1023,11 @@ test('reviewed rebuild preserves cached pixels and skips automatic repair gates'
   const { fnv1a } = require('../../../services/catalogEngine/selection');
   const { QA_VERSION } = require('../../../services/catalogEngine/versions');
   const png = Buffer.from('reviewed-pixels');
-  downloadBuffer.mockImplementation(async key => key.endsWith('.qa.json')
-    ? Buffer.from(JSON.stringify({ renderHash: fnv1a(png.toString('base64')).toString(36), qaVersion: QA_VERSION, adminPicked: true })) : png);
+  downloadBuffer.mockImplementation(async key => {
+    if (key.endsWith('/reviewed-art.json')) throw Object.assign(new Error('missing'), { code: 404 });
+    return key.endsWith('.qa.json')
+      ? Buffer.from(JSON.stringify({ renderHash: fnv1a(png.toString('base64')).toString(36), qaVersion: QA_VERSION, adminPicked: true })) : png;
+  });
   generateIllustration.mockClear();
   const result = await renderStorySpreads(baseParams({ reviewedOnly: true }));
   expect(result.results.every(r => r.buffer.equals(png))).toBe(true);
