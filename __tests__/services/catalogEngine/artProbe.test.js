@@ -1081,7 +1081,7 @@ describe('generated small-type guide', () => {
   test('every Gemini spread gets the same guide, including the first, with no extra image attempts', async () => {
     const result = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' }));
     expect(generateIllustration).toHaveBeenCalledTimes(3);
-    const options = generateIllustration.mock.calls.map(c => c[3]);
+    const options = generateIllustration.mock.calls.map(c => c[3]).sort((a, b) => a.spreadIndex - b.spreadIndex);
     const refs = options.map(o => o.referencePack.find(r => r.kind === 'typography'));
     expect(refs.every(Boolean)).toBe(true);
     expect(new Set(refs.map(r => r.base64)).size).toBe(1);
@@ -1114,12 +1114,11 @@ describe('per-spread full-canvas lettering template', () => {
     delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
     objectExists.mockImplementation(async () => false);
   });
-  test('the default gives each request its own manuscript at the same size; a subset keeps the full-book namespace', async () => {
-    delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
+  test('opt-in gives each request its own manuscript at the same size; a subset keeps the full-book namespace', async () => {
     const params = { spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' };
     const result = await renderStorySpreads(baseParams(params));
     expect(generateIllustration).toHaveBeenCalledTimes(3);
-    const options = generateIllustration.mock.calls.map(c => c[3]);
+    const options = generateIllustration.mock.calls.map(c => c[3]).sort((a, b) => a.spreadIndex - b.spreadIndex);
     expect(options.every(o => o.typographyTemplate && o.imageSize === '4K')).toBe(true);
     const refs = options.map(o => o.referencePack.find(r => r.kind === 'typography-template'));
     expect(new Set(refs.map(r => r.base64)).size).toBe(3);
@@ -1129,6 +1128,12 @@ describe('per-spread full-canvas lettering template', () => {
     const subset = await renderStorySpreads(baseParams({ ...params, spreads: [3], forceRerender: true }));
     expect(subset.results[0].storageKey).toBe(result.results[1].storageKey);
     expect(generateIllustration.mock.calls[0][3].referencePack.find(r => r.kind === 'typography-template').base64).toBe(refs[1].base64);
+  });
+  test('the template is disabled for new books by default pending size approval', async () => {
+    delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
+    const result = await renderStorySpreads(baseParams({ textLayout: 'embedded' }));
+    expect(result.typographyAnchorUsed).toMatch(/^guide\./);
+    expect(generateIllustration.mock.calls.every(c => !c[3].typographyTemplate && !c[3].imageSize)).toBe(true);
   });
   test('an existing guide book stays on its paid-for namespace unless explicitly upgraded', async () => {
     process.env.CATALOG_TYPOGRAPHY_TEMPLATE = '0';
