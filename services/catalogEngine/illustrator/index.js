@@ -34,7 +34,7 @@
  *    painted text matches the manuscript instead of forbidding it.
  */
 
-const { generateIllustration, downloadPhotoAsBase64, isModestBathWaterScene } = require('../../illustrationGenerator');
+const { generateIllustration, verifyImageText, downloadPhotoAsBase64, isModestBathWaterScene } = require('../../illustrationGenerator');
 const { downloadBuffer, uploadBuffer, getSignedUrl, deletePrefix } = require('../../gcsStorage');
 const { buildScenePrompt, hasCarryThroughProps, visualPropsForSpread, continuityPropsForSpread, companionOnSpread, inertPropValue } = require('./scenes');
 const { checkSpreadRenderV2, repairNoteV2, checkWorldConsistency, worldRepairNote, classifyDefects } = require('./spreadQa');
@@ -55,6 +55,7 @@ const { canUseTypographyGuide, createTypographyGuide, createTypographyTemplate, 
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
 const { resolveBookTextRules, resolveTypographyGuideRules } = require('../../shared/illustration/config');
 const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
+const { textVerificationCurrent, applyTextVerification, TEXT_MISMATCH } = require('../../shared/illustration/manuscript');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Spreads rendered in parallel (each slot fans out into
@@ -158,6 +159,7 @@ const CONTACT_QA_MAX_RERENDERS = () => {
  * @returns {boolean}
  */
 function needsRepair(qa) {
+  if (qa?.textVerification?.status === 'unverified') return false; // Re-read, do not buy artwork for an OCR outage.
   if (!qa || qa.qaUnavailable) return false;
   if (Array.isArray(qa.blocking) && qa.blocking.length > 0) return true;
   // The 'oversized' advisory (2–4× the footprint) shades
@@ -205,9 +207,21 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // verify); caption and half layouts stay text-free (words are PDF type).
   const embedText = textLayout === 'embedded';
   const storageKey = reviewedOnly && reviewedStorageKey ? reviewedStorageKey : renderCachePath(bookId, storyHash, spread, cacheAspect || aspect, tuningTag);
+  const spreadText = story.spreads.find(s => s.spread === spread)?.text || '';
   if (reviewedOnly) {
     if (forceRerender) throw new Error('Reviewed rebuild cannot generate new artwork');
-    return readReviewedRender(spread, storageKey, legacyUnanchoredKey, log);
+    const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log);
+    if (embedText && !textVerificationCurrent(saved.qa?.textVerification, spreadText)) {
+      const verification = await verifyImageText(saved.buffer, spreadText, undefined, costTracker);
+      saved.qa = applyTextVerification(saved.qa || {}, verification);
+      saved.blocking = saved.qa.blocking;
+      // Recheck existing pixels only. A reviewed rebuild NEVER buys art.
+      const key = `${saved.storageKey}.qa.json`;
+      const marker = JSON.parse((await downloadBuffer(key)).toString('utf8'));
+      if (marker.renderHash !== renderContentHash(saved.buffer)) throw new Error('Reviewed artwork changed during its spelling check');
+      await uploadBuffer(Buffer.from(JSON.stringify({ ...marker, qa: saved.qa, unresolved: saved.blocking.length > 0 })), key, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
+    }
+    return saved;
   }
   // The render is uploaded to the cache key BEFORE QA runs, so the image
   // alone does not prove it was ever checked: only this marker (written
@@ -216,7 +230,6 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const advisories = [];
 
   const beat = book.beats.find(b => b.spread === spread);
-  const spreadText = story.spreads.find(s => s.spread === spread)?.text || '';
   const evidence = story.personalization_evidence;
   const scene = buildScenePrompt({
     book, theme, spread, spreadText, profile,
@@ -298,6 +311,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // in the prompt, plus OCR verification with extra retries for
     // text-heavy spreads (verifyImageText inside generateIllustration).
     skipTextEmbed: !embedText,
+    deferTextVerification: embedText, // Catalog QA checks every saved candidate, including the last.
     ...(embedText ? { embedText: true, pageText: spreadText } : {}),
     isSpread: true,
     spreadIndex: spread - 1,
@@ -382,7 +396,13 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     emotion: promptBible.emotion ? { emotion: promptBible.emotion.emotion, intensity: promptBible.emotion.intensity, cue: EMOTION_CUES[promptBible.emotion.emotion] || null } : null,
     emotionVocabulary: EMOTIONS,
   };
-  const runQa = (buffer, label) => checkSpreadRenderV2(buffer, { label, ...qaOpts });
+  const runQa = async (buffer, label) => {
+    const [qa, verification] = await Promise.all([
+      checkSpreadRenderV2(buffer, { label, ...qaOpts }),
+      embedText ? verifyImageText(buffer, spreadText, undefined, costTracker) : null,
+    ]);
+    return verification ? applyTextVerification(qa, verification) : qa;
+  };
   const repairOpts = (qa) => ({
     shotType: qaOpts.shotType,
     outfitSpec: outfitSpecText,
@@ -399,18 +419,28 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
 
   // ── Replay ──────────────────────────────────────────────────────────────
   let cachedBuffer = null;
+  let cachedQa = null;
   let url = null;
   if (!forceRerender) {
     try {
       const cached = await downloadBuffer(storageKey);
       try {
-        const marker = JSON.parse((await downloadBuffer(qaMarkerKey)).toString('utf8'));
+        let marker = JSON.parse((await downloadBuffer(qaMarkerKey)).toString('utf8'));
         // The marker vouches for SPECIFIC pixels under a SPECIFIC checker: a
         // forced overwrite that failed before its marker write leaves new
         // bytes beside the old marker, and an older QA_VERSION judged with
         // older eyes — either way the replay re-checks instead of trusting it.
         if (marker.renderHash !== renderContentHash(cached)) throw new Error('marker does not match the cached render');
         if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
+        if (embedText && !textVerificationCurrent(marker.qa?.textVerification, spreadText)) {
+          const verification = await verifyImageText(cached, spreadText, undefined, costTracker);
+          cachedQa = applyTextVerification(marker.qa || {}, verification);
+          marker = { ...marker, qa: cachedQa, unresolved: cachedQa.blocking.length > 0 };
+          await uploadBuffer(Buffer.from(JSON.stringify(marker)), qaMarkerKey, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
+          if (verification.status === 'mismatch') throw new Error('saved lettering needs correction');
+          // Unavailable OCR preserves the art and reaches the final text gate;
+          // never regenerate an image just because the reader is down.
+        }
         // Automatic completion reuses winners (including older runs stopped
         // for review), preserving defects instead of buying more candidates.
         // The strict opt-out requires another check of unresolved artwork.
@@ -497,7 +527,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
 
   if (cachedBuffer) {
     // Unvouched cached pixels: re-check them as the single candidate.
-    const qa = await runQa(cachedBuffer, `spreadQa:${bookId}:s${spread}:recheck`);
+    const qa = cachedQa || await runQa(cachedBuffer, `spreadQa:${bookId}:s${spread}:recheck`);
     const m = await metricsFor(cachedBuffer, qa);
     best = { k: 0, key: storageKey, url, buffer: cachedBuffer, attemptLog: [], qa, metrics: m, score: scoreCandidate({ qa, metrics: m }), variant: 'cached' };
   } else {
@@ -626,7 +656,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           advisories, tuningTag,
           renderHash: renderContentHash(buffer),
           qaVersion: QA_VERSION,
-          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], textInk: best.qa.textInk || null, score: best.score } : null,
+          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], textInk: best.qa.textInk || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
           // Residual findings remain attached to the canonical best artwork,
           // including after automatic completion and subsequent cache replay.
           ...(blocking.length > 0 ? { unresolved: true } : {}),
@@ -1402,7 +1432,7 @@ async function renderStorySpreads(params) {
       try { c.url = await getSignedUrl(c.storageKey, SIGNED_URL_TTL_MS); } catch { c.url = null; }
     }
   }
-  if (unresolved.length > 0 && flags.shipOnExhaustion()) {
+  if (unresolved.length > 0 && flags.shipOnExhaustion() && !results.some(r => r.qa?.textVerification && r.qa.textVerification.status !== 'verified')) {
     advisories.push({ stage: 'shipPolicy', note: `Automatically used the best existing artwork for ${unresolved.length} spread(s) with residual QA warnings: ${unresolved.map(u => `s${u.spread}`).join(', ')}` });
   }
 
@@ -1468,6 +1498,26 @@ async function illustrateStory(params) {
       message: r.advisories.map(a => a.note).join('; ') || 'render failed',
       ...(r.advisories.find(a => a.detail) ? { detail: r.advisories.find(a => a.detail).detail } : {}),
     }));
+    err.bookBible = bookBible;
+    throw err;
+  }
+  // Spelling is not an optional visual warning. This runs after all set
+  // repairs and also covers admin picks and PDF-only rebuilds.
+  const textFailures = textLayout === 'embedded' ? results.filter(r => !textVerificationCurrent(r.qa?.textVerification, story.spreads.find(s => s.spread === r.spread)?.text || '')) : [];
+  if (textFailures.length) {
+    const err = new Error(`Story lettering needs review on spread(s) ${textFailures.map(r => r.spread).join(', ')} — the painted words do not match the approved story or could not be verified. Saved artwork is preserved; retry checks or repairs only affected spreads.`);
+    err.failureCode = 'consistency_unresolved';
+    err.unresolved = textFailures.map(r => ({
+      spread: r.spread,
+      defects: [r.qa?.textVerification?.status === 'mismatch' ? TEXT_MISMATCH : 'Story spelling could not be verified'],
+      candidates: unresolved.find(u => u.spread === r.spread)?.candidates || (r.candidateFiles || []).map(c => ({ storageKey: c.storageKey, score: c.score, pass: c.pass })),
+    }));
+    for (const item of err.unresolved) {
+      for (const candidate of item.candidates) {
+        if (!candidate.url) candidate.url = await getSignedUrl(candidate.storageKey, SIGNED_URL_TTL_MS).catch(() => null);
+      }
+    }
+    err.qaAdvisories = qaAdvisories.slice(0, 40);
     err.bookBible = bookBible;
     throw err;
   }

@@ -5,6 +5,7 @@ process.env.CATALOG_OUTFIT_LOCK = '0';
 
 jest.mock('../../../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn(),
+  verifyImageText: jest.fn((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text)),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'b64', mimeType: 'image/jpeg' }),
   fetchWithTimeout: jest.fn().mockRejectedValue(new Error('offline test')),
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
@@ -25,7 +26,7 @@ const { illustrateStory } = require('../../../services/catalogEngine/illustrator
 const { getBook } = require('../../../services/catalogEngine/catalog');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
 const { QA_VERSION } = require('../../../services/catalogEngine/versions');
-const { generateIllustration } = require('../../../services/illustrationGenerator');
+const { generateIllustration, verifyImageText } = require('../../../services/illustrationGenerator');
 const { electTypographyAnchor } = require('../../../services/catalogEngine/illustrator/textAnchor');
 const { objectExists, downloadBuffer, uploadBuffer, uploadBufferIfAbsent, deletePrefix } = require('../../../services/gcsStorage');
 
@@ -48,6 +49,7 @@ let missingSpread;
 beforeEach(() => {
   process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
   jest.clearAllMocks();
+  verifyImageText.mockImplementation((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text));
   objects = new Map(); oldPin = false; invalidMarker = null; missingSpread = null;
   downloadBuffer.mockImplementation(async key => {
     if (objects.has(key)) return objects.get(key);
@@ -78,8 +80,8 @@ afterEach(() => {
   expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
   expect(deletePrefix).not.toHaveBeenCalled();
   // Legacy recovery also saves the existing bible metadata. Neither path may
-  // write an image, QA marker, or typography pin.
-  expect(uploadBuffer.mock.calls.every(([, key]) => /\/(reviewed-art|bible)\.json$/.test(key))).toBe(true);
+  // write an image or typography pin. A new spelling audit may update QA metadata.
+  expect(uploadBuffer.mock.calls.every(([, key]) => (/\/(reviewed-art|bible)\.json$/.test(key) || key.endsWith('.qa.json')))).toBe(true);
 });
 
 test.each([false, true])('all twelve approved spreads replay unchanged, including a previous buggy pin: %s', async pin => {
@@ -163,4 +165,25 @@ test.each([true, false])('automatic completion keeps cached winners and QA warni
   const result = await illustrateStory({ ...params(), reviewedOnly });
   expect(result.entries).toHaveLength(12);
   expect(result.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'shipPolicy', note: expect.stringContaining('Automatically used') }));
+});
+
+test.each(['mismatch', 'unverified'])('an admin pick cannot bypass a %s manuscript check', async status => {
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  verifyImageText.mockImplementation(async (buffer, text) => {
+    const good = await verifyManuscript(text, async () => text);
+    return text === 'Page 7.' ? { ...good, status, valid: false, issues: ['Test text problem'] } : good;
+  });
+  await expect(illustrateStory(params())).rejects.toMatchObject({
+    failureCode: 'consistency_unresolved', unresolved: [expect.objectContaining({ spread: 7 })],
+  });
+  expect(verifyImageText).toHaveBeenCalledTimes(12);
+});
+
+test('spelling verification is cached against both artwork bytes and the approved manuscript', async () => {
+  await illustrateStory(params());
+  expect(verifyImageText).toHaveBeenCalledTimes(12);
+  verifyImageText.mockClear();
+  await illustrateStory(params());
+  expect(verifyImageText).not.toHaveBeenCalled();
 });

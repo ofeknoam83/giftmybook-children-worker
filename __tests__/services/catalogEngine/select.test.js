@@ -147,3 +147,12 @@ describe('ce-18: the measured ink ΔE shades selection — the closest-to-spec r
     expect(pickBest([drifted, exact]).k).toBe(1);
   });
 });
+
+test('verified words outrank better-looking misspelled and unverified candidates', () => {
+  const correct = { k: 1, score: -100, qa: qa(['outfit break: jacket differs'], [], { textVerification: { status: 'verified' } }) };
+  const typo = { k: 2, score: 100, qa: qa([], [], { textVerification: { status: 'mismatch' } }) };
+  const unread = { k: 3, score: 200, qa: qa([], [], { textVerification: { status: 'unverified' } }) };
+  expect(pickBest([unread, typo, correct])).toBe(correct);
+  expect(isClean(typo)).toBe(false);
+  expect(isClean(unread)).toBe(false);
+});

@@ -19,6 +19,7 @@ process.env.CATALOG_RENDER_CANDIDATES = '1';
 
 jest.mock('../../../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn(),
+  verifyImageText: jest.fn((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text)),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'b64', mimeType: 'image/jpeg' }),
   fetchWithTimeout: jest.fn().mockRejectedValue(new Error('offline test')),
   getNextApiKey: jest.fn().mockReturnValue('test-key'),

@@ -10,6 +10,7 @@
 
 jest.mock('../../../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn(),
+  verifyImageText: jest.fn((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text)),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'Y292ZXI=', mimeType: 'image/jpeg' }),
   fetchWithTimeout: jest.fn().mockRejectedValue(new Error('offline test')),
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
@@ -60,7 +61,7 @@ jest.mock('../../../services/catalogEngine/illustrator/contactSheet', () => ({
   CONTACT_REPAIR_INSTRUCTIONS: { prop_rendering: 'Draw the prop EXACTLY as its reference sheet.' },
 }));
 
-const { generateIllustration } = require('../../../services/illustrationGenerator');
+const { generateIllustration, verifyImageText } = require('../../../services/illustrationGenerator');
 const { downloadBuffer, uploadBuffer } = require('../../../services/gcsStorage');
 const { getCharacterSheet } = require('../../../services/catalogEngine/illustrator/bible/characterSheet');
 const { getBibleProps } = require('../../../services/catalogEngine/illustrator/bible/propSheet');
@@ -103,6 +104,7 @@ const baseParams = (over = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  verifyImageText.mockImplementation((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text));
   delete process.env.CATALOG_RENDER_CANDIDATES;
   process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
   delete process.env.CATALOG_SHEET_REQUIRED;
@@ -506,4 +508,39 @@ describe('ce-18: the book has ONE ink — pinned, measured, and never copied fro
       delete process.env.CATALOG_SHIP_ON_EXHAUSTION;
     }
   });
+});
+
+test('a spelling defect repairs within the existing budget and every candidate is independently checked', async () => {
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '1';
+  verifyImageText.mockImplementation((buffer, text) => verifyManuscript(text, async () => buffer.toString().includes('.r1c1.') ? text : text.replace('Spread', 'Spred')));
+  const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+  expect(generateIllustration).toHaveBeenCalledTimes(2);
+  expect(verifyImageText).toHaveBeenCalledTimes(2);
+  expect(results[0].qa.textVerification.status).toBe('verified');
+  expect(results[0].blocking).toEqual([]);
+  expect(generateIllustration.mock.calls.every(c => c[3].deferTextVerification === true)).toBe(true);
+});
+
+test('text-check outage preserves the first candidate without buying corrective images', async () => {
+  verifyImageText.mockResolvedValue({ status: 'unverified', valid: false, issues: ['HTTP 503'] });
+  const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+  expect(generateIllustration).toHaveBeenCalledTimes(1);
+  expect(results[0].buffer).not.toBeNull();
+  expect(results[0].qa.textVerification.status).toBe('unverified');
+});
+
+test.each(['mismatch', 'unverified'])('automatic shipping cannot complete a book with %s lettering', async status => {
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '0';
+  verifyImageText.mockImplementation(async (buffer, text) => {
+    const good = await verifyManuscript(text, async () => text);
+    return text === 'Spread 3 text.' ? { ...good, status, valid: false, issues: ['Test text problem'] } : good;
+  });
+  const all = Array.from({ length: 12 }, (_, i) => i + 1);
+  await expect(illustrateStory(baseParams({ spreadNos: all, textLayout: 'embedded' }))).rejects.toMatchObject({
+    failureCode: 'consistency_unresolved', unresolved: [expect.objectContaining({ spread: 3 })],
+  });
+  expect(uploadBuffer.mock.calls.some(([, key]) => key.endsWith('/reviewed-art.json'))).toBe(true);
 });

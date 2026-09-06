@@ -37,6 +37,7 @@ const WEIGHTS = {
 const TEXT_ANCHOR_MAX_SIZE_RATIO = 1.5;
 function typographyAnchorRejection(qa) {
   if (!qa || qa.qaUnavailable) return 'text size could not be verified';
+  if (qa.textVerification && qa.textVerification.status !== 'verified') return 'painted story spelling is not verified';
   const defects = [...(qa.defects || []), ...(qa.blocking || []), ...(qa.advisory || [])];
   const textDefect = defects.find(d => d.startsWith('embedded story text'));
   if (textDefect) return textDefect;
@@ -107,7 +108,7 @@ function scoreCandidate(c) {
  */
 function isClean(c) {
   const qa = c && c.qa;
-  return !!qa && !qa.qaUnavailable && (!Array.isArray(qa.blocking) || qa.blocking.length === 0);
+  return !!qa && (!qa.textVerification || qa.textVerification.status === 'verified') && !qa.qaUnavailable && (!Array.isArray(qa.blocking) || qa.blocking.length === 0);
 }
 
 /**
@@ -121,6 +122,8 @@ function isClean(c) {
  */
 function selectionTier(c) {
   const qa = c && c.qa;
+  if (qa?.textVerification?.status === 'unverified') return 4;
+  if (qa?.textVerification?.status === 'mismatch') return 3;
   if (!qa || qa.qaUnavailable) return 2;
   return Array.isArray(qa.blocking) && qa.blocking.length > 0 ? 1 : 0;
 }
