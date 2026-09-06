@@ -79,6 +79,7 @@ function wrapSentenceLines(text, maxChars = 47, options = {}) {
       } else sentences.push(segment.trim());
     }
     for (const sentence of sentences) {
+      if (options.blankLineBetweenSentences && lines.length && lines.at(-1) !== '') lines.push('');
       const words = sentence.split(/\s+/);
       const best = Array(words.length + 1);
       best[words.length] = { cost: 0, lines: [] };

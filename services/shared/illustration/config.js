@@ -232,7 +232,11 @@ function resolveTypographyGuideRules(childAge, ink = 'dark', requestedScale = 1)
     linePitchPercent,
     charWidthPercent: rules.charWidthPercent * scale,
     ...(scale === 1.5 ? {
-      sentenceStartsNewLine: true, minWordsPerLine: 5, maxWordsPerLine: 7,
+      sentenceStartsNewLine: true, blankLineBetweenSentences: true, minWordsPerLine: 5, maxWordsPerLine: 7,
+      // More vertical room for sentence gaps; still well inside the ~6%
+      // top/bottom crop when a 16:9 render prints across square pages.
+      topPaddingPercent: 20, bottomPaddingPercent: 26,
+      textAlignment: 'Every text line straight, horizontal and left-aligned to the same margin. Keep one constant line pitch. Preserve exactly one completely empty row between sentences; an existing paragraph break uses that same single blank row, never a doubled gap.',
       maxCharsPerLine: Math.min(47, Math.floor((rules.activeSideMaxPercent - rules.edgePaddingPercent) / (rules.charWidthPercent * scale))),
     } : {}),
     fontStyle: 'Playfair Display Regular, exactly matching the supplied lettering guide. One upright serif face and regular weight for the entire book. Do not substitute Georgia, Book Antiqua or another typeface; do not switch to bold, italic, decorative or headline lettering.',

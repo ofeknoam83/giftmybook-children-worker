@@ -36,3 +36,11 @@ test('ordinary wrapping is unchanged unless the sentence layout is explicitly re
   expect(wrapStoryLines(text, 47)).toEqual([text]);
   expect(wrapStoryLines(text, 47, { sentenceStartsNewLine: true })).toEqual(['The fox ran.', 'The bird flew.']);
 });
+
+
+test('one empty row separates sentences without doubled paragraph gaps or leading/trailing rows', () => {
+  const text = 'Dr. Fox found 3.5 little bells. “Can we ring them now?”\n\nThe bird nodded!';
+  const lines = wrapSentenceLines(text, 47, { blankLineBetweenSentences: true });
+  expect(lines).toEqual(['Dr. Fox found 3.5 little bells.', '', '“Can we ring them now?”', '', 'The bird nodded!']);
+  expect(lines.filter(Boolean).join(' ')).toBe(text.replace(/\s+/g, ' '));
+});

@@ -137,7 +137,7 @@ test('the readable template and actual prompt share sentence-led 5–7 word rows
   const template = await createTypographyTemplate({ childAge: 6, text, typographyScale: 1.5 });
   const block = expectedTextBlock(text, resolveTypographyGuideRules(6, 'dark', 1.5));
   expect(template.lines).toEqual(block.lines);
-  expect(block.lines.join(' ')).toBe(text);
+  expect(block.lines.filter(Boolean).join(' ')).toBe(text);
   expect(block.lines).toContain('She looked up.');
   expect(block.lines.at(-1)).toBe('“Where did the little blue bird go?”');
   expect(block.lines.slice(0, 2).every(line => line.split(/\s+/).length >= 5 && line.split(/\s+/).length <= 7)).toBe(true);
@@ -146,9 +146,29 @@ test('the readable template and actual prompt share sentence-led 5–7 word rows
   });
   expect(prompt).toContain(block.lines.join('\n'));
   expect(prompt).toContain('Target 5–7 words per line');
+  expect(prompt).toContain('exactly ONE completely empty line between sentences');
+  expect(prompt).toContain('text lines plus 2 completely empty lines');
+  expect(block.lines.filter(l => l === '')).toHaveLength(2);
   expect(prompt).toContain('start every sentence on a fresh line');
   expect(prompt).toContain('cap height 1.425%');
   expect(prompt).not.toContain('Err on the side of TOO SMALL');
   expect(prompt).not.toContain('Smaller is always safer');
   expect(block.widthPercent).toBeLessThanOrEqual(27);
+});
+
+
+test('sentence gaps fit inside print-safe bounds without reducing the readable font', async () => {
+  const { createTypographyTemplate } = require('../../../services/catalogEngine/illustrator/typographyGuide');
+  const { expectedTextBlock } = require('../../../services/shared/illustration/textBlock');
+  const { resolveTypographyGuideRules } = require('../../../services/shared/illustration/config');
+  const text = 'The little fox walked into the forest and listened to the leaves in the trees. A blue bird flew down and landed on a branch. “Hello,” said the fox with a smile. Tiny bells rang softly in the breeze. She looked up. “Where is that music coming from?”';
+  const rules = resolveTypographyGuideRules(6, 'light', 1.5);
+  const block = expectedTextBlock(text, rules);
+  const template = await createTypographyTemplate({ childAge: 6, ink: 'light', text, typographyScale: 1.5 });
+  expect(template.lines).toEqual(block.lines);
+  expect(block.lines.filter(l => l === '')).toHaveLength(5);
+  expect(block.heightPercent).toBeLessThan(100 - rules.topPaddingPercent - rules.bottomPaddingPercent);
+  expect(template.capHeightPercent).toBe(1.425);
+  expect(rules.topPaddingPercent).toBeGreaterThan(6);
+  expect(rules.bottomPaddingPercent).toBeGreaterThan(6);
 });
