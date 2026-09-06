@@ -39,7 +39,7 @@ async function saveManifest(bookId, context, results, metadata) {
   })), manifestPath(bookId), 'application/json');
 }
 
-async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log) {
+async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, recheck) {
   let buffer;
   try { buffer = await downloadBuffer(storageKey); }
   catch (err) {
@@ -48,7 +48,17 @@ async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log) 
     storageKey = legacyUnanchoredKey;
     log('info', `Spread ${spread}: recovered original reviewed artwork before typography was pinned`);
   }
-  const marker = JSON.parse((await downloadBuffer(`${storageKey}.qa.json`)).toString('utf8'));
+  let marker;
+  try { marker = JSON.parse((await downloadBuffer(`${storageKey}.qa.json`)).toString('utf8')); }
+  catch (err) {
+    if (!isMissing(err) || !recheck) throw err;
+    log('info', `Spread ${spread}: saved artwork exists; recovering its missing QA record`);
+    const qa = await recheck(buffer);
+    marker = { renderHash: fnv1a(buffer.toString('base64')).toString(36), qaVersion: QA_VERSION,
+      qa, unresolved: !!qa?.blocking?.length, checkedAt: new Date().toISOString(),
+      advisories: [{ stage: 'recovery', spread, note: 'Rechecked saved artwork after its QA record was missing; no scene was regenerated.' }] };
+    await uploadBuffer(Buffer.from(JSON.stringify(marker)), `${storageKey}.qa.json`, 'application/json');
+  }
   if (marker.renderHash !== fnv1a(buffer.toString('base64')).toString(36)) throw new Error('marker does not match the saved artwork');
   if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
   if (marker.unresolved && !flags.shipOnExhaustion()) throw new Error('saved artwork still has unresolved blocking defects');
@@ -60,7 +70,7 @@ async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log) 
     spread, buffer, storageKey, url: await getSignedUrl(storageKey, 30 * 24 * 60 * 60 * 1000),
     advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
     fresh: false, bathWater: false, blocking, candidates: [], candidateFiles: [],
-    qa: marker.qa || null, bbox: marker.qa?.bbox || null,
+    marker, qa: marker.qa || null, bbox: marker.qa?.bbox || null,
     propBoxes: Array.isArray(marker.qa?.propBoxes) ? marker.qa.propBoxes : [],
   };
 }

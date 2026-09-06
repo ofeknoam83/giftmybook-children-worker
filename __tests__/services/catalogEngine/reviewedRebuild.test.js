@@ -5,11 +5,16 @@ process.env.CATALOG_OUTFIT_LOCK = '0';
 
 jest.mock('../../../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn(),
+  repairImageText: jest.fn(),
   verifyImageText: jest.fn((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text)),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'b64', mimeType: 'image/jpeg' }),
   fetchWithTimeout: jest.fn().mockRejectedValue(new Error('offline test')),
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
   isModestBathWaterScene: jest.fn().mockReturnValue(false),
+}));
+jest.mock('../../../services/catalogEngine/illustrator/spreadQa', () => ({
+  ...jest.requireActual('../../../services/catalogEngine/illustrator/spreadQa'),
+  checkSpreadRenderV2: jest.fn().mockResolvedValue({ defects: [], blocking: [], advisory: [], pass: true }),
 }));
 jest.mock('../../../services/catalogEngine/illustrator/textAnchor', () => ({
   ...jest.requireActual('../../../services/catalogEngine/illustrator/textAnchor'),
@@ -26,7 +31,7 @@ const { illustrateStory } = require('../../../services/catalogEngine/illustrator
 const { getBook } = require('../../../services/catalogEngine/catalog');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
 const { QA_VERSION } = require('../../../services/catalogEngine/versions');
-const { generateIllustration, verifyImageText } = require('../../../services/illustrationGenerator');
+const { generateIllustration, verifyImageText, repairImageText } = require('../../../services/illustrationGenerator');
 const { electTypographyAnchor } = require('../../../services/catalogEngine/illustrator/textAnchor');
 const { objectExists, downloadBuffer, uploadBuffer, uploadBufferIfAbsent, deletePrefix } = require('../../../services/gcsStorage');
 
@@ -46,11 +51,13 @@ let objects;
 let oldPin;
 let invalidMarker;
 let missingSpread;
+let missingMarker;
+let allowTextEdits;
 beforeEach(() => {
   process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
   jest.clearAllMocks();
   verifyImageText.mockImplementation((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text));
-  objects = new Map(); oldPin = false; invalidMarker = null; missingSpread = null;
+  objects = new Map(); oldPin = false; invalidMarker = null; missingSpread = null; missingMarker = null; allowTextEdits = false;
   downloadBuffer.mockImplementation(async key => {
     if (objects.has(key)) return objects.get(key);
     if (oldPin && /\/typo-anchor\.wide\.json$/.test(key)) {
@@ -62,6 +69,7 @@ beforeEach(() => {
     if (match && !/-ta[^/]*\//.test(key)) {
       const spread = Number(match[1]);
       if (spread === missingSpread) throw missing();
+      if (match[2] && spread === missingMarker) throw missing();
       if (match[2]) return Buffer.from(JSON.stringify({ ...marker(spread), ...(invalidMarker || {}) }));
       return bytes(spread);
     }
@@ -81,7 +89,7 @@ afterEach(() => {
   expect(deletePrefix).not.toHaveBeenCalled();
   // Legacy recovery also saves the existing bible metadata. Neither path may
   // write an image or typography pin. A new spelling audit may update QA metadata.
-  expect(uploadBuffer.mock.calls.every(([, key]) => (/\/(reviewed-art|bible)\.json$/.test(key) || key.endsWith('.qa.json')))).toBe(true);
+  expect(uploadBuffer.mock.calls.every(([, key]) => (/\/(reviewed-art|bible)\.json$/.test(key) || key.endsWith('.qa.json') || (allowTextEdits && /spread-7\.wide(?:\.text-[^.]+)?\.png$/.test(key))))).toBe(true);
 });
 
 test.each([false, true])('all twelve approved spreads replay unchanged, including a previous buggy pin: %s', async pin => {
@@ -186,4 +194,35 @@ test('spelling verification is cached against both artwork bytes and the approve
   verifyImageText.mockClear();
   await illustrateStory(params());
   expect(verifyImageText).not.toHaveBeenCalled();
+});
+
+
+test('a missing QA record is recovered by checking existing pixels, including spread 12', async () => {
+  missingMarker = 12;
+  const result = await illustrateStory({ ...params(), automaticTextRecovery: true });
+  expect(result.entries).toHaveLength(12);
+  expect(result.entries[11].spreadIllustrationBuffer).toEqual(bytes(12));
+  expect(result.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'recovery', spread: 12 }));
+  const key = result.entries[11].spreadIllustrationStorageKey;
+  expect(JSON.parse(objects.get(`${key}.qa.json`))).toMatchObject({ qaVersion: QA_VERSION, qa: { textVerification: { status: 'verified' } } });
+});
+
+test('production rebuild automatically fixes confirmed spelling on only the affected saved spread', async () => {
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  allowTextEdits = true;
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  const fixed = Buffer.from('fixed-spread-7');
+  repairImageText.mockResolvedValue(fixed);
+  verifyImageText.mockImplementation(async (buffer, text) => ({
+    ...await verifyManuscript(text, async () => buffer.equals(bytes(7)) ? 'Paeg 7.' : text),
+    textBox: { x: .6, y: .2, w: .3, h: .4 },
+  }));
+  const result = await illustrateStory({ ...params(), automaticTextRecovery: true });
+  expect(result.entries[6].spreadIllustrationBuffer).toEqual(fixed);
+  expect(repairImageText).toHaveBeenCalledTimes(1);
+  for (const entry of result.entries.filter(e => e.spread !== 7)) expect(entry.spreadIllustrationBuffer).toEqual(bytes(entry.spread));
+  verifyImageText.mockClear(); repairImageText.mockClear();
+  await illustrateStory({ ...params(), automaticTextRecovery: true });
+  expect(verifyImageText).not.toHaveBeenCalled();
+  expect(repairImageText).not.toHaveBeenCalled();
 });

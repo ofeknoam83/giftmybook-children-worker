@@ -233,6 +233,7 @@ async function runBookPipeline(params) {
     // A previous run already reached PDF assembly. Resume from its saved
     // artwork even when the retry came through the ordinary generation URL.
     reviewedOnly: reviewedOnly || resumeArtwork,
+    automaticTextRecovery: true,
     onProgress: (frac, message) => onProgress('illustration', 0.2 + frac * 0.6, message),
     log,
   });

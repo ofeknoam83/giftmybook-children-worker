@@ -19,6 +19,7 @@ process.env.CATALOG_RENDER_CANDIDATES = '1';
 
 jest.mock('../../../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn(),
+  repairImageText: jest.fn(),
   verifyImageText: jest.fn((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text)),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'b64', mimeType: 'image/jpeg' }),
   fetchWithTimeout: jest.fn().mockRejectedValue(new Error('offline test')),
@@ -1202,4 +1203,34 @@ describe('per-spread full-canvas lettering template', () => {
     expect(rollbackRetry.results.map(r => r.storageKey)).toEqual(upgraded.results.map(r => r.storageKey));
     expect(generateIllustration).not.toHaveBeenCalled();
   });
+});
+
+
+test('new books repair confirmed lettering on the existing candidate instead of generating the scene again', async () => {
+  const { verifyImageText, repairImageText } = require('../../../services/illustrationGenerator');
+  const { uploadBuffer } = require('../../../services/gcsStorage');
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  const saved = new Map();
+  const fixed = Buffer.from('corrected-lettering');
+  const previous = process.env.CATALOG_TEXT_ANCHOR;
+  process.env.CATALOG_TEXT_ANCHOR = '0';
+  generateIllustration.mockClear(); repairImageText.mockClear();
+  try {
+    downloadBuffer.mockImplementation(async key => { if (saved.has(key)) return saved.get(key); throw Object.assign(new Error('missing'), { code: 404 }); });
+    uploadBuffer.mockImplementation(async (buffer, key) => { saved.set(key, buffer); });
+    generateIllustration.mockImplementation(async (_scene, _ref, _style, opts) => { saved.set(opts.gcsPath, Buffer.from('original-typo')); return 'https://saved.example/art.png'; });
+    repairImageText.mockResolvedValue(fixed);
+    verifyImageText.mockImplementation(async (buffer, text) => ({
+      ...await verifyManuscript(text, async () => buffer.equals(fixed) ? text : 'Spraed 1 text.'), textBox: { x: .6, y: .2, w: .3, h: .4 },
+    }));
+    const result = await renderStorySpreads(baseParams({ spreadNos: [1], textLayout: 'embedded', automaticTextRecovery: true }));
+    expect(result.results[0].buffer).toEqual(fixed);
+    expect(result.results[0].qa.textVerification.status).toBe('verified');
+    expect(generateIllustration).toHaveBeenCalledTimes(1);
+    expect(repairImageText).toHaveBeenCalledTimes(1);
+  } finally {
+    if (previous === undefined) delete process.env.CATALOG_TEXT_ANCHOR; else process.env.CATALOG_TEXT_ANCHOR = previous;
+    verifyImageText.mockImplementation((buffer, text) => verifyManuscript(text, async () => text));
+    uploadBuffer.mockResolvedValue(undefined);
+  }
 });
