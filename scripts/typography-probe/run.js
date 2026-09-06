@@ -19,16 +19,16 @@ const save = (name, bytes) => { files[name] = Buffer.from(bytes).toString('base6
 async function main() {
   const bookId = process.env.PROBE_BOOK_ID;
   if (!/^[a-f0-9-]{36}$/.test(bookId || '')) throw new Error('A source book UUID is required');
-  const checkpoint = JSON.parse(await downloadBuffer(`children-jobs/${bookId}/checkpoint.json`));
+  const fixture = JSON.parse(process.env.PROBE_FIXTURE || '{}');
   const manifest = JSON.parse(await downloadBuffer(`children-jobs/${bookId}/reviewed-art.json`));
-  const story = checkpoint.story.response;
-  const profile = checkpoint.story.request.profile;
-  const { book, theme, ageBand } = await getBookForTag(story.book_id, checkpoint.story.request.versions.catalog);
+  const story = fixture.story;
+  const profile = fixture.profile;
+  const { book, theme, ageBand } = await getBookForTag(story.book_id, story.versions.catalog);
   const image = async url => ({ base64: (await downloadBuffer(url)).toString('base64'), mimeType: /\.jpe?g(?:\?|$)/i.test(url) ? 'image/jpeg' : 'image/png' });
   const refPhoto = await image(manifest.context.identity);
   const stored = manifest.bookBible;
   const bible = { theme, props: [], sheet: await image(stored.characterSheet.url), outfit: { outfit: stored.outfitSpec.text }, companion: { ...(await image(stored.companion.url)), key: stored.companion.name } };
-  const shotPlan = buildShotPlan({ seedBasis: storyFingerprint(story), spreads: book.beats.map(b => b.spread), ageBand, textLayout: 'embedded' });
+  const shotPlan = buildShotPlan({ seedBasis: manifest.context.story, spreads: book.beats.map(b => b.spread), ageBand, textLayout: 'embedded' });
   const ink = await chooseBookTextInk(refPhoto);
   const results = [];
   for (const spread of [1, 5, 6]) {
