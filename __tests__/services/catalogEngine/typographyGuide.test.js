@@ -66,3 +66,46 @@ test('guide geometry and prompt share one face and one numeric size for each age
   expect(resolveTypographyGuideRules(2).fontSize).toContain('cap height 1.1%');
   expect(resolveBookTextRules(6).fontStyle).toContain('resembling Georgia');
 });
+
+test('full-spread template carries the actual manuscript at fixed scale on either assigned side', async () => {
+  const { createTypographyTemplate } = require('../../../services/catalogEngine/illustrator/typographyGuide');
+  const input = { childAge: 6, ink: 'light', text: 'A quiet adventure begins.' };
+  const left = await createTypographyTemplate({ ...input, side: 'left' });
+  const right = await createTypographyTemplate({ ...input, side: 'right' });
+  const bounds = async ref => {
+    const { data, info } = await sharp(Buffer.from(ref.base64, 'base64')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    let minX = info.width, maxX = 0, minY = info.height, maxY = 0;
+    for (let p = 0; p < info.width * info.height; p++) if (data[p * 4 + 3]) {
+      minX = Math.min(minX, p % info.width); maxX = Math.max(maxX, p % info.width);
+      minY = Math.min(minY, Math.floor(p / info.width)); maxY = Math.max(maxY, Math.floor(p / info.width));
+    }
+    return { ...info, minX, maxX, minY, maxY };
+  };
+  const a = await bounds(left), b = await bounds(right);
+  expect(left.kind).toBe('template');
+  expect(left.lines.join(' ')).toBe(input.text);
+  expect(a.width / a.height).toBeCloseTo(16 / 9, 3);
+  expect(b.minX).toBeGreaterThan(b.width * .6);
+  expect(a.maxX).toBeLessThan(a.width * .4);
+  expect(a.maxY - a.minY).toBe(b.maxY - b.minY);
+  expect(a.maxY - a.minY).toBeLessThan(a.height * .02);
+  expect(left.hash).not.toBe(right.hash);
+  expect(left.hash).not.toBe((await createTypographyGuide(input)).hash);
+});
+
+test('template words are copied and its image is first without renumbering identity references', async () => {
+  const { createTypographyTemplate } = require('../../../services/catalogEngine/illustrator/typographyGuide');
+  const { buildReferencePack } = require('../../../services/catalogEngine/illustrator/bible');
+  const { buildReferenceParts, buildCharacterPrompt } = require('../../../services/illustrationGenerator');
+  const template = await createTypographyTemplate({ childAge: 6, text: 'The bells rang.', side: 'right' });
+  const { pack, refs } = buildReferencePack({}, { refPhoto: { base64: 'cover' }, typographyAnchor: template });
+  const prompt = buildCharacterPrompt('A forest.', 'pixar_premium', 'Test', 'The bells rang.', null, null, null, null,
+    { embedText: true, isSpread: true, childAge: 6, typographyTemplate: true, typographyRef: refs.typographyRef });
+  const parts = buildReferenceParts(prompt, pack);
+  expect(parts[1].text).toContain('REFERENCE IMAGE 2');
+  expect(parts[2].inline_data.data).toBe(template.base64);
+  expect(parts[3].text).toContain('REFERENCE IMAGE 1');
+  expect(prompt).toContain("Copy the template's words exactly");
+  expect(prompt).not.toContain('never copy its words');
+  expect(prompt).toContain('Playfair Display Regular');
+});

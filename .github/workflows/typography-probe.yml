@@ -1,0 +1,35 @@
+name: Isolated typography probe
+on:
+  push:
+    branches: [codex/full-spread-lettering-template]
+    paths: [scripts/typography-probe/**, .github/workflows/typography-probe.yml]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      - name: Render three samples without modifying the saved book
+        env:
+          GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          PROBE_BOOK_ID: 3bb3aed8-4510-4cd8-acaa-5f594f791dc5
+        run: node scripts/typography-probe/run.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: encrypted-typography-probe
+          path: probe-output/encrypted.json
+          retention-days: 1

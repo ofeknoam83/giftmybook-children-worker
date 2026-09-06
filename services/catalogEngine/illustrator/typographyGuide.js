@@ -31,7 +31,7 @@ async function chooseBookTextInk(reference) {
   } catch { return 'dark'; }
 }
 
-async function createTypographyGuide({ childAge, ink = 'dark', text }) {
+async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left' }) {
   const rules = resolveTypographyGuideRules(childAge, ink);
   const f = guideFont();
   const capPercent = rules.capHeightPercent;
@@ -40,7 +40,9 @@ async function createTypographyGuide({ childAge, ink = 'dark', text }) {
   const scale = capHeight / (h.maxY - h.minY);
   const linePitch = GUIDE_HEIGHT * rules.linePitchPercent / 100;
   const lines = wrapStoryLines(text || 'A small adventure begins. There is so much to discover.', rules.maxCharsPerLine);
-  const x = GUIDE_HEIGHT * 16 / 9 * rules.edgePaddingPercent / 100;
+  const width = fullSpread ? Math.round(GUIDE_HEIGHT * 16 / 9) : GUIDE_WIDTH;
+  const leftPercent = fullSpread && side === 'right' ? 100 - rules.activeSideMaxPercent : rules.edgePaddingPercent;
+  const x = GUIDE_HEIGHT * 16 / 9 * leftPercent / 100;
   const y = GUIDE_HEIGHT * rules.topPaddingPercent / 100;
   const paths = [];
   lines.forEach((line, i) => {
@@ -54,11 +56,12 @@ async function createTypographyGuide({ childAge, ink = 'dark', text }) {
       cursor += pos.xAdvance * scale;
     });
   });
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${GUIDE_WIDTH}" height="${GUIDE_HEIGHT}" viewBox="0 0 ${GUIDE_WIDTH} ${GUIDE_HEIGHT}">${paths.join('')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${GUIDE_HEIGHT}" viewBox="0 0 ${width} ${GUIDE_HEIGHT}">${paths.join('')}</svg>`;
   const bytes = await sharp(Buffer.from(svg)).png().toBuffer();
-  const hash = createHash('sha256').update('typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
-  return { kind: 'guide', spread: 0, side: 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
-    ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true };
+  const hash = createHash('sha256').update(fullSpread ? 'typography-template-v1' : 'typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
+  return { kind: fullSpread ? 'template' : 'guide', spread: 0, side: fullSpread ? side : 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
+    ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true,
+    ...(fullSpread ? { lines, width, height: GUIDE_HEIGHT } : {}) };
 }
 
 // A new reference changes every cache key. Ordinary retries of an older
@@ -75,4 +78,9 @@ async function canUseTypographyGuide({ enabled, reviewedOnly, forceRerender, leg
   catch { return false; } // a failed existence check must not invalidate saved artwork
 }
 
-module.exports = { canUseTypographyGuide, createTypographyGuide, chooseBookTextInk, GUIDE_HEIGHT, GUIDE_WIDTH };
+// Unlike the book-wide sample, this full-canvas edit base contains THIS
+// spread's manuscript in its assigned column. It is still only an INPUT
+// to Gemini; no glyphs are composited onto the returned illustration.
+const createTypographyTemplate = options => createTypographyGuide({ ...options, fullSpread: true });
+
+module.exports = { createTypographyTemplate, canUseTypographyGuide, createTypographyGuide, chooseBookTextInk, GUIDE_HEIGHT, GUIDE_WIDTH };
