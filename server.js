@@ -568,7 +568,8 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
       console.error(`[v13] generate-stories failed for ${bookId}:`, err);
       if (callbackUrl) {
         await postWithRetry(callbackUrl, {
-          success: false, bookId, engine: 'catalog-v13', ...(dispatchId ? { dispatchId } : {}), stories: [], failures: [{ message: err.message }],
+          success: false, bookId, engine: 'catalog-v13', ...(dispatchId ? { dispatchId } : {}), stories: [],
+          failures: [{ bookId: err.bookId || null, message: err.message, errors: err.validationErrors || [] }],
         });
       }
     } finally {
