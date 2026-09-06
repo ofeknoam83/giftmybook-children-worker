@@ -540,6 +540,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const hairstyleDesc = characterDescription || '';
 
   const parts = [];
+  if (opts.typographyTemplate === true && opts.embedText && opts.typographyRef > 0) {
+    parts.push('EDIT THE FULL-SPREAD LETTERING TEMPLATE: preserve its lettering at exactly its existing scale and position; complete the missing artwork throughout the canvas.');
+  }
 
   // ce-9 BIBLE MODE: when a Book Bible rides the render, the identity and
   // outfit are stated ONCE, up front, as structured blocks that name their
@@ -883,7 +886,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   const embedStoryText = opts.embedText && pageText && pageText.trim();
   let embedSummary = null; // ce-15: footprint/column/reference facts reused by the checklist and the final check
-  const guideRules = opts.typographyGuide === true && Number.isInteger(opts.typographyRef) && opts.typographyRef > 0;
+  const guideRules = (opts.typographyGuide === true || opts.typographyTemplate === true) && Number.isInteger(opts.typographyRef) && opts.typographyRef > 0;
   const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules : resolveBookTextRules)(opts.childAge, opts.bookTextInk) : null;
   if (embedStoryText) {
     const tr = textRulesForEmbed;
@@ -913,6 +916,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     embedSummary = { block, textSide, typoRef, foldMargin, verticalBand };
     parts.push('TEXT RENDERING RULES:');
     parts.push('- This illustration MUST include the story text rendered directly INTO the image');
+    if (opts.typographyTemplate) parts.push('- EXACT MANUSCRIPT ONLY: preserve every word and its spelling. No other lettering anywhere: no title, labels, decorative words, sound-effect lettering or onomatopoeia outside the manuscript. Show sound and movement through visual action, never extra written words.');
     // The book-wide typographic lock: each spread renders in a STATELESS call,
     // so the ONLY way every page comes out in the same font, size, and color
     // is pinning the identical spec (TEXT_RULES) on every render.
@@ -929,7 +933,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Main characters and key action should not be hidden behind the text');
     parts.push(`- TYPOGRAPHY CONSISTENCY (CRITICAL): ${tr.typographyConsistency}`);
     if (typoRef) {
-      parts.push(`- TYPOGRAPHY REFERENCE (REFERENCE IMAGE ${typoRef} — this book’s fixed lettering reference): your text must look like the text in that image — the SAME typeface, weight, fill colour and shadow treatment, the SAME size relative to the page height (each of your rows as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way. Use it for the TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`);
+      parts.push(opts.typographyTemplate ? `- EDIT BASE (REFERENCE IMAGE ${typoRef}): the full 16:9 canvas already carries THIS spread's exact words, line breaks, size, ink and position. Complete the illustration around and behind those glyphs. Preserve the lettering at its existing canvas-relative scale, without zooming, enlarging, reflowing, recolouring or changing its face. Its transparent space is missing scenery to paint, never a blank panel to preserve. Copy the template's words exactly: they ARE the manuscript below.` : `- TYPOGRAPHY REFERENCE (REFERENCE IMAGE ${typoRef} — this book’s fixed lettering reference): your text must look like the text in that image — the SAME typeface, weight, fill colour and shadow treatment, the SAME size relative to the page height (each of your rows as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way. Use it for the TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`);
     }
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE — exactly ${lineCount} short lines. Paint them with EXACTLY these line breaks: one line per row, in this order, every word exactly as written (a blank row is a paragraph gap). NEVER join two rows into one line and NEVER re-break a row — the breaks are part of the design:`);
@@ -1008,7 +1012,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
  */
 function buildReferenceParts(prompt, pack) {
   const parts = [{ text: prompt }];
-  pack.forEach((ref, i) => {
+  // Put the full-canvas edit base first among the images. Keep the original
+  // reference numbers: character/prop instructions still cite those slots.
+  const ordered = pack.map((ref, i) => ({ ref, i }));
+  ordered.sort((a, b) => Number(b.ref.kind === 'typography-template') - Number(a.ref.kind === 'typography-template'));
+  ordered.forEach(({ ref, i }) => {
     parts.push({ text: `REFERENCE IMAGE ${i + 1} — ${ref.label}` });
     parts.push({ inline_data: { mimeType: ref.mimeType || 'image/png', data: ref.base64 } });
   });
@@ -1331,6 +1339,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     childAge: opts.childAge,
     bookTextInk: opts.bookTextInk === 'light' ? 'light' : 'dark',
     typographyGuide: opts.typographyGuide === true,
+    typographyTemplate: opts.typographyTemplate === true,
     promptInjection: opts.promptInjection,
     fontStyle: opts.fontStyle,
     additionalCoverCharacters: opts.additionalCoverCharacters || null,
@@ -1383,6 +1392,15 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const bibleFallbackBlocks = opts.bible && typeof opts.bible === 'object'
     ? renderBibleBlocks(opts.bible, { bathWaterScene: isModestBathWaterScene(stripHairFromScene(sceneDescription), opts.pageText || '') }).join('\n')
     : '';
+  const genericSafeScene = buildGenericSafePrompt(artStyle, {
+    childName,
+    characterOutfit: opts.characterOutfit,
+    characterDescription: opts.characterDescription,
+  });
+  // The template's manuscript and geometry must survive a scene fallback.
+  const genericSafePrompt = opts.typographyTemplate
+    ? buildFullPrompt(genericSafeScene)
+    : genericSafeScene + (bibleFallbackBlocks ? `\n${bibleFallbackBlocks}` : '');
   const promptVariants = [
     { label: 'original', prompt: fullPrompt },
     { label: 'sanitized', prompt: opts.bible ? buildFullPrompt(sanitizePrompt(sceneDescription)) : sanitizePrompt(fullPrompt) },
@@ -1391,11 +1409,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       // opts.safeFallbackSuffix: caller-owned block that must survive even
       // this scene-discarding last resort (the catalog illustrator passes
       // the theme's world-law card — Layer 1 promises it on EVERY render).
-      prompt: buildGenericSafePrompt(artStyle, {
-        childName,
-        characterOutfit: opts.characterOutfit,
-        characterDescription: opts.characterDescription,
-      }) + (bibleFallbackBlocks ? `\n${bibleFallbackBlocks}` : '') + (opts.safeFallbackSuffix ? `\n${opts.safeFallbackSuffix}` : ''),
+      prompt: genericSafePrompt + (opts.safeFallbackSuffix ? `\n${opts.safeFallbackSuffix}` : ''),
     },
   ];
 
@@ -1433,7 +1447,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
 
       if (costTracker) {
-        costTracker.addImageGeneration('gemini-3.1-flash-image', 1);
+        costTracker.addImageGeneration(photoBase64 && opts.imageSize === '4K'
+          ? 'gemini-3.1-flash-image:4K' : 'gemini-3.1-flash-image', 1);
       }
 
       // Verify embedded text accuracy (skip on last attempt — accept best effort)

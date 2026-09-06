@@ -100,6 +100,10 @@
  *                                   typography anchor page (1-4, default 1):
  *                                   the whole book copies the elected page's
  *                                   type size, with no extra rolls by default.
+ *  - CATALOG_TYPOGRAPHY_TEMPLATE=0 — use the older sample guide for new
+ *                                   embedded books. Default: full-spread
+ *                                   manuscript template with 4K output.
+ *                                   Retries retain already saved artwork.
  *  - CATALOG_EMBEDDED_IMAGE_SIZE=2K — (ce-16, OPT-IN) request this output
  *                                   size ('1K'|'2K'|'4K') on embedded renders
  *                                   (more pixels per glyph keeps small
@@ -190,6 +194,9 @@ module.exports = {
   // type reference for its other embedded spreads)
   textAnchorEnabled: () => !envOff('CATALOG_TEXT_ANCHOR'),
   typographyGuideEnabled: () => !envOff('CATALOG_TYPOGRAPHY_GUIDE'),
+  // New embedded books use a full-canvas manuscript reference. Existing
+  // artwork keeps its saved namespace on retries and reviewed rebuilds.
+  typographyTemplateEnabled: () => !envOff('CATALOG_TYPOGRAPHY_TEMPLATE'),
   textAnchorCandidates: () => envInt('CATALOG_TEXT_ANCHOR_CANDIDATES', 1, 1, 4),
   // ce-18 — the painted text's ink colour
   textInkQaEnabled: () => !envOff('CATALOG_TEXT_INK_QA'),

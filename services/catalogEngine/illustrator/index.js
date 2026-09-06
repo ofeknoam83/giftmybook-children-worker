@@ -51,9 +51,9 @@ const { STYLE_VERSION, QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
-const { canUseTypographyGuide, createTypographyGuide, chooseBookTextInk } = require('./typographyGuide');
+const { canUseTypographyGuide, createTypographyGuide, createTypographyTemplate, chooseBookTextInk } = require('./typographyGuide');
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
-const { resolveBookTextRules } = require('../../shared/illustration/config');
+const { resolveBookTextRules, resolveTypographyGuideRules } = require('../../shared/illustration/config');
 const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -242,7 +242,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
     : '';
   // ce-15: the embedded sibling of the half hint (renderTextColumnHint).
-  const textRules = embedText ? resolveBookTextRules(profile?.age, bookTextInk) : null;
+  const textRules = embedText ? (['guide', 'template'].includes(typographyAnchor?.kind) ? resolveTypographyGuideRules : resolveBookTextRules)(profile?.age, bookTextInk) : null;
+  if (embedText && typographyAnchor?.kind === 'template') {
+    typographyAnchor = await createTypographyTemplate({ childAge: profile?.age, ink: bookTextInk, text: spreadText, side: shotEntry?.textSide || 'left' });
+  }
   const columnHint = embedText ? renderTextColumnHint(shotEntry ? shotEntry.textSide : null, textRules) : '';
   const sceneWithLayout = `${sceneWithShot}${halfHint}${columnHint}`;
   // BATH/WATER MODE spreads deliberately change the child's coverage — the
@@ -303,6 +306,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     childAge: profile.age,
     bookTextInk,
     typographyGuide: typographyAnchor?.kind === 'guide',
+    typographyTemplate: typographyAnchor?.kind === 'template',
     characterDescription: characterDescription || null,
     // The outfit spec still rides as `characterOutfit` for the renderer's
     // generic-safe rung (its OUTFIT line) — bible mode states it ONCE in the
@@ -318,9 +322,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // ce-15: the pack index of the TYPOGRAPHY REFERENCE (the renderer's
     // text rules cite it: "match REFERENCE IMAGE N").
     ...(Number.isInteger(refs.typographyRef) ? { typographyRef: refs.typographyRef } : {}),
-    // ce-16: opt-in output size for embedded renders (CATALOG_EMBEDDED_IMAGE_SIZE) —
-    // more pixels per glyph is what keeps SMALL painted text crisp at print.
-    ...(embedText && flags.embeddedImageSize() ? { imageSize: flags.embeddedImageSize() } : {}),
+    // Full-canvas manuscript templates default to 4K so small painted
+    // glyphs retain detail. The explicit size override remains available.
+    ...(embedText && (flags.embeddedImageSize() || typographyAnchor?.kind === 'template') ? { imageSize: flags.embeddedImageSize() || '4K' } : {}),
     bookId,
     costTracker,
     // The identity anchor bytes still ride (the renderer's with-photo
@@ -1188,7 +1192,22 @@ async function renderStorySpreads(params) {
   if (anchorEnabled && !reviewedOnly && flags.typographyGuideEnabled?.()) {
     try {
       bookTextInk = await chooseBookTextInk(refPhoto);
-      const candidate = await createTypographyGuide({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text });
+      let candidate = await createTypographyGuide({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text });
+      {
+        const template = await createTypographyTemplate({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text,
+          side: shotPlan?.[story.spreads?.[0]?.spread]?.textSide || 'left' });
+        // Keep existing guide renders on ordinary retries. A new template is
+        // a different cache namespace, never a reason to rebuy saved art.
+        // Disabling it affects new books; partial template books still resume.
+        const useTemplate = await canUseTypographyGuide({
+          enabled: flags.typographyTemplateEnabled?.() ?? false, reviewedOnly, forceRerender, resumeWhenDisabled: true,
+          legacyPaths: [anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)),
+            ...book.beats.flatMap(b => [renderCachePath(bookId, storyHash, b.spread, cacheAspect, tuningTag),
+              renderCachePath(bookId, `${storyHash}-ta${candidate.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag)])],
+          guidePaths: book.beats.map(b => renderCachePath(bookId, `${storyHash}-ta${template.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag)),
+        });
+        if (useTemplate) candidate = template;
+      }
       const useGuide = await canUseTypographyGuide({
         enabled: true, reviewedOnly, forceRerender,
         legacyPaths: [anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)),
@@ -1206,7 +1225,7 @@ async function renderStorySpreads(params) {
   const toAnchorRef = (e) => ({ spread: e.spread, side: e.side, base64: e.bytes.toString('base64'), mimeType: 'image/png', hash: e.hash, pinned: e.pinned });
   const pinned = anchorEnabled && !guide && !forceRerender && !reviewedManifest ? await readPinnedTypographyAnchor(anchorPinKey) : null;
   let typographyAnchor = guide || (pinned ? toAnchorRef(pinned) : null);
-  if (guide) log('info', `Typography guide: fixed ${guide.capHeightPercent}% cap height and ${guide.inkHex} ink for every spread`);
+  if (guide) log('info', `Typography ${guide.kind === 'template' ? 'full-spread template' : 'guide'}: fixed ${guide.capHeightPercent}% cap height and ${guide.inkHex} ink for every spread`);
   else if (typographyAnchor) log('info', `Typography anchor: pinned page ${typographyAnchor.spread} reused (${typographyAnchor.hash})`);
   // The run's anchor spread: the pinned page, else (no pin yet) this run's
   // first spread — rendered alone first so its crop can be elected.
@@ -1390,7 +1409,7 @@ async function renderStorySpreads(params) {
   const bookBible = reviewedManifest ? reviewedManifest.bookBible : await summarizeBible(bible);
   const typographyAnchorUsed = reviewedManifest?.typographyAnchorUsed
     || (typographyAnchor && (!reviewedOnly || results.some(r => /-ta[^/]+\/spread-/.test(r.storageKey)))
-      ? `${typographyAnchor.kind === 'guide' ? 'guide' : `s${typographyAnchor.spread}`}.${typographyAnchor.hash.slice(0, 8)}` : 'none');
+      ? `${['guide', 'template'].includes(typographyAnchor.kind) ? typographyAnchor.kind : `s${typographyAnchor.spread}`}.${typographyAnchor.hash.slice(0, 8)}` : 'none');
   const usedTuningTag = reviewedManifest?.tuningTag || tuningTag;
   // Persist before illustrateStory throws its review/missing-art gate. Probe
   // subsets must never replace the full book's chosen render paths. A reviewed

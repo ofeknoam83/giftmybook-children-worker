@@ -31,17 +31,20 @@ async function chooseBookTextInk(reference) {
   } catch { return 'dark'; }
 }
 
-async function createTypographyGuide({ childAge, ink = 'dark', text }) {
+async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left' }) {
+  const height = fullSpread ? 3072 : GUIDE_HEIGHT;
   const rules = resolveTypographyGuideRules(childAge, ink);
   const f = guideFont();
   const capPercent = rules.capHeightPercent;
-  const capHeight = GUIDE_HEIGHT * capPercent / 100;
+  const capHeight = height * capPercent / 100;
   const h = f.glyphForCodePoint('H'.codePointAt(0)).bbox;
   const scale = capHeight / (h.maxY - h.minY);
-  const linePitch = GUIDE_HEIGHT * rules.linePitchPercent / 100;
+  const linePitch = height * rules.linePitchPercent / 100;
   const lines = wrapStoryLines(text || 'A small adventure begins. There is so much to discover.', rules.maxCharsPerLine);
-  const x = GUIDE_HEIGHT * 16 / 9 * rules.edgePaddingPercent / 100;
-  const y = GUIDE_HEIGHT * rules.topPaddingPercent / 100;
+  const width = fullSpread ? Math.round(height * 16 / 9) : GUIDE_WIDTH;
+  const leftPercent = fullSpread && side === 'right' ? 100 - rules.activeSideMaxPercent : rules.edgePaddingPercent;
+  const x = height * 16 / 9 * leftPercent / 100;
+  const y = height * rules.topPaddingPercent / 100;
   const paths = [];
   lines.forEach((line, i) => {
     let cursor = x;
@@ -54,25 +57,32 @@ async function createTypographyGuide({ childAge, ink = 'dark', text }) {
       cursor += pos.xAdvance * scale;
     });
   });
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${GUIDE_WIDTH}" height="${GUIDE_HEIGHT}" viewBox="0 0 ${GUIDE_WIDTH} ${GUIDE_HEIGHT}">${paths.join('')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${paths.join('')}</svg>`;
   const bytes = await sharp(Buffer.from(svg)).png().toBuffer();
-  const hash = createHash('sha256').update('typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
-  return { kind: 'guide', spread: 0, side: 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
-    ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true };
+  const hash = createHash('sha256').update(fullSpread ? 'typography-template-v2' : 'typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
+  return { kind: fullSpread ? 'template' : 'guide', spread: 0, side: fullSpread ? side : 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
+    ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true,
+    ...(fullSpread ? { lines, width, height } : {}) };
 }
 
 // A new reference changes every cache key. Ordinary retries of an older
 // book must keep its existing namespace, including partially generated books.
-async function canUseTypographyGuide({ enabled, reviewedOnly, forceRerender, legacyPaths, guidePaths = [] }, exists = require('../../gcsStorage').objectExists) {
-  if (!enabled || reviewedOnly) return false;
-  if (forceRerender) return true;
+async function canUseTypographyGuide({ enabled, reviewedOnly, forceRerender, legacyPaths, guidePaths = [], resumeWhenDisabled = false }, exists = require('../../gcsStorage').objectExists) {
+  if (reviewedOnly || (!enabled && !resumeWhenDisabled)) return false;
+  if (forceRerender) return !!enabled;
   try {
     // A previous explicit upgrade may coexist with old paid-for renders.
     // Resume the new guide namespace once any of its renders exists.
     if ((await Promise.all(guidePaths.map(key => exists(key)))).some(Boolean)) return true;
+    if (!enabled) return false;
     return !(await Promise.all(legacyPaths.map(key => exists(key)))).some(Boolean);
   }
   catch { return false; } // a failed existence check must not invalidate saved artwork
 }
 
-module.exports = { canUseTypographyGuide, createTypographyGuide, chooseBookTextInk, GUIDE_HEIGHT, GUIDE_WIDTH };
+// Unlike the book-wide sample, this full-canvas edit base contains THIS
+// spread's manuscript in its assigned column. It is still only an INPUT
+// to Gemini; no glyphs are composited onto the returned illustration.
+const createTypographyTemplate = options => createTypographyGuide({ ...options, fullSpread: true });
+
+module.exports = { createTypographyTemplate, canUseTypographyGuide, createTypographyGuide, chooseBookTextInk, GUIDE_HEIGHT, GUIDE_WIDTH };
