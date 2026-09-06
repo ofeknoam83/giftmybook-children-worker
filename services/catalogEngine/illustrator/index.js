@@ -51,8 +51,9 @@ const { STYLE_VERSION, QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
+const { canUseTypographyGuide, createTypographyGuide, chooseBookTextInk } = require('./typographyGuide');
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
-const { resolvePictureBookTextRules } = require('../../shared/illustration/config');
+const { resolveBookTextRules } = require('../../shared/illustration/config');
 const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -134,7 +135,7 @@ function renderTextColumnHint(side, rules) {
   const top = rules.topPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const bottom = rules.bottomPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const xRange = side === 'left' ? `x from ${edge}% to ${active}%` : `x from ${100 - active}% to ${100 - edge}%`;
-  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin, tight pale hairline, not from treating the background and never from inverting the dark ink to light text. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
+  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin, tight contrasting hairline, not from treating the background or changing the book’s ink. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
 }
 
 /** Corrective world-gate re-renders allowed per run (cost bound). */
@@ -198,7 +199,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, bookTextInk = 'dark', candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -241,7 +242,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
     : '';
   // ce-15: the embedded sibling of the half hint (renderTextColumnHint).
-  const textRules = embedText ? resolvePictureBookTextRules(profile?.age) : null;
+  const textRules = embedText ? resolveBookTextRules(profile?.age, bookTextInk) : null;
   const columnHint = embedText ? renderTextColumnHint(shotEntry ? shotEntry.textSide : null, textRules) : '';
   const sceneWithLayout = `${sceneWithShot}${halfHint}${columnHint}`;
   // BATH/WATER MODE spreads deliberately change the child's coverage — the
@@ -300,6 +301,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     totalSpreads: 12,
     childName: profile.name,
     childAge: profile.age,
+    bookTextInk,
     characterDescription: characterDescription || null,
     // The outfit spec still rides as `characterOutfit` for the renderer's
     // generic-safe rung (its OUTFIT line) — bible mode states it ONCE in the
@@ -1180,11 +1182,31 @@ async function renderStorySpreads(params) {
   const anchorEnabled = textLayout === 'embedded' && flags.textAnchorEnabled();
   const anchorOff = textLayout === 'embedded' && !flags.textAnchorEnabled();
   const anchorAdvisories = [];
+  let bookTextInk = 'dark';
+  let guide = null;
+  if (anchorEnabled && !reviewedOnly && flags.typographyGuideEnabled?.()) {
+    try {
+      bookTextInk = await chooseBookTextInk(refPhoto);
+      const candidate = await createTypographyGuide({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text });
+      const useGuide = await canUseTypographyGuide({
+        enabled: true, reviewedOnly, forceRerender,
+        legacyPaths: [anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)),
+          ...book.beats.map(b => renderCachePath(bookId, storyHash, b.spread, cacheAspect, tuningTag))],
+        guidePaths: book.beats.map(b => renderCachePath(bookId, `${storyHash}-ta${candidate.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag)),
+      });
+      if (useGuide) guide = candidate;
+      else bookTextInk = 'dark';
+    } catch {
+      bookTextInk = 'dark';
+      anchorAdvisories.push({ stage: 'typographyAnchor', note: 'Typography guide unavailable; using the existing page-reference path.' });
+    }
+  }
   const anchorPinKey = anchorEnabled ? anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)) : null;
   const toAnchorRef = (e) => ({ spread: e.spread, side: e.side, base64: e.bytes.toString('base64'), mimeType: 'image/png', hash: e.hash, pinned: e.pinned });
-  const pinned = anchorEnabled && !forceRerender && !reviewedManifest ? await readPinnedTypographyAnchor(anchorPinKey) : null;
-  let typographyAnchor = pinned ? toAnchorRef(pinned) : null;
-  if (typographyAnchor) log('info', `Typography anchor: pinned page ${typographyAnchor.spread} reused (${typographyAnchor.hash})`);
+  const pinned = anchorEnabled && !guide && !forceRerender && !reviewedManifest ? await readPinnedTypographyAnchor(anchorPinKey) : null;
+  let typographyAnchor = guide || (pinned ? toAnchorRef(pinned) : null);
+  if (guide) log('info', `Typography guide: fixed ${guide.capHeightPercent}% cap height and ${guide.inkHex} ink for every spread`);
+  else if (typographyAnchor) log('info', `Typography anchor: pinned page ${typographyAnchor.spread} reused (${typographyAnchor.hash})`);
   // The run's anchor spread: the pinned page, else (no pin yet) this run's
   // first spread — rendered alone first so its crop can be elected.
   const electNow = !reviewedOnly && anchorEnabled && !typographyAnchor && wanted.length > 1;
@@ -1200,7 +1222,7 @@ async function renderStorySpreads(params) {
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-    reviewedOnly, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    reviewedOnly, renderBudget, tuning, bible, bookTextInk, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
     legacyUnanchoredKey: reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
       ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag) : null,
@@ -1327,7 +1349,7 @@ async function renderStorySpreads(params) {
   const inkGateStart = Date.now();
   const textInkQa = reviewedOnly ? null : await runInkConsistencyGate({
     results,
-    inkHex: textLayout === 'embedded' && flags.textInkQaEnabled() ? resolvePictureBookTextRules(profile?.age).fontColorHex : null,
+    inkHex: textLayout === 'embedded' && flags.textInkQaEnabled() ? resolveBookTextRules(profile?.age, bookTextInk).fontColorHex : null,
     rerender,
     onProgress,
     log,
@@ -1367,7 +1389,7 @@ async function renderStorySpreads(params) {
   const bookBible = reviewedManifest ? reviewedManifest.bookBible : await summarizeBible(bible);
   const typographyAnchorUsed = reviewedManifest?.typographyAnchorUsed
     || (typographyAnchor && (!reviewedOnly || results.some(r => /-ta[^/]+\/spread-/.test(r.storageKey)))
-      ? `s${typographyAnchor.spread}.${typographyAnchor.hash.slice(0, 8)}` : 'none');
+      ? `${typographyAnchor.kind === 'guide' ? 'guide' : `s${typographyAnchor.spread}`}.${typographyAnchor.hash.slice(0, 8)}` : 'none');
   const usedTuningTag = reviewedManifest?.tuningTag || tuningTag;
   // Persist before illustrateStory throws its review/missing-art gate. Probe
   // subsets must never replace the full book's chosen render paths. A reviewed

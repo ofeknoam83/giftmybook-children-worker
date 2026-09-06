@@ -8,7 +8,7 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
-const { resolvePictureBookTextRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
+const { resolveBookTextRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
@@ -883,7 +883,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   const embedStoryText = opts.embedText && pageText && pageText.trim();
   let embedSummary = null; // ce-15: footprint/column/reference facts reused by the checklist and the final check
-  const textRulesForEmbed = embedStoryText ? resolvePictureBookTextRules(opts.childAge) : null;
+  const textRulesForEmbed = embedStoryText ? resolveBookTextRules(opts.childAge, opts.bookTextInk) : null;
   if (embedStoryText) {
     const tr = textRulesForEmbed;
     // ce-13: the geometry is stated as a CONCRETE column box on the shot
@@ -906,7 +906,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     const lineCount = storyLines.filter(Boolean).length;
     // ce-15: the block's FOOTPRINT — a concrete per-spread size the model can
     // see in its own output (a percentage of the frame it cannot), and the
-    // book's own first painted page as the type reference when one rides.
+    // book's fixed lettering reference when one rides.
     const block = expectedTextBlock(pageText, tr);
     const typoRef = Number.isInteger(opts.typographyRef) && opts.typographyRef > 0 ? opts.typographyRef : null;
     embedSummary = { block, textSide, typoRef, foldMargin, verticalBand };
@@ -922,13 +922,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`- TEXT ALIGNMENT (CRITICAL): ${tr.textAlignment}`);
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push(`- TEXT ZONE (CRITICAL — THE PAGE FOLD): This image prints as TWO facing book pages. The vertical centerline of the image (x = 50%) is the physical page FOLD — a hard wall: any word that touches it is cut in half in the printed book, so NO letter may come within ${foldMargin}% of the image width of the centerline. The ENTIRE text block lives in ${columnBox}, ${verticalBand}. EVERY glyph inside that box. The column is narrow ON PURPOSE: fit the text with the small font and the short lines given below — never by widening the block, never by centering it. EXACTLY ONE block; NEVER split the text across both sides.`);
-    parts.push('- TEXT INTEGRATION (CRITICAL): Paint the text directly OVER the artwork, INSIDE the picture: the scene continues under and around every letter at FULL sharpness, colour, and detail — grass, rocks, sky, leaves, walls exactly as they would look if the text were not there. The ONLY thing behind the letters is the untouched scene. NEVER blur, fog, soften, darken, lighten, desaturate, or empty the area behind or around the text, and never wrap the block in a glow, halo, vignette, gradient, or shadow cloud — a blurred or darkened zone is a soft panel and will be REJECTED exactly like a card, plaque, sign, board, parchment, scroll, banner, ribbon, panel, strip, band, box, or any flat plane. Legibility comes ONLY from the letters\' own thin, tight pale hairline — never from inverting the dark ink to light text. No letterboxing at the top, bottom, or side, and no "sign in the scene" carrying the words. The illustration must continue behind the text, edge to edge, as sharp there as everywhere else.');
+    parts.push('- TEXT INTEGRATION (CRITICAL): Paint the text directly OVER the artwork, INSIDE the picture: the scene continues under and around every letter at FULL sharpness, colour, and detail — grass, rocks, sky, leaves, walls exactly as they would look if the text were not there. The ONLY thing behind the letters is the untouched scene. NEVER blur, fog, soften, darken, lighten, desaturate, or empty the area behind or around the text, and never wrap the block in a glow, halo, vignette, gradient, or shadow cloud — a blurred or darkened zone is a soft panel and will be REJECTED exactly like a card, plaque, sign, board, parchment, scroll, banner, ribbon, panel, strip, band, box, or any flat plane. Legibility comes ONLY from the letters\' own thin, tight contrasting hairline — never from changing the book-wide ink. No letterboxing at the top, bottom, or side, and no "sign in the scene" carrying the words. The illustration must continue behind the text, edge to edge, as sharp there as everywhere else.');
     parts.push(`- EDGE PADDING (CRITICAL): Leave at least ${tr.edgePaddingPercent}% padding from the outer left/right edge, and at least ${topPad}% from the TOP edge so text won\'t be cut in print.`);
     parts.push(`- BOTTOM PADDING (CRITICAL): Leave at least ${bottomPad}% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom ${bottomPad}% of the image.`);
     parts.push('- Main characters and key action should not be hidden behind the text');
     parts.push(`- TYPOGRAPHY CONSISTENCY (CRITICAL): ${tr.typographyConsistency}`);
     if (typoRef) {
-      parts.push(`- TYPOGRAPHY REFERENCE (REFERENCE IMAGE ${typoRef} — a page of THIS book, already painted): your text must look like the text in that image — the SAME typeface, weight, fill colour and shadow treatment, the SAME size relative to the page height (each of your rows as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way. Use it for the TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`);
+      parts.push(`- TYPOGRAPHY REFERENCE (REFERENCE IMAGE ${typoRef} — this book’s fixed lettering reference): your text must look like the text in that image — the SAME typeface, weight, fill colour and shadow treatment, the SAME size relative to the page height (each of your rows as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way. Use it for the TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`);
     }
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE — exactly ${lineCount} short lines. Paint them with EXACTLY these line breaks: one line per row, in this order, every word exactly as written (a blank row is a paragraph gap). NEVER join two rows into one line and NEVER re-break a row — the breaks are part of the design:`);
@@ -1328,6 +1328,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     spreadIndex: opts.spreadIndex,
     totalSpreads: opts.totalSpreads || 13,
     childAge: opts.childAge,
+    bookTextInk: opts.bookTextInk === 'light' ? 'light' : 'dark',
     promptInjection: opts.promptInjection,
     fontStyle: opts.fontStyle,
     additionalCoverCharacters: opts.additionalCoverCharacters || null,

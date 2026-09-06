@@ -133,10 +133,10 @@ describe('ce-15: the text block has a FOOTPRINT, a no-panel rule that names the 
     expect(prompt).not.toContain('a horizontal text band across the image will be REJECTED');
     // ce-17: the scene under the letters stays sharp — no haze zone, legibility from a thin outline only.
     expect(prompt).toContain('NEVER blur, fog, soften, darken, lighten, desaturate, or empty the area behind or around the text');
-    // ce-18: the fill is dark ink now, so the legibility edge is a PALE
-    // hairline — the renderer's rule and the pinned spec must not disagree.
-    expect(prompt).toContain("Legibility comes ONLY from the letters' own thin, tight pale hairline");
-    expect(prompt).toContain('never from inverting the dark ink to light text');
+    // The generic integration rule permits either book-wide ink; the dark
+    // ink specification still requires its pale glyph-tight edge.
+    expect(prompt).toContain("Legibility comes ONLY from the letters' own thin, tight contrasting hairline");
+    expect(prompt).toContain('never from changing the book-wide ink');
     expect(prompt).toContain('thin, tight PALE hairline');
     expect(prompt).not.toContain('thin, tight dark outline');
     expect(prompt).not.toContain('whisper-soft dark contact shadow');
@@ -157,7 +157,7 @@ describe('ce-15: the text block has a FOOTPRINT, a no-panel rule that names the 
 
   test('a typography reference index is cited as TYPE ONLY; without one the line is absent', () => {
     const withRef = build({ typographyRef: 5 });
-    expect(withRef).toContain('TYPOGRAPHY REFERENCE (REFERENCE IMAGE 5 — a page of THIS book, already painted)');
+    expect(withRef).toContain('TYPOGRAPHY REFERENCE (REFERENCE IMAGE 5 — this book’s fixed lettering reference)');
     expect(withRef).toContain('Use it for the TYPE ONLY');
     expect(withRef).toContain('the type matching REFERENCE IMAGE 5'); // checklist + final check
     const without = build();
@@ -184,14 +184,14 @@ describe('ce-15: the text block has a FOOTPRINT, a no-panel rule that names the 
 describe('ce-15: generateIllustration forwards the assigned text side and the typography reference into the prompt it SENDS', () => {
   const STORY = 'Aaron checked the ground nearby first. No cracked earth, no steep drop, no thorny patch blocked the way.';
 
-  test('the Gemini request carries the pinned column, the reference line, and the reference image parts in pack order', async () => {
+  test.each(['dark', 'light'])('the Gemini request carries pinned %s ink, column, and reference image parts in pack order', async (bookTextInk) => {
     const bodies = [];
     const realFetch = global.fetch;
     global.fetch = jest.fn(async (url, init) => { bodies.push(JSON.parse(init.body)); throw new Error('offline test'); });
     try {
       await expect(generateIllustration('Aaron stands on a warm rock.', 'https://p/x.png', 'pixar_premium', {
         bookId: 'b1', childName: 'Aaron', isSpread: true, spreadIndex: 3, totalSpreads: 12, embedText: true, pageText: STORY, childAge: 7,
-        aspectRatio: '16:9', textSide: 'left', typographyRef: 2,
+        aspectRatio: '16:9', textSide: 'left', typographyRef: 2, bookTextInk,
         childPhotoUrl: 'https://p/x.png', _cachedPhotoBase64: 'YmFzZTY0', _cachedPhotoMime: 'image/jpeg',
         referencePack: [
           { kind: 'cover', label: 'APPROVED COVER (identity only)', base64: 'YQ==', mimeType: 'image/jpeg' },
@@ -209,6 +209,14 @@ describe('ce-15: generateIllustration forwards the assigned text side and the ty
     expect(prompt).not.toContain('pick a single side');
     expect(prompt).toContain('TYPOGRAPHY REFERENCE (REFERENCE IMAGE 2');
     expect(prompt).toContain('TEXT — FINAL CHECK');
+    if (bookTextInk === 'light') {
+      expect(prompt).toContain('warm ivory (#FFF4DE)');
+      expect(prompt).not.toContain('NEVER white, ivory');
+      expect(prompt).not.toContain('never invert to light text');
+    } else {
+      expect(prompt).toContain('deep warm cocoa-brown');
+      expect(prompt).toContain('NEVER white, ivory');
+    }
     expect(parts.filter(p => p.inline_data)).toHaveLength(2);
     expect(parts.some(p => typeof p.text === 'string' && p.text.startsWith('REFERENCE IMAGE 2 — TYPOGRAPHY REFERENCE'))).toBe(true);
   });

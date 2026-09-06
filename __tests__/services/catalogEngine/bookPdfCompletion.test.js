@@ -1,3 +1,4 @@
+jest.mock('../../../services/shared/llm/openaiClient', () => ({ callText: jest.fn(async () => { throw new Error('offline'); }) }));
 jest.mock('../../../services/layoutEngine', () => ({ assemblePdf: jest.fn(), OVERLAY: { MIN_CONTRAST: 4.5 } }));
 jest.mock('../../../services/coverGenerator', () => ({ generateCover: jest.fn(), generateUpsellCovers: jest.fn(async () => []) }));
 jest.mock('../../../services/gcsStorage', () => ({ uploadBuffer: jest.fn(async () => {}), getSignedUrl: jest.fn(async key => `https://storage.example/${key}`), downloadBuffer: jest.fn(async () => Buffer.from('approved-front')) }));

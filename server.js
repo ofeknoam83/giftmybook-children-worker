@@ -1965,6 +1965,8 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
     const { pageCount, synopsis } = await resolveCoverRebuildMetadata({
       storyContent, chosenStory, interiorPdfUrl, childDetails: resolvedChildDetails, flags,
       pageCount: legacyPageCount, synopsis: legacySynopsis,
+      bookId, title, refreshPictureBlurb: /^(picture_book|early_reader)$/i.test(bookFormat || 'PICTURE_BOOK'),
+      log: (level, message) => console[level === 'warn' ? 'warn' : 'log'](`[rebuild-cover-pdf] ${message}`),
     }, downloadBuffer);
 
     const coverData = await generateCover(

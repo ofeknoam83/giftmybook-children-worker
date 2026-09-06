@@ -11,6 +11,7 @@
 // The Book Bible has its own suites (characterSheet, propSheet, emotionPlan,
 // metrics, contactSheet, bibleIndex); here it is switched off so the legacy
 // cache/replay/repair contracts stay observable on their own.
+process.env.CATALOG_TYPOGRAPHY_GUIDE = '0'; // exercise the retained page-anchor compatibility path
 process.env.CATALOG_CHARACTER_SHEET = '0';
 process.env.CATALOG_PROP_SHEETS = '0';
 process.env.CATALOG_EMOTION_PLAN = '0';
@@ -35,6 +36,7 @@ jest.mock('../../../services/catalogEngine/illustrator/textAnchor', () => {
 });
 jest.mock('../../../services/gcsStorage', () => ({
   downloadBuffer: jest.fn(),
+  objectExists: jest.fn(async () => false),
   uploadBuffer: jest.fn().mockResolvedValue(undefined),
   uploadBufferIfAbsent: jest.fn().mockResolvedValue({ created: true }),
   deletePrefix: jest.fn().mockResolvedValue(undefined),
@@ -923,8 +925,8 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(scene).toContain('NEVER blur, fog, soften, darken, lighten, desaturate, or empty it');
     // ce-18: the fill is dark ink, so the legibility edge is a PALE hairline —
     // this hint rides every embedded scene and must not contradict the spec.
-    expect(scene).toContain('their own thin, tight pale hairline');
-    expect(scene).toContain('never from inverting the dark ink to light text');
+    expect(scene).toContain('their own thin, tight contrasting hairline');
+    expect(scene).toContain('not from treating the background or changing the book’s ink');
     expect(scene).not.toContain('thin dark outline');
     expect(scene).not.toContain('gentle depth haze');
     expect(opts.safeFallbackSuffix).toContain('COMPOSITION FOR PRINT (TEXT COLUMN)');
@@ -1070,4 +1072,31 @@ test('reviewed rebuild preserves cached pixels and skips automatic repair gates'
   expect(generateIllustration).not.toHaveBeenCalled();
   expect(result.contactQa).toBeNull();
   expect(result.worldQa).toBeNull();
+});
+
+
+describe('generated small-type guide', () => {
+  beforeEach(() => { process.env.CATALOG_TYPOGRAPHY_GUIDE = '1'; generateIllustration.mockClear(); });
+  afterEach(() => { process.env.CATALOG_TYPOGRAPHY_GUIDE = '0'; });
+  test('every Gemini spread gets the same guide, including the first, with no extra image attempts', async () => {
+    const result = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' }));
+    expect(generateIllustration).toHaveBeenCalledTimes(3);
+    const options = generateIllustration.mock.calls.map(c => c[3]);
+    const refs = options.map(o => o.referencePack.find(r => r.kind === 'typography'));
+    expect(refs.every(Boolean)).toBe(true);
+    expect(new Set(refs.map(r => r.base64)).size).toBe(1);
+    expect(refs[0].label).toContain('TYPOGRAPHY SIZE AND INK GUIDE');
+    expect(options.every(o => o.embedText === true && o.bookTextInk === 'dark')).toBe(true);
+    expect(options.every(o => /-ta/.test(o.gcsPath))).toBe(true);
+    expect(result.typographyAnchorUsed).toMatch(/^guide\./);
+  });
+  test('a probe of a later spread uses the same guide and namespace as the full book', async () => {
+    await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [3], textLayout: 'embedded' }));
+    const first = generateIllustration.mock.calls[0][3];
+    generateIllustration.mockClear();
+    await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded', forceRerender: true }));
+    const full = generateIllustration.mock.calls.find(c => c[3].spreadIndex === 2)[3];
+    expect(first.gcsPath).toBe(full.gcsPath);
+    expect(first.referencePack.find(r => r.kind === 'typography').base64).toBe(full.referencePack.find(r => r.kind === 'typography').base64);
+  });
 });

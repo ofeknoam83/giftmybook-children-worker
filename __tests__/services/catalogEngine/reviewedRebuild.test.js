@@ -15,6 +15,7 @@ jest.mock('../../../services/catalogEngine/illustrator/textAnchor', () => ({
   electTypographyAnchor: jest.fn(),
 }));
 jest.mock('../../../services/gcsStorage', () => ({
+  objectExists: jest.fn(),
   downloadBuffer: jest.fn(), uploadBuffer: jest.fn(),
   uploadBufferIfAbsent: jest.fn(), deletePrefix: jest.fn(),
   getSignedUrl: jest.fn(async key => `https://signed.example/${key}`),
@@ -26,7 +27,7 @@ const { fnv1a } = require('../../../services/catalogEngine/selection');
 const { QA_VERSION } = require('../../../services/catalogEngine/versions');
 const { generateIllustration } = require('../../../services/illustrationGenerator');
 const { electTypographyAnchor } = require('../../../services/catalogEngine/illustrator/textAnchor');
-const { downloadBuffer, uploadBuffer, uploadBufferIfAbsent, deletePrefix } = require('../../../services/gcsStorage');
+const { objectExists, downloadBuffer, uploadBuffer, uploadBufferIfAbsent, deletePrefix } = require('../../../services/gcsStorage');
 
 const spreads = Array.from({ length: 12 }, (_, i) => i + 1);
 const params = () => ({
@@ -63,6 +64,10 @@ beforeEach(() => {
       return bytes(spread);
     }
     throw missing();
+  });
+  objectExists.mockImplementation(async key => {
+    try { await downloadBuffer(key); return true; }
+    catch (err) { if (err.code === 404) return false; throw err; }
   });
   uploadBuffer.mockImplementation(async (buffer, key) => { objects.set(key, buffer); });
 });
