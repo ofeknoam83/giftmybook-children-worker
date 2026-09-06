@@ -364,6 +364,7 @@ async function runBookPipeline(params) {
           heartfeltNote, bookFrom, bindingType,
           requireCompleteCover: true,
           cacheBackCover: true,
+          onBackCoverEvent: (status, message) => log(status === 'repaired' ? 'info' : 'warn', `Back cover: ${message}`),
           ...(story.request.versions?.catalog?.startsWith('upsell-v1-') ? { reuseApprovedArtworkOnly: true, preserveApprovedCoverBounds: true } : {}),
           // Rebuilds preserve the approved front and every interior spread.
           // A missing designed back is generated once, then cached for reuse.
@@ -402,6 +403,7 @@ async function runBookPipeline(params) {
       if (attempt > 0) warnings.push('Cover PDF recovered automatically using saved artwork.');
       if (coverData.coverAnatomyAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverAnatomyAdvisory });
       if (coverData.backCoverDesignAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverDesignAdvisory });
+      if (coverData.backCoverRepairNote) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverRepairNote });
     } catch (coverErr) {
       coverError = coverErr;
       log('warn', `Cover PDF attempt ${attempt + 1} failed: ${coverErr.message}${attempt === 0 ? ' — retrying automatically with saved artwork' : ''}`);

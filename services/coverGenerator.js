@@ -25,7 +25,7 @@ const { downloadBuffer } = require('./gcsStorage');
 const { TEXT_RULES } = require('./shared/illustration/config');
 const sharp = require('sharp');
 const { drawBookBackCover } = require('./backCoverLayout');
-const { backCoverCopy, pictureBackCoverPrompt, embedBackCoverCodes, pictureBackCoverCachePath } = require('./pictureBackCover');
+const { backCoverCopy, pictureBackCoverPrompt, pictureBackCoverCleanupPrompt, typesetBackCoverCopy, embedBackCoverCodes, pictureBackCoverCachePath } = require('./pictureBackCover');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
 const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image';
@@ -462,7 +462,8 @@ Answer STRICT JSON only:
   "framed_object": true|false, // is the artwork shown as an object ON a background (frame, border, tabletop, wall, room) instead of filling the whole image edge to edge?
   "photo_surface": true|false, // does it contain photographic/real-world surfaces (a real table, real paper texture, a photographed room) rather than artwork?
   "readable_text": true|false, // any readable words, letters, or numbers painted in the image?
-  "text_mismatch": true|false // required copy missing, misspelled or illegible (false if no required copy)
+  "text_mismatch": true|false, // required copy missing, misspelled or illegible (false if no required copy)
+  "text_issues": ["Name the affected field and the actual missing/incorrect words; empty if none"]
 }
 ${opts.embeddedText ? `This design intentionally includes text. Check spelling and completeness against these exact copy values: ${JSON.stringify(backCoverCopy(opts))}. Ignore line breaks, capitalization, punctuation style, and blank values. Do not reject correct text merely because it is embedded in artwork. QR and barcode graphics are added later; their absence is expected.` : 'No readable text belongs in this artwork.'}`;
   try {
@@ -486,23 +487,26 @@ ${opts.embeddedText ? `This design intentionally includes text. Check spelling a
     );
     if (!resp.ok) {
       console.warn(`[CoverGenerator] back-cover QA HTTP ${resp.status} — passing without QA`);
-      return { pass: true, reason: null };
+      return { pass: true, reason: null, unavailable: true };
     }
     const data = await resp.json();
     const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
     const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
-    const failures = [
+    const artworkFailures = [
       json.book_mockup && 'depicts a book/product mockup',
       json.framed_object && 'artwork framed as an object instead of full-bleed',
       json.photo_surface && 'photographic real-world surface',
-      !opts.embeddedText && json.readable_text && 'readable text painted in the artwork',
-      opts.embeddedText && json.text_mismatch && 'back-cover copy is missing, misspelled or illegible',
     ].filter(Boolean);
-    if (failures.length > 0) return { pass: false, reason: failures.join('; ') };
-    return { pass: true, reason: null };
+    const textMismatch = opts.embeddedText ? json.text_mismatch === true : json.readable_text === true;
+    const textIssues = Array.isArray(json.text_issues) ? json.text_issues.filter(x => typeof x === 'string').join('; ').slice(0, 600) : '';
+    const failures = [...artworkFailures, ...(textMismatch ? [opts.embeddedText
+      ? `back-cover copy is missing, misspelled or illegible${textIssues ? ` (${textIssues})` : ''}`
+      : 'readable text painted in the artwork'] : [])];
+    if (failures.length > 0) return { pass: false, reason: failures.join('; '), textOnly: artworkFailures.length === 0 && textMismatch };
+    return { pass: true, reason: null, textFree: json.readable_text === false };
   } catch (err) {
     console.warn(`[CoverGenerator] back-cover QA failed to run (passing without QA): ${err.message}`);
-    return { pass: true, reason: null };
+    return { pass: true, reason: null, unavailable: true };
   }
 }
 
@@ -678,6 +682,7 @@ ${layoutBlock}`;
   const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn('[CoverGenerator] No Gemini API key available for back cover generation');
+    opts.onDesignEvent?.('failed', 'No Gemini API key available');
     return null;
   }
 
@@ -688,14 +693,19 @@ ${layoutBlock}`;
   const model = 'gemini-3.1-flash-image';
   const maxAttempts = refFromCorner ? 2 : 1;
   let correction = '';
+  let cleanupReference = null;
+  let lastFailure = 'No image in Gemini response';
+  const attemptRun = Date.now();
 
-  try {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const useImage = refFromCorner && (opts.embeddedText || attempt === 0);
-      const prompt = opts.embeddedText ? pictureBackCoverPrompt(opts, correction) : useImage ? withRefBlock : noRefBlock;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const isCleanup = !!cleanupReference;
+      const useImage = cleanupReference || (refFromCorner && (opts.embeddedText || attempt === 0) ? refFromCorner : null);
+      const prompt = isCleanup ? pictureBackCoverCleanupPrompt()
+        : opts.embeddedText ? pictureBackCoverPrompt(opts, correction) : useImage ? withRefBlock : noRefBlock;
       const userParts = [{ text: prompt }];
       if (useImage) {
-        userParts.push({ inline_data: { mimeType: 'image/jpeg', data: refFromCorner.toString('base64') } });
+        userParts.push({ inline_data: { mimeType: 'image/jpeg', data: useImage.toString('base64') } });
       }
 
       const resp = await fetch(
@@ -714,12 +724,7 @@ ${layoutBlock}`;
       );
 
       if (!resp.ok) {
-        const err = await resp.text();
-        if (attempt < maxAttempts - 1) {
-          console.warn(`[CoverGenerator] Back cover attempt ${attempt + 1} HTTP error — retry:`, resp.status, err.slice(0, 200));
-          continue;
-        }
-        throw new Error(`Gemini API error ${resp.status}: ${err.slice(0, 200)}`);
+        throw new Error(`Gemini HTTP ${resp.status}`);
       }
 
       const data = await resp.json();
@@ -733,30 +738,58 @@ ${layoutBlock}`;
           if (costTracker) {
             costTracker.addImageGeneration('gemini-3.1-flash-image', 1);
           }
+          // Retain rejected designs for inspection/recovery. This is separate
+          // from the finished-cover cache, so a retry never treats them as QA-approved.
+          if (opts.embeddedText && opts.bookId) {
+            try {
+              const png = await sharp(buffer).png().toBuffer();
+              await require('./gcsStorage').uploadBuffer(png, `children-jobs/${opts.bookId}/back-cover-attempts/${attemptRun}-${attempt + 1}.png`, 'image/png');
+            } catch (err) { console.warn('[CoverGenerator] Back-cover candidate save failed:', err.message); }
+          }
           // QA gate: a generated "back cover" that depicts a book mockup or
           // framed/photographic object must never reach print — reject and
           // fall through to the next attempt (or the typeset fallback panel).
-          const qa = await qaBackCoverArtwork(buffer, apiKey, opts);
-          if (!qa.pass) {
-            correction = qa.reason;
-            console.warn(`[CoverGenerator] Back cover attempt ${attempt + 1} REJECTED by QA: ${qa.reason}`);
+          const qa = await qaBackCoverArtwork(buffer, apiKey, isCleanup ? { ...opts, embeddedText: false } : opts);
+          if (!qa.pass || (isCleanup && !qa.textFree)) {
+            correction = qa.reason || 'Could not verify removal of the original lettering';
+            lastFailure = correction;
+            opts.onDesignEvent?.('attempt_failed', `Attempt ${attempt + 1}: ${correction}`);
+            console.warn(`[CoverGenerator] Back cover attempt ${attempt + 1} REJECTED by QA: ${correction}`);
+            if (opts.embeddedText && qa.textOnly && !isCleanup) {
+              // The next bounded attempt edits THIS back design, not the
+              // front reference. Typesetting follows only after verified cleanup.
+              cleanupReference = await sharp(buffer).rotate().resize(2048, 2048, { fit: 'inside' }).jpeg({ quality: 95 }).toBuffer();
+            }
             break;
           }
           const ms = Date.now() - startTime;
           console.log(`[CoverGenerator] Back cover generated in ${ms}ms (attempt ${attempt + 1})`);
-          return opts.embeddedText ? await embedBackCoverCodes(buffer, opts.bookId) : buffer;
+          const artwork = isCleanup ? await typesetBackCoverCopy(buffer, opts) : buffer;
+          const finished = opts.embeddedText ? await embedBackCoverCodes(artwork, opts.bookId) : artwork;
+          if (isCleanup) opts.onDesignEvent?.('repaired', 'Preserved the Gemini design and replaced faulty lettering with exact typeset copy.');
+          return finished;
         }
       }
-      if (!gotImage) logGeminiImageResponseDiagnostics(data, `back cover attempt ${attempt + 1} (no image)`);
+      if (!gotImage) {
+        lastFailure = `Gemini returned no image (finish: ${data.candidates?.[0]?.finishReason || 'unknown'})`;
+        opts.onDesignEvent?.('attempt_failed', `Attempt ${attempt + 1}: ${lastFailure}`);
+        logGeminiImageResponseDiagnostics(data, `back cover attempt ${attempt + 1} (no image)`);
+      }
       if (refFromCorner && attempt === 0 && !opts.embeddedText) {
         console.warn('[CoverGenerator] Back cover: no image with corner-crop ref — retrying text-only');
       }
+    } catch (err) {
+      // A transport/decoding failure consumes one attempt, not the entire
+      // retry budget. Do not persist provider response bodies or signed URLs.
+      lastFailure = /^Gemini HTTP \d+$/.test(err.message) ? err.message
+        : `Back-cover attempt failed (${err.name || 'Error'})`;
+      opts.onDesignEvent?.('attempt_failed', `Attempt ${attempt + 1}: ${lastFailure}`);
+      console.warn(`[CoverGenerator] ${lastFailure}`);
     }
-    throw new Error('No image in Gemini response');
-  } catch (err) {
-    console.error(`[CoverGenerator] Back cover generation failed: ${err.message}`);
-    return null;
   }
+  console.error(`[CoverGenerator] Back cover generation failed: ${lastFailure}`);
+  opts.onDesignEvent?.('failed', lastFailure);
+  return null;
 }
 
 /**
@@ -1089,6 +1122,11 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
   let backCoverBuffer = null;
   let embeddedBackText = false;
+  const backCoverDiagnostics = [];
+  const onDesignEvent = (status, message) => {
+    backCoverDiagnostics.push({ status, message });
+    opts.onBackCoverEvent?.(status, message);
+  };
   const backOpts = { title, childName, synopsis, heartfeltNote, bookFrom, bookId: opts.bookId };
   const backCachePath = frontCoverBuffer && isPictureBook && opts.bookId && opts.cacheBackCover
     ? pictureBackCoverCachePath(frontCoverBuffer, backOpts) : null;
@@ -1110,6 +1148,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       costTracker: opts.costTracker,
       bookFormat,
       isHardcover,
+      onDesignEvent,
     });
     embeddedBackText = !!backCoverBuffer && isPictureBook && !!opts.bookId;
     if (embeddedBackText && backCachePath) {
@@ -1178,6 +1217,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       // Fall through to plain-color background
       backCoverBuffer = null;
       embeddedBackText = false;
+      onDesignEvent('failed', 'Generated back-cover image could not be embedded in the PDF.');
     }
   }
 
@@ -1320,8 +1360,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     coverPdfBuffer: Buffer.from(pdfBytes),
     frontCoverImageUrl,
     backCoverImageUrl,
+    backCoverDiagnostics,
+    backCoverRepairNote: backCoverDiagnostics.find(event => event.status === 'repaired')?.message || null,
     backCoverDesignAdvisory: isPictureBook && opts.bookId && !embeddedBackText
-      ? 'The Gemini back-cover design was unavailable; a readable cover fallback was used.' : null,
+      ? `The Gemini back-cover design was unavailable; a readable cover fallback was used.${backCoverDiagnostics.length ? ` ${backCoverDiagnostics.at(-1).message}` : ''}` : null,
     // P0: null when the cover passed anatomy QA (or QA was unavailable); a
     // human-readable string when a residual limb-count defect shipped and the
     // book should be flagged for review.

@@ -23,7 +23,7 @@ test.each([9, 63])('the back-cover text and barcode fit within trim with %spt wr
     expect(opts.y).toBeGreaterThan(edgeBleed + 45);
     expect(opts.y).toBeLessThan(page.getHeight() - edgeBleed - 45);
   }
-  expect(drawImage).toHaveBeenCalledTimes(1);
+  expect(drawImage).toHaveBeenCalledTimes(2); // QR stays available even in the emergency fallback.
   expect(drawText.mock.calls.map(c => c[0]).join(' ')).toContain('BOOK REFERENCE');
   expect((await PDFDocument.load(await doc.save())).getPageCount()).toBe(1);
 });
