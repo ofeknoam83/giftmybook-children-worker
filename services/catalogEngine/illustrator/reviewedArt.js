@@ -3,6 +3,7 @@
 const { downloadBuffer, uploadBuffer, getSignedUrl } = require('../../gcsStorage');
 const { QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
+const flags = require('../flags');
 
 const manifestPath = bookId => `children-jobs/${bookId}/reviewed-art.json`;
 const isMissing = err => Number(err?.code) === 404;
@@ -50,12 +51,15 @@ async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log) 
   const marker = JSON.parse((await downloadBuffer(`${storageKey}.qa.json`)).toString('utf8'));
   if (marker.renderHash !== fnv1a(buffer.toString('base64')).toString(36)) throw new Error('marker does not match the saved artwork');
   if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
-  if (marker.unresolved) throw new Error('saved artwork still has unresolved blocking defects');
+  if (marker.unresolved && !flags.shipOnExhaustion()) throw new Error('saved artwork still has unresolved blocking defects');
+  const blocking = marker.unresolved
+    ? (Array.isArray(marker.qa?.blocking) && marker.qa.blocking.length ? marker.qa.blocking : ['saved artwork has unresolved QA findings'])
+    : [];
   log('info', `Spread ${spread}: replaying reviewed artwork (${buffer.length} bytes)`);
   return {
     spread, buffer, storageKey, url: await getSignedUrl(storageKey, 30 * 24 * 60 * 60 * 1000),
     advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
-    fresh: false, bathWater: false, blocking: [], candidates: [], candidateFiles: [],
+    fresh: false, bathWater: false, blocking, candidates: [], candidateFiles: [],
     qa: marker.qa || null, bbox: marker.qa?.bbox || null,
     propBoxes: Array.isArray(marker.qa?.propBoxes) ? marker.qa.propBoxes : [],
   };

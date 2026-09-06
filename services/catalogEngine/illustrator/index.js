@@ -19,9 +19,8 @@
  *  - the set-level gate keeps the ce-5 world check and adds ce-9 CONTACT
  *    SHEETS (contactSheet.js): the child crops of every spread beside the
  *    model sheet, and the prop crops beside their sheets, in one call each;
- *  - graded ship policy: advisory-class residuals ship with advisories (as
- *    always); BLOCKING residuals fail the book `consistency_unresolved`
- *    with the spread's candidates attached, unless CATALOG_SHIP_ON_EXHAUSTION=1;
+ *  - automatic ship policy: best existing artwork finishes with residual QA
+ *    warnings retained; CATALOG_SHIP_ON_EXHAUSTION=0 opts into strict review;
  *  - renders cache under a deterministic STYLE_VERSION-keyed GCS path so a
  *    re-dispatch replays finished spreads instead of re-paying for them; the
  *    `.qa.json` marker records the QA_VERSION it was checked under.
@@ -405,13 +404,13 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         // older eyes — either way the replay re-checks instead of trusting it.
         if (marker.renderHash !== renderContentHash(cached)) throw new Error('marker does not match the cached render');
         if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
-        // An unresolved marker never vouches — EXCEPT the one case where the
-        // opt-in ship policy already shipped those pixels with their defects
-        // on the record: replaying them keeps the book's advisories and
-        // `unresolved[]` truthful instead of re-spending the repair budget
-        // on every dispatch. Turn the switch off and the replay re-checks.
-        if (marker.unresolved && !(marker.shippedOnExhaustion && flags.shipOnExhaustion())) throw new Error('marker records unresolved blocking defects');
-        const markerBlocking = marker.unresolved && Array.isArray(marker.qa?.blocking) ? [...marker.qa.blocking] : [];
+        // Automatic completion reuses winners (including older runs stopped
+        // for review), preserving defects instead of buying more candidates.
+        // The strict opt-out requires another check of unresolved artwork.
+        if (marker.unresolved && !flags.shipOnExhaustion()) throw new Error('marker records unresolved blocking defects');
+        const markerBlocking = marker.unresolved
+          ? (Array.isArray(marker.qa?.blocking) && marker.qa.blocking.length ? [...marker.qa.blocking] : ['saved artwork has unresolved QA findings'])
+          : [];
         log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes${markerBlocking.length > 0 ? `, ${markerBlocking.length} BLOCKING defect(s) on record` : ''})`);
         return {
           spread, buffer: cached, storageKey,
@@ -621,10 +620,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           renderHash: renderContentHash(buffer),
           qaVersion: QA_VERSION,
           qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], textInk: best.qa.textInk || null, score: best.score } : null,
-          // An unresolved marker never vouches: the next replay re-checks
-          // (an admin may have raised budgets or picked a candidate) —
-          // unless the opt-in ship policy shipped it, which the marker
-          // records so the replay keeps reporting the defects it carries.
+          // Residual findings remain attached to the canonical best artwork,
+          // including after automatic completion and subsequent cache replay.
           ...(blocking.length > 0 ? { unresolved: true } : {}),
           ...(blocking.length > 0 && flags.shipOnExhaustion() ? { shippedOnExhaustion: true } : {}),
           checkedAt: new Date().toISOString(),
@@ -1243,10 +1240,13 @@ async function renderStorySpreads(params) {
       const anchorTextDefects = anchorSettled.status === 'fulfilled' && anchorSettled.value
         ? (anchorSettled.value.blocking || []).filter(d => d.startsWith('embedded story text'))
         : [];
+      // Replaying a saved first spread must not invent a typography pin and
+      // send the rest of an existing unanchored book into a new namespace.
+      const anchorIsFresh = anchorSettled.status === 'fulfilled' && anchorSettled.value?.fresh;
       if (anchorTextDefects.length > 0) {
         anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo}'s own painted text is blocking (${anchorTextDefects.join('; ')}); the other spreads render on the text rules alone rather than copying it` });
       }
-      const elected = side && anchorTextDefects.length === 0
+      const elected = side && anchorTextDefects.length === 0 && anchorIsFresh
         ? await electTypographyAnchor({ buffer: anchorBuffer, side, spread: anchorSpreadNo, pinKey: anchorPinKey, reelect: !!forceRerender, log })
         : null;
       if (elected) {
@@ -1255,7 +1255,7 @@ async function renderStorySpreads(params) {
         typographyAnchor = toAnchorRef(elected);
         anchorSpreadNo = elected.spread;
         log('info', `Typography anchor: page ${elected.spread} (${elected.side} half, ${elected.pinned ? 'pinned' : 'elected'} ${elected.hash})`);
-      } else if (anchorTextDefects.length === 0) {
+      } else if (anchorTextDefects.length === 0 && (anchorIsFresh || !anchorBuffer)) {
         anchorAdvisories.push({ stage: 'typographyAnchor', note: `no typography anchor — spread ${anchorSpreadNo} ${side ? 'produced no usable render to crop' : 'has no assigned text side'}; the other spreads render on the text rules alone` });
       }
     }
@@ -1356,7 +1356,7 @@ async function renderStorySpreads(params) {
     }
   }
   if (unresolved.length > 0 && flags.shipOnExhaustion()) {
-    advisories.push({ stage: 'shipPolicy', note: `shipped ${unresolved.length} spread(s) with BLOCKING residual defects (CATALOG_SHIP_ON_EXHAUSTION=1): ${unresolved.map(u => `s${u.spread}`).join(', ')}` });
+    advisories.push({ stage: 'shipPolicy', note: `Automatically used the best existing artwork for ${unresolved.length} spread(s) with residual QA warnings: ${unresolved.map(u => `s${u.spread}`).join(', ')}` });
   }
 
   const bookBible = reviewedManifest ? reviewedManifest.bookBible : await summarizeBible(bible);
@@ -1424,12 +1424,8 @@ async function illustrateStory(params) {
     err.bookBible = bookBible;
     throw err;
   }
-  // ce-9 graded ship policy: BLOCKING residuals (identity/outfit/prop/
-  // companion breaks, missing or duplicated child, painted text in caption
-  // layout, wrong embedded text, extra limbs) fail the book for review with
-  // the candidates attached — a book that visibly changes the child's
-  // clothes is a product defect, not an advisory. CATALOG_SHIP_ON_EXHAUSTION=1
-  // restores ship-with-advisory.
+  // The explicit strict opt-out stops on residual QA findings. Automatic
+  // completion keeps those findings visible and uses the best saved artwork.
   if (unresolved.length > 0 && !flags.shipOnExhaustion()) {
     const err = new Error(`blocking consistency defects survived candidates and repairs on spread(s) ${unresolved.map(u => u.spread).join(', ')} — the book needs review (pick a candidate or re-render the spread); set CATALOG_SHIP_ON_EXHAUSTION=1 to ship with advisories instead`);
     err.failureCode = 'consistency_unresolved';

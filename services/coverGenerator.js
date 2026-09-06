@@ -4,8 +4,8 @@
  *
  * Back cover: Gemini-generated TEXT-FREE illustration matching the front
  * cover style; synopsis, heartfelt note, and branding are TYPESET with
- * pdf-lib on top (never painted — painted text ships garbled words). No
- * barcode is drawn; Lulu applies the real ISBN barcode.
+ * pdf-lib on top (never painted — painted text ships garbled words).
+ * Picture books include a scannable internal book-reference barcode.
  * Spine: Color-matched to front cover, no text for books under 80 pages.
  */
 
@@ -25,6 +25,7 @@ const {
 const { downloadBuffer } = require('./gcsStorage');
 const { TEXT_RULES } = require('./shared/illustration/config');
 const sharp = require('sharp');
+const { drawBookBackCover } = require('./backCoverLayout');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
 const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image';
@@ -943,6 +944,9 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
  * @returns {Promise<{coverPdfBuffer: Buffer, frontCoverImageUrl: string}>}
  */
 async function generateCover(title, childDetails, characterRefUrl, bookFormat, opts = {}) {
+  if (opts.reuseApprovedArtworkOnly && !opts.preGeneratedCoverBuffer?.length) {
+    throw new Error('Approved front cover artwork is required for the PDF fallback');
+  }
   const fmt = (bookFormat || '').toLowerCase();
   const isPictureBook = fmt === 'picture_book';
   const isEarlyReader = fmt === 'early_reader';
@@ -1023,13 +1027,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   let coverAnatomyAdvisory = null;
 
   if (opts.preGeneratedCoverBuffer) {
-    if (skipCoverStyleHarmonize) {
+    if (opts.reuseApprovedArtworkOnly) {
+      console.log('[CoverGenerator] Reusing approved front artwork for the PDF fallback');
+    } else if (skipCoverStyleHarmonize) {
       console.log('[CoverGenerator] Using pre-generated cover buffer — skip harmonize (on-style or admin/upsell source or explicit flag)');
     } else {
       console.log('[CoverGenerator] Using pre-generated cover buffer — harmonizing to interior 3D illustration style');
     }
     const raw = opts.preGeneratedCoverBuffer;
-    frontCoverBuffer = await harmonizeChosenCoverToInteriorStyle(raw, {
+    frontCoverBuffer = opts.reuseApprovedArtworkOnly ? raw : await harmonizeChosenCoverToInteriorStyle(raw, {
       bookFormat,
       costTracker: opts.costTracker,
       skipCoverStyleHarmonize,
@@ -1053,7 +1059,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
   // P0 anatomy QA for a pre-generated / parent-chosen cover (no regeneration —
   // the pose is the customer's approved art). Ship-and-flag only.
-  if (opts.preGeneratedCoverBuffer && frontCoverBuffer) {
+  if (opts.preGeneratedCoverBuffer && frontCoverBuffer && !opts.reuseApprovedArtworkOnly) {
     const aq = await qaCoverAnatomy(frontCoverBuffer);
     if (!aq.pass) {
       coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (pre-generated cover — flagged, not regenerated)`;
@@ -1074,7 +1080,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const bookFrom = opts.bookFrom || '';
 
   let backCoverBuffer = null;
-  if (frontCoverBuffer) {
+  if (frontCoverBuffer && !opts.reuseApprovedArtworkOnly) {
     backCoverBuffer = await generateBackCoverImage(frontCoverBuffer, {
       title,
       childName,
@@ -1160,7 +1166,11 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
   // Typeset ALL back-cover text with pdf-lib — on art or fallback alike.
   // Never painted by the image model (see drawBackCoverTypeset).
-  drawBackCoverTypeset(
+  if (isPictureBook && opts.bookId) {
+    await drawBookBackCover(page, { edgeBleed, trimWidth, totalHeight }, {
+      title, synopsis, heartfeltNote, bookFrom, childName, bookId: opts.bookId,
+    });
+  } else drawBackCoverTypeset(
     page,
     { edgeBleed, trimWidth, totalHeight },
     { font, boldFont, italicFont },
@@ -1203,6 +1213,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   const frontX = backWidth + spineWidth;
   const frontWidth = trimWidth + edgeBleed;
+  let frontArtworkEmbedded = false;
 
   // Background fallback
   const backBgColor = softenColor(coverColor, 0.6);
@@ -1245,9 +1256,14 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
         width: frontWidth,
         height: totalHeight,
       });
+      frontArtworkEmbedded = true;
     } catch (err) {
       console.error('[CoverGenerator] Failed to embed cover image:', err.message);
     }
+  }
+
+  if (opts.requireCompleteCover && !frontArtworkEmbedded) {
+    throw new Error('Full cover PDF cannot finish without the front artwork');
   }
 
   const pdfBytes = await pdfDoc.save();
@@ -1555,7 +1571,7 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
           const coverUrl = await getSignedUrl(gcsPath, 90 * 24 * 60 * 60 * 1000); // 90-day URL
 
           console.log(`[coverGenerator] Upsell cover ${index + 1} ready in ${Date.now() - startMs}ms`);
-          return { index, title, artStyle: style, styleLabel: UPSELL_STYLE_LABELS[style], gcsPath, coverUrl };
+          return { index, title, artStyle: canonicalBookArtStyle(style), styleLabel: '3D Storybook', gcsPath, coverUrl };
         } catch (err) {
           console.error(`[coverGenerator] Upsell cover ${index + 1} failed: ${err.message}`);
           return null;

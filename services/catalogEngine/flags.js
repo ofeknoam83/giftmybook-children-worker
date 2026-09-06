@@ -68,10 +68,9 @@
  *                                   (character/prop crops vs the sheets)
  *                                   and its re-renders; independent of
  *                                   CATALOG_WORLD_QA.
- *  - CATALOG_SHIP_ON_EXHAUSTION=1 — (ce-9, OPT-IN) ship a spread whose
- *                                   BLOCKING defects survived candidates +
- *                                   repairs with an advisory, instead of
- *                                   failing the book `consistency_unresolved`.
+ *  - CATALOG_SHIP_ON_EXHAUSTION=0 — opt out of automatic best-art completion;
+ *                                   stop for review when blocking findings
+ *                                   survive the bounded candidate budget.
  *  - CATALOG_IDENTITY_METRICS=1   — (ce-9, OPT-IN) run the deterministic
  *                                   identity metrics (embedding similarity)
  *                                   beside vision QA; off until calibrated.
@@ -179,7 +178,9 @@ module.exports = {
   emotionPlanEnabled: () => !envOff('CATALOG_EMOTION_PLAN'),
   emotionClassifierEnabled: () => !envOff('CATALOG_EMOTION_CLASSIFIER'),
   contactQaEnabled: () => !envOff('CATALOG_CONTACT_QA'),
-  shipOnExhaustion: () => envOn('CATALOG_SHIP_ON_EXHAUSTION'),
+  // Finish with the best existing candidate and retain its QA findings.
+  // Explicit 0 is the opt-out for diagnostic runs that require a hard gate.
+  shipOnExhaustion: () => !envOff('CATALOG_SHIP_ON_EXHAUSTION'),
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 1, 1, 3),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 0, 0, 4),

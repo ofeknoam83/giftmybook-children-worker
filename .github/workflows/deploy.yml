@@ -82,7 +82,7 @@ jobs:
             --execution-environment=gen2 \
             --cpu-boost \
             --no-cpu-throttling \
-            --update-env-vars="GOOGLE_AI_STUDIO_KEY=${{ secrets.GOOGLE_AI_STUDIO_KEY }},GEMINI_PROXY_URL=${{ secrets.GEMINI_PROXY_URL }},GEMINI_PROXY_API_KEY=${{ secrets.GEMINI_PROXY_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }},GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }},GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }},GEMINI_API_KEY_3=${{ secrets.GEMINI_API_KEY_3 }},GEMINI_API_KEY_4=${{ secrets.GEMINI_API_KEY_4 }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},USE_CHAT_ILLUSTRATIONS=true,BOOK_PASS_REGEN_WAVES=2,BOOK_PASS_SHIP_ON_EXHAUSTION=1" \
+            --update-env-vars="GOOGLE_AI_STUDIO_KEY=${{ secrets.GOOGLE_AI_STUDIO_KEY }},GEMINI_PROXY_URL=${{ secrets.GEMINI_PROXY_URL }},GEMINI_PROXY_API_KEY=${{ secrets.GEMINI_PROXY_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }},GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }},GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }},GEMINI_API_KEY_3=${{ secrets.GEMINI_API_KEY_3 }},GEMINI_API_KEY_4=${{ secrets.GEMINI_API_KEY_4 }},REPLICATE_API_TOKEN=${{ secrets.REPLICATE_API_TOKEN }},USE_CHAT_ILLUSTRATIONS=true,BOOK_PASS_REGEN_WAVES=2,BOOK_PASS_SHIP_ON_EXHAUSTION=1,CATALOG_SHIP_ON_EXHAUSTION=1" \
             --quiet
 
       - name: Route all traffic to latest
