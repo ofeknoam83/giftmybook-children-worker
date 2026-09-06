@@ -19,8 +19,8 @@
  *  - the set-level gate keeps the ce-5 world check and adds ce-9 CONTACT
  *    SHEETS (contactSheet.js): the child crops of every spread beside the
  *    model sheet, and the prop crops beside their sheets, in one call each;
- *  - automatic ship policy: best existing artwork finishes with residual QA
- *    warnings retained; CATALOG_SHIP_ON_EXHAUSTION=0 opts into strict review;
+ *  - automatic ship policy: visual warnings can complete with best artwork;
+ *    mismatched or unverified story lettering always needs review;
  *  - renders cache under a deterministic STYLE_VERSION-keyed GCS path so a
  *    re-dispatch replays finished spreads instead of re-paying for them; the
  *    `.qa.json` marker records the QA_VERSION it was checked under.
@@ -29,9 +29,8 @@
  *  - `caption` layout: words are PDF type, never pixels — renders use
  *    skipTextEmbed and QA hard-checks readable_text as a defect.
  *  - `embedded` layout: the story text is painted INTO the art by Gemini
- *    (the legacy embedText path: prompt typography rules + OCR verify with
- *    extra retries inside generateIllustration), and spread QA verifies the
- *    painted text matches the manuscript instead of forbidding it.
+ *    with prompt typography rules. Each saved candidate gets an independent
+ *    blind manuscript check under the catalog's shared repair budget.
  */
 
 const { generateIllustration, verifyImageText, downloadPhotoAsBase64, isModestBathWaterScene } = require('../../illustrationGenerator');
@@ -307,9 +306,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // Gemini finish/block reasons, the model's own refusal text.
   const renderOpts = {
     aspectRatio: aspect === 'wide' ? '16:9' : '1:1',
-    // Embedded layout runs the renderer's text-embed path: typography rules
-    // in the prompt, plus OCR verification with extra retries for
-    // text-heavy spreads (verifyImageText inside generateIllustration).
+    // Keep painted lettering, but let catalog QA verify saved candidates
+    // once under the shared repair budget instead of nested image retries.
     skipTextEmbed: !embedText,
     deferTextVerification: embedText, // Catalog QA checks every saved candidate, including the last.
     ...(embedText ? { embedText: true, pageText: spreadText } : {}),
@@ -1509,7 +1507,7 @@ async function illustrateStory(params) {
     err.failureCode = 'consistency_unresolved';
     err.unresolved = textFailures.map(r => ({
       spread: r.spread,
-      defects: [r.qa?.textVerification?.status === 'mismatch' ? TEXT_MISMATCH : 'Story spelling could not be verified'],
+      defects: [r.qa?.textVerification?.status === 'mismatch' ? `${TEXT_MISMATCH}: ${(r.qa.textVerification.issues || []).join('; ')}` : 'Story spelling could not be verified'],
       candidates: unresolved.find(u => u.spread === r.spread)?.candidates || (r.candidateFiles || []).map(c => ({ storageKey: c.storageKey, score: c.score, pass: c.pass })),
     }));
     for (const item of err.unresolved) {

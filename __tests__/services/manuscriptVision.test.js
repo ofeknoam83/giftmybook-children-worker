@@ -3,17 +3,18 @@ jest.mock('../../services/gcsStorage', () => ({ uploadBuffer: jest.fn().mockReso
 const { verifyImageText, generateIllustration } = require('../../services/illustrationGenerator');
 const { uploadBuffer } = require('../../services/gcsStorage');
 const originalFetch = global.fetch;
+const letters = text => text.split(' ').map(w => [...w].join('|')).join(' ');
 const reply = (transcript, extra = {}) => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ text_found: !!transcript, transcript }) }] }, ...extra }] }) });
 afterEach(() => { global.fetch = originalFetch; jest.clearAllMocks(); });
 
 test('the reader never receives the expected words, has enough non-thinking output, and checks all text parts', async () => {
-  global.fetch = jest.fn().mockResolvedValue(reply('PrivateName walked home.'));
+  global.fetch = jest.fn().mockResolvedValueOnce(reply('PrivateName walked home.')).mockResolvedValue(reply(letters('PrivateName walked home.')));
   expect(await verifyImageText(Buffer.from('image'), 'PrivateName walked home.')).toMatchObject({ status: 'verified' });
   const body = JSON.parse(global.fetch.mock.calls[0][1].body);
   const prompt = body.contents[0].parts.find(p => p.text).text;
   expect(prompt).not.toContain('PrivateName');
   expect(prompt).toContain('Never correct spelling');
-  expect(body.generationConfig).toMatchObject({ maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } });
+  expect(body.generationConfig).toMatchObject({ maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } });
 });
 
 test.each([
@@ -28,8 +29,8 @@ test.each([
 
 test('the final legacy image attempt cannot bypass spelling or upload bad lettering', async () => {
   let images = 0, reads = 0;
-  global.fetch = jest.fn(async (url) => {
-    if (url.includes('gemini-2.5-flash')) { reads++; return reply('Siiver leaves.'); }
+  global.fetch = jest.fn(async (url, init) => {
+    if (url.includes('gemini-2.5-flash')) { reads++; return reply(init.body.includes('CHARACTER MODE') ? letters('Siiver leaves.') : 'Siiver leaves.'); }
     images++;
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { data: 'YQ==', mimeType: 'image/png' } }] } }] }) };
   });

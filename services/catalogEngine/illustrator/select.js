@@ -115,10 +115,10 @@ function isClean(c) {
  * The ordering TIER of a candidate — the guarantees the score alone cannot
  * give (metric/advisory penalties add up; the unchecked score is fixed):
  * 0 = checked and blocking-free, 1 = checked with a blocking defect,
- * 2 = unchecked (no verdict, or the checker was unavailable). A lower tier
+ * 2 = visual QA unchecked, 3 = manuscript mismatch, 4 = spelling unverified. A lower tier
  * always outranks a higher one; the score orders only WITHIN a tier.
  * @param {{qa?: object}} c
- * @returns {0|1|2}
+ * @returns {0|1|2|3|4}
  */
 function selectionTier(c) {
   const qa = c && c.qa;

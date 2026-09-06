@@ -18,9 +18,9 @@ test('allows newlines, blank rows, quote style, capitalization and equivalent Un
 });
 
 test('one mistaken OCR reading gets a second check before artwork is rejected', async () => {
-  const read = jest.fn().mockResolvedValueOnce('Siiver leaves.').mockResolvedValueOnce('Silver leaves.');
+  const read = jest.fn().mockResolvedValueOnce('Siiver leaves.').mockResolvedValue('Silver leaves.');
   const v = await verifyManuscript('Silver leaves.', read);
-  expect(v).toMatchObject({ status: 'verified', attempts: 2 });
+  expect(v).toMatchObject({ status: 'verified', attempts: 3 });
   expect(textVerificationCurrent(v, 'Silver\nleaves.')).toBe(true);
   expect(textVerificationCurrent(v, 'Golden leaves.')).toBe(false);
   expect(textVerificationCurrent({ ...v, version: 'old' }, 'Silver leaves.')).toBe(false);
@@ -44,4 +44,8 @@ test('blind spelling replaces the general judge’s textual guess but preserves 
   const qa = { defects: ['embedded story text garbled: guess', 'outfit break: jacket differs'], blocking: ['embedded story text garbled: guess', 'outfit break: jacket differs'], advisory: [] };
   expect(applyTextVerification(qa, { status: 'verified' }).blocking).toEqual(['outfit break: jacket differs']);
   expect(applyTextVerification({ defects: [], blocking: [], advisory: [] }, { status: 'mismatch' }).blocking).toEqual([TEXT_MISMATCH]);
+});
+
+test('a confirmed mismatch identifies the first affected word for admin review', () => {
+  expect(compareManuscript('Silver leaves whispered.', 'Siiver leaves whispered.').issues).toEqual(['Word 1: expected "silver", read "siiver".']);
 });

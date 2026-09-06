@@ -16,7 +16,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Check correct and deliberately misspelled synthetic lettering
+      - name: Check magnified glyphs in correct and misspelled synthetic lettering
         env:
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
           GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}

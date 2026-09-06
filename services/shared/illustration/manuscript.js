@@ -18,29 +18,40 @@ function manuscriptHash(text) {
 
 function compareManuscript(expected, extracted) {
   const a = normalizeManuscript(expected), b = normalizeManuscript(extracted);
-  const valid = a === b;
-  return { valid, issues: valid ? [] : [b ? 'Painted words differ from the approved manuscript (spelling, order, omission or repetition).' : 'No readable manuscript was transcribed.'] };
+  if (a === b) return { valid: true, issues: [] };
+  if (!b) return { valid: false, issues: ['No readable manuscript was transcribed.'] };
+  const wanted = a.split(' '), seen = b.split(' ');
+  let i = 0;
+  while (i < wanted.length && wanted[i] === seen[i]) i++;
+  const word = value => value ? `"${value.slice(0, 60)}"` : '(end of text)';
+  return { valid: false, issues: [`Word ${i + 1}: expected ${word(wanted[i])}, read ${word(seen[i])}.`] };
 }
 
-// A mismatch gets ONE independent blind re-read before buying any artwork.
-// An outage or conflicting readings remain unverified, never silently clean.
+// Require two agreeing readings. The reader supplies a full image followed
+// by magnified glyphs; disagreement gets one tie-breaker, never more than
+// three text calls. Two service failures stop without buying more artwork.
 async function verifyManuscript(expected, readText) {
   const base = { version: TEXT_VERIFICATION_VERSION, manuscriptHash: manuscriptHash(expected) };
-  let previousMismatch = null;
-  let reason = 'Text could not be verified.';
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  const readings = new Map();
+  let reason = 'Text could not be verified.', failures = 0, attempts = 0;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    attempts = attempt;
     try {
       const extractedText = await readText(attempt);
       if (typeof extractedText !== 'string') throw new Error('No usable text transcription returned.');
-      const comparison = compareManuscript(expected, extractedText);
-      if (comparison.valid) return { ...base, status: 'verified', valid: true, issues: [], attempts: attempt };
       const letters = normalizeManuscript(extractedText);
-      if (previousMismatch === letters) return { ...base, status: 'mismatch', valid: false, issues: comparison.issues, attempts: attempt };
-      previousMismatch = letters;
+      readings.set(letters, (readings.get(letters) || 0) + 1);
+      if (readings.get(letters) >= 2) {
+        const comparison = compareManuscript(expected, extractedText);
+        return { ...base, status: comparison.valid ? 'verified' : 'mismatch', ...comparison, attempts };
+      }
       reason = 'Text readings disagree; spelling needs another check.';
-    } catch (err) { reason = err.message || 'Text verification unavailable.'; }
+    } catch (err) {
+      reason = err.message || 'Text verification unavailable.';
+      if (++failures >= 2) break;
+    }
   }
-  return { ...base, status: 'unverified', valid: false, issues: [reason], attempts: 2 };
+  return { ...base, status: 'unverified', valid: false, issues: [reason], attempts };
 }
 
 function textVerificationCurrent(verification, expected) {
