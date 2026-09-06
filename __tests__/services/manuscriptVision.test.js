@@ -5,6 +5,7 @@ const { uploadBuffer } = require('../../services/gcsStorage');
 const originalFetch = global.fetch;
 const letters = text => text.split(' ').map(w => [...w].join('|')).join(' ');
 const reply = (transcript, extra = {}) => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ text_found: !!transcript, transcript }) }] }, ...extra }] }) });
+const scopedReply = (transcript, text_bbox, scene_text = []) => reply(transcript, { content: { parts: [{ text: JSON.stringify({ text_found: !!transcript, transcript, text_bbox, scene_text }) }] } });
 afterEach(() => { global.fetch = originalFetch; jest.clearAllMocks(); });
 
 test('the reader never receives the expected words, has enough non-thinking output, and checks all text parts', async () => {
@@ -92,4 +93,56 @@ test('an unreliable repair location is rejected without buying another image', a
   global.fetch = jest.fn();
   await expect(repairImageText(Buffer.from('image'), 'Silver.', { textBox: { x: 0, y: 0, w: 1, h: 1 } })).rejects.toThrow('reliable text-column');
   expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test('shop signs are separate from narration and the confirming read sees only the story column', async () => {
+  const sharp = require('sharp');
+  // Separate colours make it possible to assert the sign region is excluded.
+  const left = await sharp({ create: { width: 600, height: 600, channels: 3, background: '#ff0000' } }).png().toBuffer();
+  const source = await sharp({ create: { width: 1000, height: 600, channels: 3, background: '#0000ff' } })
+    .composite([{ input: left, left: 0, top: 0 }]).png().toBuffer();
+  const text = 'Pip showed Amit the normal way first. They passed the bakery.';
+  const box = { x: .65, y: .2, w: .3, h: .4 };
+  global.fetch = jest.fn().mockResolvedValueOnce(scopedReply(text, box, ['BAKERY', 'TOY SHOP']))
+    .mockResolvedValue(scopedReply(letters(text), { x: .05, y: .05, w: .9, h: .9 }));
+  expect(await verifyImageText(source, text)).toMatchObject({ status: 'verified', attempts: 2, textBox: box });
+  const bodies = global.fetch.mock.calls.map(([, init]) => JSON.parse(init.body));
+  const prompt = bodies[0].contents[0].parts[1].text;
+  expect(prompt).toContain('Report incidental scene lettering separately in scene_text');
+  expect(prompt).toContain('Do not discard an unfamiliar, misspelled or duplicated narrative word');
+  expect(prompt).not.toContain('Pip'); // Still blind; no expected-word filtering.
+  const zoom = Buffer.from(bodies[1].contents[0].parts[0].inline_data.data, 'base64');
+  const stats = await sharp(zoom).stats();
+  expect(stats.channels[0].max).toBe(0); // No red sign-region pixels.
+  expect(stats.channels[2].min).toBe(255);
+});
+
+test.each([
+  ['Pip found siiver bells.', 'read "siiver"'],
+  ['Pip found silver silver bells.', 'read "silver"'],
+  ['Pip found bells.', 'read "bells"'],
+])('scene lettering cannot excuse a real narrative mismatch: %s', async (painted, issue) => {
+  global.fetch = jest.fn().mockResolvedValueOnce(scopedReply(painted, null, ['BAKERY']))
+    .mockResolvedValue(scopedReply(letters(painted), null, ['BAKERY']));
+  const proof = await verifyImageText(Buffer.from('image'), 'Pip found silver bells.');
+  expect(proof.status).toBe('mismatch');
+  expect(proof.issues[0]).toContain(issue);
+});
+
+test('signs without narration cannot pass as story text', async () => {
+  global.fetch = jest.fn().mockResolvedValue(scopedReply('', null, ['BAKERY']));
+  expect(await verifyImageText(Buffer.from('image'), 'Pip waved.')).toMatchObject({ status: 'mismatch' });
+});
+
+test('a second full-image reading recovers an unusable scene-wide repair location', async () => {
+  const sharp = require('sharp');
+  const source = await sharp({ create: { width: 1000, height: 600, channels: 3, background: '#123456' } }).png().toBuffer();
+  const box = { x: .65, y: .2, w: .3, h: .4 };
+  global.fetch = jest.fn().mockResolvedValueOnce(scopedReply('BAKERY Pip found bells.', { x: 0, y: 0, w: 1, h: 1 }))
+    .mockResolvedValueOnce(scopedReply(letters('Pip found beils.'), box, ['BAKERY']))
+    .mockResolvedValue(scopedReply(letters('Pip found beils.'), { x: .05, y: .05, w: .9, h: .9 }));
+  expect(await verifyImageText(source, 'Pip found bells.')).toMatchObject({ status: 'mismatch', attempts: 3, textBox: box });
+  const imageAt = index => Buffer.from(JSON.parse(global.fetch.mock.calls[index][1].body).contents[0].parts[0].inline_data.data, 'base64');
+  expect(imageAt(1).equals(source)).toBe(true); // Re-locate using full-image coordinates.
+  expect(imageAt(2).equals(source)).toBe(false); // Then inspect the recovered column.
 });

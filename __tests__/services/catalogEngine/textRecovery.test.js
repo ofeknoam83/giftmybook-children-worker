@@ -68,3 +68,29 @@ test('permission errors are surfaced without attempting to recreate the image', 
   await expect(recoverText(args())).rejects.toThrow('denied');
   expect(repairImageText).not.toHaveBeenCalled();
 });
+
+test('a false mismatch caused by a scene-wide text box is cleared without an image edit', async () => {
+  const p = args(); p.verification = { ...mismatch, textBox: { x: 0, y: 0, w: 1, h: 1 } };
+  expect(await recoverText(p)).toMatchObject({ repaired: false, buffer: source, verification: { status: 'verified' } });
+  expect(verifyImageText).toHaveBeenCalledTimes(1);
+  expect(repairImageText).not.toHaveBeenCalled();
+  expect(uploadBuffer).not.toHaveBeenCalled();
+  expect(p.renderBudget.used.size).toBe(0);
+});
+
+test('a real typo with an old scene-wide box is automatically re-located and repaired', async () => {
+  const p = args(); p.verification = { ...mismatch, textBox: { x: 0, y: 0, w: 1, h: 1 } };
+  verifyImageText.mockResolvedValueOnce(mismatch).mockResolvedValue(verified);
+  expect(await recoverText(p)).toMatchObject({ repaired: true, buffer: fixed });
+  expect(repairImageText).toHaveBeenCalledWith(source, p.text, expect.objectContaining({ textBox: mismatch.textBox }));
+  expect(p.renderBudget.used.get(9)).toBe(1);
+});
+
+test('an unsafe location after re-reading cannot spend an image attempt or overwrite artwork', async () => {
+  const p = args(); p.verification = { ...mismatch, textBox: { x: 0, y: 0, w: 1, h: 1 } };
+  verifyImageText.mockResolvedValue(p.verification);
+  expect(await recoverText(p)).toMatchObject({ repaired: false, buffer: source });
+  expect(repairImageText).not.toHaveBeenCalled();
+  expect(uploadBuffer).not.toHaveBeenCalled();
+  expect(p.renderBudget.used.size).toBe(0);
+});
