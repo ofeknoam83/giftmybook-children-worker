@@ -186,6 +186,9 @@ function trimPinnedCache() {
  * @returns {Promise<{book, themeId, ageBand, theme}|null>}
  */
 async function getBookForTag(bookId, catalogTag) {
+  if (String(catalogTag || '').startsWith('upsell-v1-')) {
+    return require('./upsellOffer').loadOfferDefinition(bookId, catalogTag);
+  }
   loadCatalog();
   const tag = String(catalogTag || '');
   const current = catalogVersion();

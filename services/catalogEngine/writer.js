@@ -525,8 +525,12 @@ class StoryGenerationError extends Error {
  *   `tuning` is a normalized Writer Tuning Layer (normalizeTuning) or null.
  * @returns {{request: object, book: object, themeId: string, ageBand: string, map: object|null, renderedTitle: string}}
  */
-function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'en', requestId, tuning = null }) {
-  const hit = getBook(bookId);
+function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'en', requestId, tuning = null, definition, definitionTag }) {
+  if (definition && (!require('./upsellOffer').validateOfferDefinition(definition)
+    || definition.book.id !== bookId || !/^upsell-v1-[a-f0-9]{64}$/.test(String(definitionTag)))) {
+    throw new StoryGenerationError('Invalid pinned printed-offer definition', { bookId });
+  }
+  const hit = definition || getBook(bookId);
   if (!hit) throw new StoryGenerationError(`unknown book_id '${bookId}'`, { bookId });
   const { book, themeId, ageBand } = hit;
   // Retirement (Catalog Studio soft delete) means no NEW stories, ever —
@@ -546,7 +550,7 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
       { bookId },
     );
   }
-  const { personalizationMap } = augmentsFor(bookId);
+  const personalizationMap = definition?.personalizationMap || augmentsFor(bookId).personalizationMap;
   const map = flags.personalizationMapsEnabled() ? personalizationMap : null;
   // Offer the writer only details it can legally use, capped at the map's
   // max_details — the pinned profile IS the trimmed one, so every
@@ -565,7 +569,7 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
     versions: {
       writer_engine: versions.WRITER_ENGINE_VERSION,
       age_engine: versions.AGE_ENGINE_VERSION,
-      catalog: catalogVersion(),
+      catalog: definition ? definitionTag : catalogVersion(),
       book_definition: versions.BOOK_DEFINITION_VERSION,
       personalization_map: map ? map.map_version : 'none',
       map_schema: versions.MAP_SCHEMA_VERSION,
@@ -646,7 +650,7 @@ function buildUserPrompt({ request, book, theme, ageBand, map, tuning = null, va
 async function generateStory(params) {
   const tuning = normalizeTuning(params.tuning);
   const { request, book, themeId, ageBand, map } = buildStoryRequest({ ...params, tuning });
-  const theme = getBook(request.book_id).theme;
+  const theme = params.definition?.theme || getBook(request.book_id).theme;
   const label = params.label || `catalogWriter:${request.book_id}`;
   const usageTotal = { inputTokens: 0, outputTokens: 0 };
   const maxAttempts = WRITER_MAX_ATTEMPTS();

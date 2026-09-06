@@ -473,6 +473,7 @@ app.post('/v13/select-books', authenticate, (req, res) => {
 // independently; a failed candidate never substitutes a different plot.
 app.post('/v13/generate-stories', authenticate, async (req, res) => {
   const { bookId, sessionId, locale, callbackUrl, progressCallbackUrl } = req.body || {};
+  const upsellOffer = req.body?.upsellOffer;
   const dispatchId = typeof req.body?.dispatchId === 'string' ? req.body.dispatchId.slice(0, 100) : null;
   const bookIds = Array.isArray(req.body?.bookIds) ? req.body.bookIds : [];
   if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
@@ -492,7 +493,10 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: tuningError });
   }
   const profileBand = catalogEngine.ageBandForAge(profile.age);
-  for (const id of bookIds) {
+  if (upsellOffer && (bookIds.length !== 1 || bookIds[0] !== 'printed-upsell')) {
+    return res.status(400).json({ success: false, error: 'A printed offer generates exactly one story' });
+  }
+  for (const id of upsellOffer ? [] : bookIds) {
     const hit = catalogEngine.getBook(id);
     if (!hit) {
       return res.status(400).json({ success: false, error: `unknown catalog book id '${id}'` });
@@ -514,7 +518,12 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
     const started = Date.now();
     let done = 0;
     try {
-      const { stories, failures } = await catalogEngine.generateStories({
+      const { stories, failures } = upsellOffer ? {
+        stories: [await require('./services/catalogEngine/upsellOffer').generateOfferStory({
+          ...upsellOffer, profile, themeId: req.body.catalogThemeId,
+          sessionId: sessionId || bookId, tuning: req.body?.writerTuning || null,
+        })], failures: [],
+      } : await catalogEngine.generateStories({
         bookIds,
         profile,
         sessionId: sessionId || bookId,
@@ -1181,7 +1190,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: 'either story {request, response}, bookDefinitionId, or catalogThemeId is required' });
   }
   if (body.bookDefinitionId) {
-    const hit = catalogEngine.getBook(body.bookDefinitionId);
+    const hit = storyPair?.request?.versions?.catalog?.startsWith('upsell-v1-')
+      ? await catalogEngine.getBookForTag(body.bookDefinitionId, storyPair.request.versions.catalog)
+      : catalogEngine.getBook(body.bookDefinitionId);
     if (!hit) {
       return res.status(400).json({ success: false, error: `unknown catalog book id '${body.bookDefinitionId}'` });
     }
