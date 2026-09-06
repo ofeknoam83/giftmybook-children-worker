@@ -572,7 +572,7 @@ function repairNote(defects, expectedText = null, opts = {}) {
   const notes = [];
   for (const d of defects) {
     if (d.includes('painted text')) notes.push('ABSOLUTELY NO text, letters, numbers, signage, or lettering anywhere in the image.');
-    if (d.includes('story text missing') || d.includes('story text garbled')) {
+    if (d.includes('story text missing') || d.includes('story text garbled') || d.includes('story text does not match')) {
       notes.push(`The story text MUST be painted into the artwork EXACTLY as written — crisp, small, legible, never in the middle 30% of the image${expectedText ? `: "${expectedText}"` : ''}. Fix ONLY the text; keep the scene otherwise identical.`);
     }
     if (d.includes('split across both sides')) {
