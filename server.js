@@ -1938,6 +1938,8 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
     storyContent,
     isChapterBook,
     isGraphicNovel,
+    interiorPdfUrl,
+    story: chosenStory,
     heartfeltNote,
     bookFrom,
     // Legacy fields (still accepted for backward compatibility with older clients):
@@ -1958,12 +1960,11 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
     // older contract.
     const resolvedChildDetails = childDetails || {};
     const flags = { isChapterBook: !!isChapterBook, isGraphicNovel: !!isGraphicNovel };
-    const computed = storyContent
-      ? computeCoverPdfMetadata(storyContent, resolvedChildDetails, flags)
-      : null;
-
-    const pageCount = computed?.pageCount || legacyPageCount || 32;
-    const synopsis  = computed?.synopsis  || legacySynopsis  || '';
+    const { resolveCoverRebuildMetadata } = require('./services/coverMetadata');
+    const { pageCount, synopsis } = await resolveCoverRebuildMetadata({
+      storyContent, chosenStory, interiorPdfUrl, childDetails: resolvedChildDetails, flags,
+      pageCount: legacyPageCount, synopsis: legacySynopsis,
+    }, downloadBuffer);
 
     const coverData = await generateCover(
       title || 'My Story',
@@ -1979,6 +1980,11 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
         bookFrom: bookFrom || '',
         bindingType: bindingType || '',
         coverSourceUrl: coverImageUrl || '',
+        requireCompleteCover: true,
+        reuseApprovedArtworkOnly: true,
+        allowBackCoverGeneration: true,
+        cacheBackCover: true,
+        preserveApprovedCoverBounds: chosenStory?.request?.versions?.catalog?.startsWith('upsell-v1-'),
       },
     );
     if (!coverData?.coverPdfBuffer) throw new Error('generateCover returned no buffer');
