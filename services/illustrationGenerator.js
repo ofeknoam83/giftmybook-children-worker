@@ -876,7 +876,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const embedStoryText = opts.embedText && pageText && pageText.trim();
   let embedSummary = null; // ce-15: footprint/column/reference facts reused by the checklist and the final check
   const guideRules = (opts.typographyGuide === true || opts.typographyTemplate === true) && Number.isInteger(opts.typographyRef) && opts.typographyRef > 0;
-  const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules : resolveBookTextRules)(opts.childAge, opts.bookTextInk) : null;
+  const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules : resolveBookTextRules)(opts.childAge, opts.bookTextInk, opts.typographyTemplate ? opts.typographyScale : 1) : null;
   if (embedStoryText) {
     const tr = textRulesForEmbed;
     // ce-13: the geometry is stated as a CONCRETE column box on the shot
@@ -895,22 +895,24 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
         : `ONE column — the left (${leftColumn}) OR the right (${rightColumn}); pick a single side`;
     const verticalBand = `y from ${topPad}% to ${100 - bottomPad}% of the image height`;
     const foldMargin = 50 - tr.activeSideMaxPercent;
-    const storyLines = wrapStoryLines(pageText, tr.maxCharsPerLine);
+    const block = expectedTextBlock(pageText, tr);
+    const storyLines = block.lines;
     const lineCount = storyLines.filter(Boolean).length;
     // ce-15: the block's FOOTPRINT — a concrete per-spread size the model can
     // see in its own output (a percentage of the frame it cannot), and the
     // book's fixed lettering reference when one rides.
-    const block = expectedTextBlock(pageText, tr);
     const typoRef = Number.isInteger(opts.typographyRef) && opts.typographyRef > 0 ? opts.typographyRef : null;
     embedSummary = { block, textSide, typoRef, foldMargin, verticalBand };
     parts.push('TEXT RENDERING RULES:');
     parts.push('- This illustration MUST include the story text rendered directly INTO the image');
+    if (tr.sentenceStartsNewLine) parts.push('- SENTENCE LAYOUT: start every sentence on a fresh line after its closing punctuation, including dialogue. Leave exactly ONE completely empty line between sentences, with no extra gap at an existing paragraph break. Preserve every blank row shown below. Target 5–7 words per line using the exact rows below. Short sentences and sentence-ending lines may contain fewer words; never borrow words from the next sentence, and never make all rows four words long. Keep the fixed font size.');
     if (opts.typographyTemplate) parts.push('- EXACT MANUSCRIPT ONLY: preserve every word and its spelling. No other lettering anywhere: no title, labels, decorative words, sound-effect lettering or onomatopoeia outside the manuscript. Show sound and movement through visual action, never extra written words.');
     // The book-wide typographic lock: each spread renders in a STATELESS call,
     // so the ONLY way every page comes out in the same font, size, and color
     // is pinning the identical spec (TEXT_RULES) on every render.
     parts.push(`- FONT (FIXED FOR THE WHOLE BOOK): ${tr.fontStyle}`);
-    parts.push(`- FONT SIZE (FIXED FOR THE WHOLE BOOK): ${tr.fontSize} The whole ${lineCount}-line block below must fit INSIDE the text column box at this size with even spacing; if it would not fit, use a SMALLER size — never a wider column, never fewer lines. Err on the side of TOO SMALL: text at caption, poster, or headline scale will be REJECTED, while text that is small but crisp is always accepted.`);
+    if (tr.sentenceStartsNewLine) parts.push(`- FONT SIZE (FIXED FOR THE WHOLE BOOK): ${tr.fontSize} Keep this readable reference size. Follow the supplied sentence-led line breaks; do not shrink the letters simply to leave more artwork visible, and do not enlarge them to fill the column. The size is identical on every spread.`);
+    else parts.push(`- FONT SIZE (FIXED FOR THE WHOLE BOOK): ${tr.fontSize} The whole ${lineCount}-line block below must fit INSIDE the text column box at this size with even spacing; if it would not fit, use a SMALLER size — never a wider column, never fewer lines. Err on the side of TOO SMALL: text at caption, poster, or headline scale will be REJECTED, while text that is small but crisp is always accepted.`);
     parts.push(`- BLOCK FOOTPRINT (THE SIZE, MADE CONCRETE): at this size each character is about ${tr.charWidthPercent}% of the image width, so this spread's widest row (${block.widestChars} characters) spans about ${block.widthPercent}% of the image width and the whole ${block.lineCount}-row block stands about ${block.heightPercent}% of the image height tall — a SMALL block, well under a quarter of the width. The column box is WIDER than this block on purpose: the type NEVER grows to fill the column, and short rows stay short. If your block would come out wider than ${Math.round(block.widthPercent * 1.3)}% of the image width or taller than ${Math.round(block.heightPercent * 1.3)}% of its height, the type is too large — shrink it.`);
     parts.push(`- TEXT COLOR (FIXED FOR THE WHOLE BOOK): ${tr.fontColor}`);
     parts.push(`- TEXT ALIGNMENT (CRITICAL): ${tr.textAlignment}`);
@@ -925,7 +927,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       parts.push(opts.typographyTemplate ? `- EDIT BASE (REFERENCE IMAGE ${typoRef}): the full 16:9 canvas already carries THIS spread's exact words, line breaks, size, ink and position. Complete the illustration around and behind those glyphs. Preserve the lettering at its existing canvas-relative scale, without zooming, enlarging, reflowing, recolouring or changing its face. Its transparent space is missing scenery to paint, never a blank panel to preserve. Copy the template's words exactly: they ARE the manuscript below.` : `- TYPOGRAPHY REFERENCE (REFERENCE IMAGE ${typoRef} — this book’s fixed lettering reference): your text must look like the text in that image — the SAME typeface, weight, fill colour and shadow treatment, the SAME size relative to the page height (each of your rows as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way. Use it for the TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`);
     }
     parts.push('');
-    parts.push(`TEXT TO RENDER ON THIS PAGE — exactly ${lineCount} short lines. Paint them with EXACTLY these line breaks: one line per row, in this order, every word exactly as written (a blank row is a paragraph gap). NEVER join two rows into one line and NEVER re-break a row — the breaks are part of the design:`);
+    parts.push(`TEXT TO RENDER ON THIS PAGE — exactly ${lineCount} ${tr.blankLineBetweenSentences ? `text lines plus ${block.lineCount - lineCount} completely empty lines` : 'short lines'}. Paint them with EXACTLY these line breaks: one line per row, in this order, every word exactly as written (${tr.blankLineBetweenSentences ? 'a blank row is one full empty line between sentences' : 'a blank row is a paragraph gap'}). NEVER join two rows into one line and NEVER re-break a row — the breaks are part of the design:`);
     parts.push(storyLines.join('\n'));
     parts.push(`\nREMINDER: ONE text block of ${lineCount} short lines in ${textSide ? `the ${textSide.toUpperCase()} column` : 'one column'} — every glyph inside the text column box (${verticalBand}), NEVER within ${foldMargin}% of the centerline (the page fold), NEVER split across both sides, and ALWAYS painted over continuous artwork at FULL sharpness (no blank or solid text band, no blurred, fogged, or darkened zone behind the letters). Small book body type — the SAME small size on every spread. Every line straight, level, and LEFT-ALIGNED to one shared margin — every line beginning at the EXACT same horizontal position — with even line spacing; ONE font, ONE size, ONE color — the book's fixed spec. Keep the given line breaks exactly.`);
   } else {
@@ -971,7 +973,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     const b = embedSummary.block;
     const column = embedSummary.textSide ? `in the ${embedSummary.textSide.toUpperCase()} column` : 'in one column';
     parts.push('');
-    parts.push(`TEXT — FINAL CHECK (the last word before you paint): ONE block of ${b.lineCount} short rows of SMALL book body type — about ${b.widthPercent}% of the image width wide and ${b.heightPercent}% of its height tall, ${column} (${embedSummary.verticalBand}), never within ${embedSummary.foldMargin}% of the width of the centerline, never split across both sides — painted straight over the scene with NOTHING behind the letters but the artwork, as sharp and detailed there as everywhere else (no card, sign, board, panel, band, flat plane, blur, fog, glow, or darkening)${embedSummary.typoRef ? `, the type matching REFERENCE IMAGE ${embedSummary.typoRef} exactly` : ''}. Same font, same size, same colour as every other spread. Smaller is always safer than larger.`);
+    parts.push(`TEXT — FINAL CHECK (the last word before you paint): ONE block of ${b.lineCount} short rows of SMALL book body type — about ${b.widthPercent}% of the image width wide and ${b.heightPercent}% of its height tall, ${column} (${embedSummary.verticalBand}), never within ${embedSummary.foldMargin}% of the width of the centerline, never split across both sides — painted straight over the scene with NOTHING behind the letters but the artwork, as sharp and detailed there as everywhere else (no card, sign, board, panel, band, flat plane, blur, fog, glow, or darkening)${embedSummary.typoRef ? `, the type matching REFERENCE IMAGE ${embedSummary.typoRef} exactly` : ''}. Same font, same size, same colour as every other spread. ${textRulesForEmbed.sentenceStartsNewLine ? 'Keep the readable reference size and the supplied sentence-led rows; do not make the lettering smaller.' : 'Smaller is always safer than larger.'}`);
   }
 
   // The Art Tuning Layer is the prompt's LAST word: image models weight
@@ -1329,6 +1331,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     bookTextInk: opts.bookTextInk === 'light' ? 'light' : 'dark',
     typographyGuide: opts.typographyGuide === true,
     typographyTemplate: opts.typographyTemplate === true,
+    typographyScale: opts.typographyScale === 1.5 ? 1.5 : 1,
     promptInjection: opts.promptInjection,
     fontStyle: opts.fontStyle,
     additionalCoverCharacters: opts.additionalCoverCharacters || null,

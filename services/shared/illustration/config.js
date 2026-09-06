@@ -220,16 +220,28 @@ function resolveBookTextRules(childAge, ink = 'dark') {
 }
 
 /** The drawn guide and its Gemini instructions must describe identical type. */
-function resolveTypographyGuideRules(childAge, ink = 'dark') {
+function resolveTypographyGuideRules(childAge, ink = 'dark', requestedScale = 1) {
+  const scale = requestedScale === 1.5 ? 1.5 : 1;
   const rules = resolveBookTextRules(childAge, ink);
-  const capHeightPercent = rules.linePitchPercent <= 1.9 ? 0.95 : 1.1;
+  const capHeightPercent = Number(((rules.linePitchPercent <= 1.9 ? 0.95 : 1.1) * scale).toFixed(3));
+  const linePitchPercent = Number((rules.linePitchPercent * scale).toFixed(3));
   const edge = ink === 'light' ? 'deep cocoa (#2A1C12)' : 'warm off-white (#FFF9EF)';
   return {
     ...rules,
     capHeightPercent,
+    linePitchPercent,
+    charWidthPercent: rules.charWidthPercent * scale,
+    ...(scale === 1.5 ? {
+      sentenceStartsNewLine: true, blankLineBetweenSentences: true, minWordsPerLine: 5, maxWordsPerLine: 7,
+      // More vertical room for sentence gaps; still well inside the ~6%
+      // top/bottom crop when a 16:9 render prints across square pages.
+      topPaddingPercent: 20, bottomPaddingPercent: 26,
+      textAlignment: 'Every text line straight, horizontal and left-aligned to the same margin. Keep one constant line pitch. Preserve exactly one completely empty row between sentences; an existing paragraph break uses that same single blank row, never a doubled gap.',
+      maxCharsPerLine: Math.min(47, Math.floor((rules.activeSideMaxPercent - rules.edgePaddingPercent) / (rules.charWidthPercent * scale))),
+    } : {}),
     fontStyle: 'Playfair Display Regular, exactly matching the supplied lettering guide. One upright serif face and regular weight for the entire book. Do not substitute Georgia, Book Antiqua or another typeface; do not switch to bold, italic, decorative or headline lettering.',
-    fontSize: `SMALL book body type: cap height ${capHeightPercent}% of the FULL illustration height, line pitch ${rules.linePitchPercent}% of its height, exactly matching the lettering guide at full height. This is the one target for every spread, including the first and last. Never scale type to fill the column or enlarge short passages. Keep short lines short and leave the remaining space as continuous scenery. Never poster, subtitle or headline scale.`,
-    fontColor: `ONE fixed fill for this entire book: ${rules.fontColorHex}, matching the lettering guide. Keep the SAME fill and regular weight on every spread regardless of scene lighting. A ${edge} hairline may hug each glyph: target thickness 0.03% of the FULL image height, never more than 0.05%. It must not thicken the letter or look like outlined display text. No thick contour, double stroke, shadow, glow, halo, panel or background patch.`,
+    fontSize: `SMALL book body type: cap height ${capHeightPercent}% of the FULL illustration height, line pitch ${linePitchPercent}% of its height, exactly matching the lettering guide at full height. This is the one target for every spread, including the first and last. Never scale type to fill the column or enlarge short passages. Keep short lines short and leave the remaining space as continuous scenery. Never poster, subtitle or headline scale.`,
+    fontColor: `ONE fixed fill for this entire book: ${rules.fontColorHex}, matching the lettering guide. Keep the SAME fill and regular weight on every spread regardless of scene lighting. A ${edge} hairline may hug each glyph: target thickness ${scale === 1.5 ? '0.01%' : '0.03%'} of the FULL image height, never more than ${scale === 1.5 ? '0.02%' : '0.05%'}. It must not thicken the letter or look like outlined display text. No thick contour, double stroke, shadow, glow, halo, panel or background patch.`,
   };
 }
 

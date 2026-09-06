@@ -1115,12 +1115,12 @@ describe('per-spread full-canvas lettering template', () => {
     delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
     objectExists.mockImplementation(async () => false);
   });
-  test('opt-in gives each request its own manuscript at the same size; a subset keeps the full-book namespace', async () => {
+  test('each request gets its own approved manuscript template at the same size; a subset keeps the full-book namespace', async () => {
     const params = { spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' };
     const result = await renderStorySpreads(baseParams(params));
     expect(generateIllustration).toHaveBeenCalledTimes(3);
     const options = generateIllustration.mock.calls.map(c => c[3]).sort((a, b) => a.spreadIndex - b.spreadIndex);
-    expect(options.every(o => o.typographyTemplate && o.imageSize === '4K')).toBe(true);
+    expect(options.every(o => o.typographyTemplate && o.typographyScale === 1.5 && o.imageSize === '4K')).toBe(true);
     const refs = options.map(o => o.referencePack.find(r => r.kind === 'typography-template'));
     expect(new Set(refs.map(r => r.base64)).size).toBe(3);
     expect(refs.every(r => r.label.includes('ENTIRE 16:9 canvas'))).toBe(true);
@@ -1130,11 +1130,56 @@ describe('per-spread full-canvas lettering template', () => {
     expect(subset.results[0].storageKey).toBe(result.results[1].storageKey);
     expect(generateIllustration.mock.calls[0][3].referencePack.find(r => r.kind === 'typography-template').base64).toBe(refs[1].base64);
   });
-  test('the template is disabled for new books by default pending size approval', async () => {
+  test('the approved readable template is enabled for new books by default', async () => {
     delete process.env.CATALOG_TYPOGRAPHY_TEMPLATE;
     const result = await renderStorySpreads(baseParams({ textLayout: 'embedded' }));
-    expect(result.typographyAnchorUsed).toMatch(/^guide\./);
-    expect(generateIllustration.mock.calls.every(c => !c[3].typographyTemplate && !c[3].imageSize)).toBe(true);
+    expect(result.typographyAnchorUsed).toMatch(/^template\./);
+    expect(generateIllustration.mock.calls.every(c => c[3].typographyTemplate && c[3].typographyScale === 1.5 && c[3].imageSize === '4K')).toBe(true);
+  });
+  test('a partial compact-template book retains its old namespace and scale on ordinary retry', async () => {
+    const { createTypographyTemplate } = require('../../../services/catalogEngine/illustrator/typographyGuide');
+    const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+    const { fnv1a } = require('../../../services/catalogEngine/selection');
+    const { QA_VERSION } = require('../../../services/catalogEngine/versions');
+    const params = baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' });
+    const fresh = await renderStorySpreads(params);
+    const firstOpts = generateIllustration.mock.calls[0][3];
+    const compact = await createTypographyTemplate({ childAge: PROFILE.age, ink: firstOpts.bookTextInk,
+      text: params.story.spreads[0].text, side: firstOpts.textSide, typographyScale: 1 });
+    const oldKeys = fresh.results.map(r => r.storageKey.replace(/-ta[^/]+\/spread-/, `-ta${compact.hash.slice(0, 8)}/spread-`));
+    const saved = Buffer.from('existing-compact-artwork');
+    const verification = await verifyManuscript(params.story.spreads[1].text, async () => params.story.spreads[1].text);
+    const download = downloadBuffer.getMockImplementation();
+    downloadBuffer.mockImplementation(async key => {
+      if (key === oldKeys[1]) return saved;
+      if (key === `${oldKeys[1]}.qa.json`) return Buffer.from(JSON.stringify({ renderHash: fnv1a(saved.toString('base64')).toString(36), qaVersion: QA_VERSION, qa: { textVerification: verification } }));
+      return download(key);
+    });
+    objectExists.mockImplementation(async key => key === oldKeys[1]);
+    generateIllustration.mockClear();
+    const resumed = await renderStorySpreads(params);
+    expect(resumed.results.map(r => r.storageKey)).toEqual(oldKeys);
+    expect(resumed.results[1].buffer.equals(saved)).toBe(true);
+    expect(generateIllustration).toHaveBeenCalledTimes(1);
+    expect(generateIllustration.mock.calls[0][3].typographyScale).toBe(1);
+  });
+  test('the first and later spread prompts preserve sentence gaps and the approved font target', async () => {
+    const { buildCharacterPrompt } = jest.requireActual('../../../services/illustrationGenerator');
+    const { expectedTextBlock } = require('../../../services/shared/illustration/textBlock');
+    const { resolveTypographyGuideRules } = require('../../../services/shared/illustration/config');
+    const params = baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded', profile: { ...PROFILE, age: 6 } });
+    params.story.spreads.forEach(s => { s.text = 'The little fox followed the bird into the forest. The silver leaves whispered softly.'; });
+    await renderStorySpreads(params);
+    for (const call of generateIllustration.mock.calls) {
+      const opts = call[3];
+      const rules = resolveTypographyGuideRules(6, opts.bookTextInk, 1.5);
+      const block = expectedTextBlock(opts.pageText, rules);
+      const prompt = buildCharacterPrompt('A forest path.', 'pixar_premium', PROFILE.name, opts.pageText, null, null, null, null, opts);
+      expect(prompt).toContain('cap height 1.425%');
+      expect(prompt).toContain('exactly ONE completely empty line between sentences');
+      expect(prompt).toContain(block.lines.join('\n'));
+      expect(opts.deferTextVerification).toBe(true);
+    }
   });
   test('an existing guide book stays on its paid-for namespace unless explicitly upgraded', async () => {
     process.env.CATALOG_TYPOGRAPHY_TEMPLATE = '0';

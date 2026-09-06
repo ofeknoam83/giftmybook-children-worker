@@ -31,16 +31,16 @@ async function chooseBookTextInk(reference) {
   } catch { return 'dark'; }
 }
 
-async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left' }) {
+async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left', typographyScale = 1 }) {
   const height = fullSpread ? 3072 : GUIDE_HEIGHT;
-  const rules = resolveTypographyGuideRules(childAge, ink);
+  const rules = resolveTypographyGuideRules(childAge, ink, fullSpread ? typographyScale : 1);
   const f = guideFont();
   const capPercent = rules.capHeightPercent;
   const capHeight = height * capPercent / 100;
   const h = f.glyphForCodePoint('H'.codePointAt(0)).bbox;
   const scale = capHeight / (h.maxY - h.minY);
   const linePitch = height * rules.linePitchPercent / 100;
-  const lines = wrapStoryLines(text || 'A small adventure begins. There is so much to discover.', rules.maxCharsPerLine);
+  const lines = wrapStoryLines(text || 'A small adventure begins. There is so much to discover.', rules.maxCharsPerLine, rules);
   const width = fullSpread ? Math.round(height * 16 / 9) : GUIDE_WIDTH;
   const leftPercent = fullSpread && side === 'right' ? 100 - rules.activeSideMaxPercent : rules.edgePaddingPercent;
   const x = height * 16 / 9 * leftPercent / 100;
@@ -62,7 +62,7 @@ async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread 
   const hash = createHash('sha256').update(fullSpread ? 'typography-template-v2' : 'typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
   return { kind: fullSpread ? 'template' : 'guide', spread: 0, side: fullSpread ? side : 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
     ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true,
-    ...(fullSpread ? { lines, width, height } : {}) };
+    ...(fullSpread ? { lines, width, height, typographyScale: typographyScale === 1.5 ? 1.5 : 1 } : {}) };
 }
 
 // A new reference changes every cache key. Ordinary retries of an older

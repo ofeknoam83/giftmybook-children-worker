@@ -23,7 +23,8 @@ const { TEXT_RULES } = require('./config');
  * @param {number} [maxChars] characters per line including spaces
  * @returns {string[]} lines ('' marks a paragraph gap)
  */
-function wrapStoryLines(text, maxChars = 30) {
+function wrapStoryLines(text, maxChars = 30, options = {}) {
+  if (options.sentenceStartsNewLine) return wrapSentenceLines(text, maxChars, options);
   const limit = Math.max(8, Number(maxChars) || 30);
   const greedy = (words, width) => {
     const out = [];
@@ -55,6 +56,52 @@ function wrapStoryLines(text, maxChars = 30) {
 }
 
 /**
+ * Sentence-led read-aloud lines. Target 5–7 words without joining sentences
+ * or changing their text. Short sentences/endings and width-limited lines
+ * may be shorter. The character limit keeps the fixed type inside its column.
+ */
+function wrapSentenceLines(text, maxChars = 47, options = {}) {
+  const maxWords = Math.max(1, Math.min(7, Number(options.maxWordsPerLine) || 7));
+  const minWords = Math.min(maxWords, Number(options.minWordsPerLine) || 5);
+  const width = Math.max(8, Number(maxChars) || 47);
+  const paragraphs = String(text || '').replace(/\r/g, '').trim().split(/\n\s*\n|\n/).map(p => p.trim()).filter(Boolean);
+  const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+  const lines = [];
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    if (paragraphIndex) lines.push('');
+    const sentences = [];
+    for (const { segment } of segmenter.segment(paragraph)) {
+      const previous = sentences[sentences.length - 1];
+      // A title/initial's period is not the end of a sentence. Decimal
+      // points and closing quotation marks are handled by Intl.Segmenter.
+      if (previous && /(?:\b(?:Mr|Mrs|Ms|Dr|Prof|St|Jr|Sr)|\b[A-Z])\.$/i.test(previous)) {
+        sentences[sentences.length - 1] += ' ' + segment.trim();
+      } else sentences.push(segment.trim());
+    }
+    for (const sentence of sentences) {
+      if (options.blankLineBetweenSentences && lines.length && lines.at(-1) !== '') lines.push('');
+      const words = sentence.split(/\s+/);
+      const best = Array(words.length + 1);
+      best[words.length] = { cost: 0, lines: [] };
+      for (let i = words.length - 1; i >= 0; i--) {
+        let line = '';
+        for (let count = 1; count <= maxWords && i + count <= words.length; count++) {
+          line += (count === 1 ? '' : ' ') + words[i + count - 1];
+          // An overlong word stays intact on its own line.
+          if (count > 1 && line.length > width) break;
+          const end = i + count === words.length;
+          const shortage = Math.max(0, minWords - count);
+          const cost = 1 + (count - 6) ** 2 + shortage ** 2 * (end ? 4 : 100) + best[i + count].cost;
+          if (!best[i] || cost < best[i].cost) best[i] = { cost, lines: [line, ...best[i + count].lines] };
+        }
+      }
+      lines.push(...best[0].lines);
+    }
+  });
+  return lines;
+}
+
+/**
  * ce-15: the FOOTPRINT of a spread's text block at the book's fixed size —
  * the numbers the prompt states ("this block is about X% of the image
  * width wide and Y% of its height tall") and the QA ruler holds the
@@ -68,7 +115,7 @@ function wrapStoryLines(text, maxChars = 30) {
  */
 function expectedTextBlock(text, rules = TEXT_RULES) {
   const r = rules || TEXT_RULES;
-  const lines = wrapStoryLines(text, r.maxCharsPerLine || 30);
+  const lines = wrapStoryLines(text, r.maxCharsPerLine || 30, r);
   const widestChars = lines.reduce((m, l) => Math.max(m, l.length), 0);
   const lineCount = lines.length;
   const charW = Number.isFinite(r.charWidthPercent) ? r.charWidthPercent : TEXT_RULES.charWidthPercent;
@@ -82,4 +129,4 @@ function expectedTextBlock(text, rules = TEXT_RULES) {
   };
 }
 
-module.exports = { wrapStoryLines, expectedTextBlock };
+module.exports = { wrapStoryLines, wrapSentenceLines, expectedTextBlock };
