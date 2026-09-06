@@ -2,6 +2,8 @@
 
 const { rgb, StandardFonts } = require('pdf-lib');
 const bwipjs = require('bwip-js');
+const QRCode = require('qrcode');
+const { CREATION_URL } = require('./pictureBackCover');
 
 function fitLines(value, font, size, width, maxLines) {
   const words = String(value || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
@@ -62,10 +64,13 @@ async function drawBookBackCover(page, geom, content) {
   // The footer has its own opaque paper backing so branding and the bars
   // remain legible over arbitrary back-cover artwork and the plain fallback.
   const footerY = edgeBleed + safe;
-  page.drawRectangle({ x, y: footerY, width, height: 76, color: rgb(0.99, 0.98, 0.94), opacity: 0.96 });
-  page.drawText('GiftMyBook.com', { x: x + 16, y: footerY + 45, size: 12, font: bold, color: ink });
-  const madeFor = fitLines(`Made with love for ${childName || 'you'}`, font, 10, width - 244, 2);
-  madeFor.forEach((line, i) => page.drawText(line, { x: x + 16, y: footerY + 26 - i * 13, size: 10, font, color: ink }));
+  page.drawRectangle({ x, y: footerY, width, height: 100, color: rgb(0.99, 0.98, 0.94), opacity: 0.96 });
+  const qr = await doc.embedPng(await QRCode.toBuffer(CREATION_URL, { margin: 4, scale: 8, errorCorrectionLevel: 'M' }));
+  page.drawImage(qr, { x: x + 10, y: footerY + 15, width: 70, height: 70 });
+  page.drawText('Create your next story', { x: x + 90, y: footerY + 69, size: 10, font: bold, color: ink });
+  page.drawText('GiftMyBook.com', { x: x + 90, y: footerY + 48, size: 12, font: bold, color: ink });
+  const madeFor = fitLines(`Made with love for ${childName || 'you'}`, font, 10, width - 312, 2);
+  madeFor.forEach((line, i) => page.drawText(line, { x: x + 90, y: footerY + 29 - i * 13, size: 10, font, color: ink }));
   if (bookId) {
     const barcode = await bwipjs.toBuffer({
       bcid: 'code128', text: String(bookId), scale: 4, height: 12,
@@ -77,7 +82,7 @@ async function drawBookBackCover(page, geom, content) {
     page.drawText('BOOK REFERENCE', { x: bx + 12, y: footerY + 56, size: 7, font, color: rgb(0, 0, 0) });
     page.drawImage(image, { x: bx + 8, y: footerY + 17, width: 184, height: 32 });
   }
-  return { summaryBottom: top - height, footerTop: footerY + 76 };
+  return { summaryBottom: top - height, footerTop: footerY + 100 };
 }
 
 module.exports = { drawBookBackCover, fitLines };

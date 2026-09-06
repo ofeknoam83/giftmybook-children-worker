@@ -1994,7 +1994,12 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
     await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
     const coverPdfUrl = await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000);
     console.log(`[rebuild-cover-pdf] Done for book ${bookId}: ${coverPdfUrl} (pages=${pageCount}, binding=${bindingType || 'paperback'})`);
-    return res.json({ success: true, coverPdfUrl });
+    return res.json({ success: true, coverPdfUrl,
+      backCoverImageUrl: coverData.backCoverImageUrl,
+      backCoverDesignAdvisory: coverData.backCoverDesignAdvisory,
+      backCoverRepairNote: coverData.backCoverRepairNote,
+      backCoverDiagnostics: coverData.backCoverDiagnostics,
+    });
   } catch (err) {
     console.error(`[rebuild-cover-pdf] Error:`, err.message);
     return res.status(500).json({ error: err.message });

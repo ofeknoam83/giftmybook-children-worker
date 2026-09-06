@@ -4,6 +4,7 @@ const { createHash } = require('crypto');
 const sharp = require('sharp');
 const QRCode = require('qrcode');
 const bwipjs = require('bwip-js');
+const path = require('path');
 
 const CREATION_URL = 'https://giftmybook.com/ChildrenBooksFlow';
 const PRINT_SIZE = 2550; // 8.5 inch trim at 300 DPI, excluding bleed/wrap.
@@ -43,6 +44,46 @@ COMPOSITION within the square TRIM image (the print system adds bleed outside it
 ${correction ? `Correct the previous attempt: ${correction}` : ''}`;
 }
 
+function pictureBackCoverCleanupPrompt() {
+  return `Edit this existing back-cover illustration. Preserve its scene, composition, colors, lighting, materials and decorative details. Remove ALL lettering, words, numbers, logos and code-like marks, including the title, paragraph, dedication and small footer captions. Reconstruct the same underlying scenery where the lettering was. Do not create a different design or replace the scene with a solid background. Do not add panels, labels, frames or rectangles. Keep the upper three quarters calm enough for the print system to place the exact title and story summary over the artwork. Return only the flat square artwork, edge to edge, without any text or machine codes.`;
+}
+
+const escapeMarkup = value => String(value).replace(/[&<>"']/g, char => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
+}[char]));
+
+// Used only after a text-only QA failure and a verified text-free cleanup.
+// Pango fits each complete field into its own print-safe area; there is no
+// clipping/ellipsis and no chance for a model to rewrite the approved copy.
+async function typesetBackCoverCopy(imageBuffer, opts) {
+  const copy = backCoverCopy(opts);
+  const base = await sharp(imageBuffer).rotate().resize(PRINT_SIZE, PRINT_SIZE, { fit: 'cover' }).png().toBuffer();
+  const shade = Buffer.from(`<svg width="2550" height="2550"><defs><linearGradient id="shade" x2="0" y2="1"><stop offset="0" stop-color="#091220" stop-opacity=".22"/><stop offset=".2" stop-color="#091220" stop-opacity=".7"/><stop offset=".65" stop-color="#091220" stop-opacity=".64"/><stop offset="1" stop-color="#091220" stop-opacity="0"/></linearGradient></defs><rect width="2550" height="2550" fill="url(#shade)"/></svg>`);
+  const overlays = [{ input: shade, left: 0, top: 0 }];
+  const fields = [
+    ['title', 260, 280, 2030, 345, 120, 'Playfair Display', 'PlayfairDisplay.ttf'],
+    ['synopsis', 325, 730, 1900, 680, 65],
+    ['dedication', 325, 1535, 1900, 160, 46],
+    ['personalLine', 300, 1770, 1950, 66, 42],
+    ['publisher', 300, 1850, 1950, 62, 42],
+    ['qrCaption', 215, 1925, 575, 58, 35],
+    ['barcodeCaption', 1510, 2050, 820, 60, 34],
+  ];
+  for (const [key, left, top, width, height, fontSize, family = 'Liberation Sans', filename = 'LiberationSans-Regular.ttf'] of fields) {
+    if (!copy[key]) continue;
+    // Render at the chosen print size, then shrink only when the entire
+    // field needs more space. Short blurbs never balloon into huge text.
+    const rendered = await sharp({ text: {
+      text: `<span foreground="#fff9ef">${escapeMarkup(copy[key])}</span>`,
+      font: `${family} ${fontSize}`, fontfile: path.join(__dirname, '..', 'fonts', filename),
+      width, align: 'centre', rgba: true, dpi: 72, wrap: 'word-char',
+    } }).png().toBuffer();
+    const { data, info } = await sharp(rendered).resize(width, height, { fit: 'inside', withoutEnlargement: true }).png().toBuffer({ resolveWithObject: true });
+    overlays.push({ input: data, left: Math.round(left + (width - info.width) / 2), top });
+  }
+  return sharp(base).composite(overlays).png().toBuffer();
+}
+
 /** Embed exact machine codes into the final artwork, never trust painted symbols. */
 async function embedBackCoverCodes(imageBuffer, bookId) {
   const qr = await QRCode.toBuffer(CREATION_URL, { type: 'png', errorCorrectionLevel: 'M', margin: 4, scale: 8 });
@@ -63,4 +104,4 @@ function pictureBackCoverCachePath(frontBuffer, opts) {
   return `children-jobs/${opts.bookId}/back-covers/${digest}.png`;
 }
 
-module.exports = { backCoverCopy, pictureBackCoverPrompt, embedBackCoverCodes, pictureBackCoverCachePath, CREATION_URL, PRINT_SIZE };
+module.exports = { backCoverCopy, pictureBackCoverPrompt, pictureBackCoverCleanupPrompt, typesetBackCoverCopy, embedBackCoverCodes, pictureBackCoverCachePath, CREATION_URL, PRINT_SIZE };
