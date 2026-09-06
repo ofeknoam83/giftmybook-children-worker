@@ -9,13 +9,14 @@
 
 const { assemblePdf, OVERLAY } = require('../layoutEngine');
 const { generateCover, generateUpsellCovers } = require('../coverGenerator');
-const { computeCoverPdfMetadata } = require('../coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../gcsStorage');
 const { getBook, getBookForTag } = require('./catalog');
 const { normalizeProfile } = require('./profile');
 const { generateStory } = require('./writer');
 const { validateStoryResponse } = require('./storyValidation');
 const { illustrateStory } = require('./illustrator');
+const { PDFDocument } = require('pdf-lib');
+const { backCoverSynopsis } = require('./backCoverSynopsis');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const FORMAT = 'PICTURE_BOOK';
@@ -196,7 +197,12 @@ async function runBookPipeline(params) {
     );
   }
   const bookTitle = story.response.title;
-  await saveCheckpoint({
+  const resumeArtwork = !forceRerender && checkpoint?.completedStage === 'illustration'
+    && checkpoint.textLayout === textLayout
+    && JSON.stringify(checkpoint.story?.request) === JSON.stringify(story.request)
+    && JSON.stringify(checkpoint.story?.response) === JSON.stringify(story.response);
+  // A retry must not erase the more advanced checkpoint before loading art.
+  if (!resumeArtwork) await saveCheckpoint({
     engine: 'catalog-v13',
     completedStage: 'story',
     textLayout,
@@ -224,13 +230,16 @@ async function runBookPipeline(params) {
     seed: Number.isInteger(params.seed) ? params.seed : null,
     costTracker,
     forceRerender,
-    reviewedOnly,
+    // A previous run already reached PDF assembly. Resume from its saved
+    // artwork even when the retry came through the ordinary generation URL.
+    reviewedOnly: reviewedOnly || resumeArtwork,
     onProgress: (frac, message) => onProgress('illustration', 0.2 + frac * 0.6, message),
     log,
   });
   const qaAdvisories = [...art.qaAdvisories];
   const warnings = [...art.warnings];
-  await saveCheckpoint({
+  const synopsis = backCoverSynopsis(story.response, { cached: resumeArtwork ? checkpoint?.backCoverSynopsis : null });
+  const illustrationCheckpoint = {
     engine: 'catalog-v13',
     completedStage: 'illustration',
     textLayout,
@@ -241,7 +250,10 @@ async function runBookPipeline(params) {
       ...(story.polished ? { polished: true } : {}),
     },
     renderKeys: art.entries.map(e => e.spreadIllustrationStorageKey),
-  });
+    backCoverSynopsis: synopsis,
+    ...(resumeArtwork && Array.isArray(checkpoint.upsellCovers) ? { upsellCovers: checkpoint.upsellCovers } : {}),
+  };
+  await saveCheckpoint(illustrationCheckpoint);
 
   // ── The approved cover's bytes: the printed front cover AND the upsell
   // reference (downloaded once; a failed download degrades each consumer
@@ -249,11 +261,9 @@ async function runBookPipeline(params) {
   let approvedCoverBuffer = null;
   if (approvedCoverUrl) {
     try {
-      const coverAbort = new AbortController();
-      const coverTimer = setTimeout(() => coverAbort.abort(), 30000);
-      const coverResp = await fetch(approvedCoverUrl, { signal: coverAbort.signal }).finally(() => clearTimeout(coverTimer));
-      if (!coverResp.ok) throw new Error(`cover fetch HTTP ${coverResp.status}`);
-      approvedCoverBuffer = Buffer.from(await coverResp.arrayBuffer());
+      // Storage SDK reads still work when the approved image's signed URL
+      // has expired; do not replace that artwork just because its link aged.
+      approvedCoverBuffer = await downloadBuffer(approvedCoverUrl);
     } catch (coverErr) {
       log('warn', `approved cover could not be downloaded (${coverErr.message}) — the wrap cover falls back to a re-render anchored on its URL and the upsell spread is skipped`);
       qaAdvisories.push({ stage: 'cover', spread: 'cover', note: `approved cover download failed (${coverErr.message}); the printed cover was re-rendered from the anchor instead of using the approved pixels` });
@@ -262,7 +272,13 @@ async function runBookPipeline(params) {
 
   // ── Upsell covers (baked into the interior; non-blocking, 4-min cap) ─────
   let upsellWithBuffers = [];
-  if (approvedCoverBuffer) {
+  const savedUpsells = illustrationCheckpoint.upsellCovers;
+  if (Array.isArray(savedUpsells)) {
+    for (const uc of savedUpsells) {
+      try { upsellWithBuffers.push({ ...uc, coverBuffer: await downloadBuffer(uc.gcsPath) }); }
+      catch (err) { log('warn', `Saved next-story cover is unavailable (${uc.gcsPath}): ${err.message}`); }
+    }
+  } else if (approvedCoverBuffer && !reviewedOnly && !resumeArtwork) {
     try {
       onProgress('assembly', 0.85, 'Generating next-story covers...');
       const frontCoverBuffer = approvedCoverBuffer;
@@ -281,7 +297,13 @@ async function runBookPipeline(params) {
           characterSheet: art.bible?.sheet ? { base64: art.bible.sheet.base64, mimeType: art.bible.sheet.mimeType || 'image/png' } : null,
         },
       ).catch(e => { log('warn', `Upsell covers failed (non-blocking): ${e.message}`); return []; });
-      const raced = await Promise.race([upsellPromise, new Promise(r => setTimeout(() => r(null), 4 * 60 * 1000))]);
+      let upsellTimer;
+      let raced;
+      try {
+        raced = await Promise.race([upsellPromise, new Promise(r => { upsellTimer = setTimeout(() => r(null), 4 * 60 * 1000); })]);
+      } finally {
+        clearTimeout(upsellTimer);
+      }
       const upsellCovers = raced === null ? [] : raced;
       if (raced === null) log('warn', 'Upsell cover generation timed out after 4 min — continuing without the upsell spread');
       for (const uc of upsellCovers) {
@@ -297,6 +319,11 @@ async function runBookPipeline(params) {
     }
   }
 
+  // Persist the optional marketing art too: a PDF retry must not buy four
+  // fresh illustrations or wait on their generation a second time.
+  illustrationCheckpoint.upsellCovers = upsellWithBuffers.map(({ coverBuffer, ...cover }) => cover);
+  await saveCheckpoint(illustrationCheckpoint);
+
   // ── Interior PDF ─────────────────────────────────────────────────────────
   onProgress('assembly', 0.88, 'Assembling interior PDF...');
   const overlayReport = [];
@@ -311,6 +338,10 @@ async function runBookPipeline(params) {
     overlayReport,
     upsellCovers: upsellWithBuffers,
   });
+  const pageCount = (await PDFDocument.load(interiorPdf)).getPageCount();
+  if (pageCount < 32 || pageCount % 2 !== 0) {
+    throw new PipelineError('Interior PDF has an invalid page count', 'interior_pdf_failed');
+  }
   for (const r of overlayReport.filter(x => x.belowContrast)) {
     qaAdvisories.push({ stage: 'layout', spread: r.spread, note: `embedded overlay contrast ${r.contrastRatio}:1 below ${OVERLAY.MIN_CONTRAST}:1` });
   }
@@ -324,41 +355,56 @@ async function runBookPipeline(params) {
   onProgress('cover', 0.95, 'Building cover PDF...');
   let coverPdfUrl = null;
   let coverData = null;
-  try {
-    const { pageCount, synopsis } = computeCoverPdfMetadata(
-      { entries: art.entries, synopsis: bookDef.book.premise },
-      { name: profile.name, childName: profile.name, age: profile.age },
-      {},
-    );
-    coverData = await generateCover(bookTitle, { name: profile.name, childName: profile.name, age: profile.age }, approvedCoverUrl, FORMAT, {
-      costTracker, bookId, pageCount, synopsis,
-      heartfeltNote, bookFrom, bindingType,
-      coverSourceUrl: approvedCoverUrl || '',
-      // ce-9: the PRINTED front cover is the parent-approved cover's own
-      // pixels (harmonized only when the source is not provably 3D). Before
-      // ce-9 the wrap rendered a fresh, title-less, un-anchored cover here —
-      // generateFrontCoverImage received no photo bytes, so the physical
-      // cover showed a different child than the one the parent approved.
-      ...(approvedCoverBuffer ? { preGeneratedCoverBuffer: approvedCoverBuffer } : {}),
-      // The worker's own probe-anchor covers (/v13/generate-cover-image →
-      // children-covers/{bookId}/anchor-cover-*.png) are rendered through
-      // the pixar_premium path and carry no path marker — say so, or the
-      // wrap would img2img-"harmonize" (re-render) the approved pixels.
-      ...(/\/anchor-cover-[^/]*\.png(\?|$)/.test(String(approvedCoverUrl || '')) ? { coverSourceIs3D: true } : {}),
-      // Fallback (download failed): at least anchor the re-render on the
-      // approved cover URL instead of rendering an undescribed child.
-      ...(!approvedCoverBuffer && approvedCoverUrl ? { childPhotoUrl: approvedCoverUrl } : {}),
-    });
-    if (coverData?.coverPdfBuffer) {
+  let coverError = null;
+  for (let attempt = 0; attempt < 2 && !coverPdfUrl; attempt++) {
+    try {
+      if (!coverData) {
+        const candidate = await generateCover(bookTitle, { name: profile.name, childName: profile.name, age: profile.age }, approvedCoverUrl, FORMAT, {
+          costTracker, bookId, pageCount, synopsis,
+          heartfeltNote, bookFrom, bindingType,
+          requireCompleteCover: true,
+          // A second assembly attempt uses the approved front and the existing
+          // typeset, color-matched back/spine fallback, without another AI render.
+          ...(attempt > 0 || reviewedOnly || resumeArtwork ? { reuseApprovedArtworkOnly: true } : {}),
+          coverSourceUrl: approvedCoverUrl || '',
+          // ce-9: the PRINTED front cover is the parent-approved cover's own
+          // pixels (harmonized only when the source is not provably 3D). Before
+          // ce-9 the wrap rendered a fresh, title-less, un-anchored cover here —
+          // generateFrontCoverImage received no photo bytes, so the physical
+          // cover showed a different child than the one the parent approved.
+          ...(approvedCoverBuffer ? { preGeneratedCoverBuffer: approvedCoverBuffer } : {}),
+          // The worker's own probe-anchor covers (/v13/generate-cover-image →
+          // children-covers/{bookId}/anchor-cover-*.png) are rendered through
+          // the pixar_premium path and carry no path marker — say so, or the
+          // wrap would img2img-"harmonize" (re-render) the approved pixels.
+          ...(/\/anchor-cover-[^/]*\.png(\?|$)/.test(String(approvedCoverUrl || '')) ? { coverSourceIs3D: true } : {}),
+          // Fallback (download failed): at least anchor the re-render on the
+          // approved cover URL instead of rendering an undescribed child.
+          ...(!approvedCoverBuffer && approvedCoverUrl ? { childPhotoUrl: approvedCoverUrl } : {}),
+        });
+        if (!candidate?.coverPdfBuffer?.length) throw new Error('Full cover PDF buffer was not produced');
+        const coverDocument = await PDFDocument.load(candidate.coverPdfBuffer);
+        const coverPage = coverDocument.getPages()[0];
+        if (coverDocument.getPageCount() !== 1 || coverPage.getWidth() <= 2 * 612 || coverPage.getHeight() < 612) {
+          throw new Error('Full cover PDF was not produced as one wraparound page');
+        }
+        coverData = candidate;
+      }
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
       await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
       coverPdfUrl = await getSignedUrl(coverPath, SIGNED_URL_TTL_MS);
+      if (!coverPdfUrl) throw new Error('Cover PDF download link was not produced');
+      if (attempt > 0) warnings.push('Cover PDF recovered automatically using saved artwork.');
+      if (coverData.coverAnatomyAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverAnatomyAdvisory });
+    } catch (coverErr) {
+      coverError = coverErr;
+      log('warn', `Cover PDF attempt ${attempt + 1} failed: ${coverErr.message}${attempt === 0 ? ' — retrying automatically with saved artwork' : ''}`);
     }
-  } catch (coverErr) {
-    // A coverless book must never report silently clean (2026-07-28 lesson).
-    qaAdvisories.push({ stage: 'cover', spread: 'cover', note: `Cover PDF generation failed: ${coverErr.message}` });
-    warnings.push(`Cover PDF failed: ${coverErr.message} — rebuild via /rebuild-cover-pdf.`);
-    log('error', `Cover PDF failed (non-blocking): ${coverErr.message}`);
+  }
+  if (!coverPdfUrl) {
+    const err = new PipelineError(`Full cover PDF could not be completed: ${coverError?.message || 'missing cover PDF'}. The interior PDF and illustrations are saved for retry.`, 'cover_pdf_failed');
+    Object.assign(err, { interiorPdfUrl, pageCount, previewImageUrls: art.previewImageUrls, bookBible: art.bookBible, qaAdvisories });
+    throw err;
   }
 
   // ── storyContent (persisted by the main app; feeds coloring books/admin) ─
@@ -379,7 +425,7 @@ async function runBookPipeline(params) {
     })),
     characterDescription: characterDescription || null,
     characterAnchor: characterDescription || null,
-    synopsis: bookDef.book.premise,
+    synopsis,
     catalog: {
       bookDefinitionId: story.request.book_id,
       themeId: bookDef.themeId,
@@ -400,6 +446,7 @@ async function runBookPipeline(params) {
   return {
     interiorPdfUrl,
     coverPdfUrl,
+    pageCount,
     backCoverImageUrl: coverData?.backCoverImageUrl || null,
     previewImageUrls: art.previewImageUrls,
     title: bookTitle,
@@ -425,7 +472,7 @@ async function runBookPipeline(params) {
     contactQa: art.contactQa || null,
     bookBible: art.bookBible || null,
     storyContent,
-    upsellCovers: upsellWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
+    upsellCovers: upsellWithBuffers.map(({ coverBuffer, ...cover }) => cover),
     // ce-9: blocking-class findings first, then the rest, capped at 80 (a
     // 12-spread book with candidates, set gates and layout notes can exceed
     // the old 40 — the drift findings must never be the ones dropped).

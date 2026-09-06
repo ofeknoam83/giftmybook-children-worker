@@ -65,6 +65,7 @@ const { CostTracker } = require('./services/costTracker');
 const { validateFinalizeBookRequest } = require('./services/validation');
 const catalogEngine = require('./services/catalogEngine');
 const { runBookPipeline, resolveStory } = require('./services/catalogEngine/pipeline');
+const { deliverBookCompletion } = require('./services/deliverBookCompletion');
 const { renderStorySpreads } = require('./services/catalogEngine/illustrator');
 
 
@@ -1253,9 +1254,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
         warnings: payload.warnings.length > 0 ? payload.warnings : undefined,
         logs: bookContext.logs,
       };
-      if (callbackUrl) await postWithRetry(callbackUrl, completion);
-      if (progressCallbackUrl) reportComplete(progressCallbackUrl, completion);
-      await clearCheckpoint(bookId);
+      await deliverBookCompletion({
+        callbackUrl, progressCallbackUrl, completion, postWithRetry, clearCheckpoint,
+        log: (level, message) => bookContext.log(level, message),
+      });
       console.log(`[server] Book ${bookId} complete in ${Math.round((Date.now() - startedAt) / 1000)}s, cost $${costTracker.getSummary().totalCost?.toFixed?.(4) ?? '?'}`);
     } catch (err) {
       bookContext.log('error', `Book generation failed: ${err.message}`);
@@ -1278,6 +1280,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
         ...(err.unresolved?.length ? { unresolved: err.unresolved } : {}),
         ...(err.qaAdvisories?.length ? { qaAdvisories: err.qaAdvisories } : {}),
         ...(err.bookBible ? { bookBible: err.bookBible } : {}),
+        // A cover failure retains the completed interior and artwork; retries
+        // resume PDF assembly instead of starting another illustration run.
+        ...(err.interiorPdfUrl ? { interiorPdfUrl: err.interiorPdfUrl } : {}),
+        ...(err.pageCount ? { pageCount: err.pageCount } : {}),
+        ...(err.previewImageUrls?.length ? { previewImageUrls: err.previewImageUrls } : {}),
         logs: bookContext.logs,
       };
       if (callbackUrl) await postWithRetry(callbackUrl, failure);
@@ -1307,7 +1314,7 @@ async function postWithRetry(url, payload) {
         signal: abort.signal,
       });
       if (!res.ok) throw new Error(`callback endpoint answered ${res.status}`);
-      return;
+      return true;
     } catch (err) {
       console.error(`[server] callback attempt ${attempt + 1}/3 to ${url} failed: ${err.message}`);
       if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
@@ -1316,6 +1323,7 @@ async function postWithRetry(url, payload) {
     }
   }
   console.error(`[server] callback to ${url} LOST after 3 attempts — the caller must reconcile this run as stalled`);
+  return false;
 }
 
 // ── POST /regenerate-illustration — 410 GONE (native-illustrator cutover) ──

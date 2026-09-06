@@ -652,6 +652,7 @@ async function generateStory(params) {
   const maxAttempts = WRITER_MAX_ATTEMPTS();
   let lastErrors = null;
   let lastResponse = null;
+  let lastResponseErrors = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, tuning, validationErrors: lastErrors });
@@ -676,6 +677,7 @@ async function generateStory(params) {
         // The final attempt returned unparseable output, but an earlier draft
         // and the errors that describe it still pair up — leave both in place
         // so the repair pass can try to save that draft.
+        lastErrors = lastResponseErrors;
         break;
       }
       throw new StoryGenerationError(`LLM call failed for ${request.book_id}: ${err.message}`, { bookId: request.book_id, cause: err });
@@ -685,7 +687,10 @@ async function generateStory(params) {
 
     const response = result.json;
     if (!response || typeof response !== 'object') {
-      if (attempt === maxAttempts && lastResponse) break; // as above: keep the draft/errors pairing for repair
+      if (attempt === maxAttempts && lastResponse) {
+        lastErrors = lastResponseErrors;
+        break;
+      }
       lastErrors = ['response was not a JSON object'];
       continue;
     }
@@ -698,6 +703,7 @@ async function generateStory(params) {
         // moments. Repairable — fall through to the repair pass after the
         // retries instead of hard-failing.
         lastErrors = [EVIDENCE_GATE_ERROR];
+        lastResponseErrors = lastErrors;
         continue;
       }
       console.log(`[catalogEngine] story OK book=${request.book_id} attempt=${attempt} tuning=${request.versions.writer_tuning} moments=${(response.personalization_evidence || []).length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
@@ -706,6 +712,7 @@ async function generateStory(params) {
     }
     console.warn(`[catalogEngine] story validation failed book=${request.book_id} attempt=${attempt}: ${errors.slice(0, 6).join(' | ')}${errors.length > 6 ? ` (+${errors.length - 6} more)` : ''}`);
     lastErrors = errors;
+    lastResponseErrors = errors;
   }
 
   // ── Targeted repair (contract-sanctioned): when every remaining failure

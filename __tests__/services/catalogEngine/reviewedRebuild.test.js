@@ -45,6 +45,7 @@ let oldPin;
 let invalidMarker;
 let missingSpread;
 beforeEach(() => {
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
   jest.clearAllMocks();
   objects = new Map(); oldPin = false; invalidMarker = null; missingSpread = null;
   downloadBuffer.mockImplementation(async key => {
@@ -149,4 +150,12 @@ test('legacy recovery never falls back past a corrupt marker at the pinned path'
   objects.set(key, Buffer.from('different-pixels'));
   objects.set(`${key}.qa.json`, Buffer.from(JSON.stringify(marker(7))));
   await expect(illustrateStory(params())).rejects.toMatchObject({ failureCode: 'reviewed_art_unavailable', message: expect.stringContaining('spread(s) 7') });
+});
+
+test.each([true, false])('automatic completion keeps cached winners and QA warnings without generating: reviewedOnly=%s', async reviewedOnly => {
+  delete process.env.CATALOG_SHIP_ON_EXHAUSTION;
+  invalidMarker = { unresolved: true, qa: { blocking: ['outfit break: jacket differs'], score: -80 } };
+  const result = await illustrateStory({ ...params(), reviewedOnly });
+  expect(result.entries).toHaveLength(12);
+  expect(result.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'shipPolicy', note: expect.stringContaining('Automatically used') }));
 });

@@ -11,7 +11,7 @@ jest.mock('../../../services/shared/llm/openaiClient', () => ({
   LlmParseError: class LlmParseError extends Error {},
 }));
 
-const { callText } = require('../../../services/shared/llm/openaiClient');
+const { callText, LlmParseError } = require('../../../services/shared/llm/openaiClient');
 const {
   generateStory,
   buildStoryRequest,
@@ -126,6 +126,21 @@ describe('generation retries', () => {
 });
 
 describe('repair passes', () => {
+  it.each(['parse-error', 'non-object'])('repairs the last usable draft after two %s responses', async kind => {
+    const request = pinnedRequest('req_malformed_recovery');
+    callText.mockResolvedValueOnce(ok(overlongResponse(request)));
+    for (let i = 0; i < 2; i++) {
+      if (kind === 'parse-error') callText.mockRejectedValueOnce(new LlmParseError('Malformed JSON'));
+      else callText.mockResolvedValueOnce(ok(null));
+    }
+    callText.mockResolvedValueOnce(ok(validResponse(request)));
+    const result = await generate('req_malformed_recovery');
+    expect(result.repaired).toBe(true);
+    expect(callText).toHaveBeenCalledTimes(4);
+    expect(callText.mock.calls[3][0].label).toMatch(/:repair1$/);
+    expect(callText.mock.calls[3][0].userPrompt).toMatch(/spread 1: \d+ words, must be/);
+  });
+
   it('a repair that converges only on the second pass still ships as repaired', async () => {
     const request = pinnedRequest('req_repair_second');
     // All 3 generations overlong; repair 1 trims but stays overlong
