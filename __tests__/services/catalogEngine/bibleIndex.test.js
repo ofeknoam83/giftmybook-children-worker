@@ -85,7 +85,7 @@ const story = (spreadNos, evidence = []) => ({
   spreads: spreadNos.map(n => ({ spread: n, text: `Spread ${n} text.` })),
   personalization_evidence: evidence,
 });
-const cleanQa = (over = {}) => ({ pass: true, defects: [], blocking: [], advisory: [], verdict: {}, bbox: { x: 0.6, y: 0.2, w: 0.25, h: 0.7 }, refs: { sheetRef: 2, props: [], companionRef: null }, ...over });
+const cleanQa = (over = {}) => ({ pass: true, defects: [], blocking: [], advisory: [], textSizeRatio: 1, verdict: {}, bbox: { x: 0.6, y: 0.2, w: 0.25, h: 0.7 }, refs: { sheetRef: 2, props: [], companionRef: null }, ...over });
 const blockingQa = (d) => ({ pass: false, defects: [d], blocking: [d], advisory: [], verdict: {}, bbox: null, refs: { sheetRef: 2, props: [], companionRef: null } });
 
 const baseParams = (over = {}) => ({
@@ -474,6 +474,25 @@ describe('ce-18: the book has ONE ink — pinned, measured, and never copied fro
       expect(advisories.filter(a => a.stage === 'typographyAnchor')).toHaveLength(1);
     } finally {
       delete process.env.CATALOG_SHIP_ON_EXHAUSTION;
+    }
+  });
+
+  test('the first page chooses a suitable small-text candidate within its existing render budget', async () => {
+    process.env.CATALOG_TEXT_ANCHOR_CANDIDATES = '2';
+    const notes = ['emotion mismatch', 'composition advice', 'minor hand advice'];
+    checkSpreadRenderV2
+      .mockResolvedValueOnce(cleanQa({ textSizeRatio: 1.6 }))
+      .mockResolvedValueOnce(cleanQa({ pass: false, textSizeRatio: 1.1, defects: notes, advisory: notes }));
+    try {
+      const { results } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
+      expect(results[0].qa.textSizeRatio).toBe(1.1);
+      expect(results[0].candidates).toHaveLength(2);
+      // The smaller reference wins even when unrelated advisory scores
+      // would have elected the oversized candidate for an ordinary page.
+      expect(results[0].candidates[1].score).toBeLessThan(results[0].candidates[0].score);
+      expect(generateIllustration.mock.calls.filter(([scene]) => scene.includes('Scene 1 of 12'))).toHaveLength(2);
+    } finally {
+      delete process.env.CATALOG_TEXT_ANCHOR_CANDIDATES;
     }
   });
 

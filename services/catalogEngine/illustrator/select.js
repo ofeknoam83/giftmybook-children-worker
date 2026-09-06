@@ -31,6 +31,20 @@ const WEIGHTS = {
   textInkDelta: -0.8,
 };
 
+// Reference eligibility is stricter than shipping. A large or unmeasured
+// first page can remain in the book, but must not teach every other page
+// to copy its type. The tolerance absorbs rough vision-estimated boxes.
+const TEXT_ANCHOR_MAX_SIZE_RATIO = 1.5;
+function typographyAnchorRejection(qa) {
+  if (!qa || qa.qaUnavailable) return 'text size could not be verified';
+  const defects = [...(qa.defects || []), ...(qa.blocking || []), ...(qa.advisory || [])];
+  const textDefect = defects.find(d => d.startsWith('embedded story text'));
+  if (textDefect) return textDefect;
+  if (!Number.isFinite(qa.textSizeRatio) || qa.textSizeRatio <= 0) return 'text size could not be verified';
+  if (qa.textSizeRatio > TEXT_ANCHOR_MAX_SIZE_RATIO) return 'text is larger than the reference-size target';
+  return null;
+}
+
 /**
  * Deterministic cache key for candidate k of a spread: beside the shipped
  * key, never at it — the winner is COPIED to the shipped key, so replay,
@@ -119,10 +133,17 @@ function selectionTier(c) {
  * @param {{qa?: object, score?: number}} b
  * @returns {number}
  */
-function compareCandidates(a, b) {
+function compareCandidates(a, b, { preferTypographyAnchor = false } = {}) {
   const ta = selectionTier(a);
   const tb = selectionTier(b);
   if (ta !== tb) return tb - ta;
+  // On the first page, prefer a usable small-text reference among otherwise
+  // shippable candidates. Never trade away a blocking-free image for size.
+  if (preferTypographyAnchor && ta === 0) {
+    const ae = typographyAnchorRejection(a.qa) === null;
+    const be = typographyAnchorRejection(b.qa) === null;
+    if (ae !== be) return ae ? 1 : -1;
+  }
   const sa = Number.isFinite(a && a.score) ? a.score : -Infinity;
   const sb = Number.isFinite(b && b.score) ? b.score : -Infinity;
   if (sa === sb) return 0;
@@ -136,12 +157,12 @@ function compareCandidates(a, b) {
  * @param {Array<{k: number, score: number, qa?: object}>} candidates
  * @returns {object|null}
  */
-function pickBest(candidates) {
+function pickBest(candidates, options) {
   const list = (candidates || []).filter(Boolean);
   if (list.length === 0) return null;
   return list.reduce((best, c) => {
     if (!best) return c;
-    const cmp = compareCandidates(c, best);
+    const cmp = compareCandidates(c, best, options);
     if (cmp > 0) return c;
     if (cmp === 0 && c.k < best.k) return c;
     return best;
@@ -169,4 +190,4 @@ function hasDriftDefect(defects) {
   return (defects || []).some(d => /^(identity break|hair differs|skin tone differs|age or proportions differ|outfit break|prop |companion )/.test(d));
 }
 
-module.exports = { WEIGHTS, candidateKey, scoreCandidate, isClean, selectionTier, compareCandidates, pickBest, residualBlocking, hasDriftDefect };
+module.exports = { WEIGHTS, candidateKey, scoreCandidate, isClean, selectionTier, compareCandidates, pickBest, residualBlocking, hasDriftDefect, typographyAnchorRejection, TEXT_ANCHOR_MAX_SIZE_RATIO };

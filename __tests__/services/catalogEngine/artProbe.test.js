@@ -22,6 +22,7 @@ jest.mock('../../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn().mockRejectedValue(new Error('offline test')),
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
   isModestBathWaterScene: jest.fn().mockReturnValue(false),
+  compareTexts: jest.requireActual('../../../services/illustrationGenerator').compareTexts,
 }));
 // ce-15: the typography anchor's crop needs real PNG bytes — this harness
 // renders 'png-bytes'; inject a crop so the election path runs for real.
@@ -832,7 +833,42 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
   const { electTypographyAnchor } = require('../../../services/catalogEngine/illustrator/textAnchor');
   const { uploadBufferIfAbsent } = require('../../../services/gcsStorage');
 
-  afterEach(() => { delete process.env.CATALOG_TEXT_ANCHOR; });
+  // Reference election now requires a real size verdict. These tests used
+  // to elect references while QA was offline; model the measured success
+  // path explicitly, keeping the real QA parser and size calculation.
+  const measuredVerdict = (textBbox = { x: 0.1, y: 0.15, w: 0.04, h: 0.015 }) => async (url, opts) => {
+    const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+    const expected = prompt.match(/STORY TEXT THAT MUST APPEAR IN THE IMAGE:\n"([^"]*)"/)?.[1] || '';
+    const verdict = { child_absent: false, multiple_children: false, flat_or_photo_style: false,
+      readable_text: !!expected, visible_text: expected, companion: { present: true, look_match: true },
+      text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false,
+      text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false,
+      text_bbox: textBbox, consistent: true, flagged: [] };
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(verdict) }] } }] }) };
+  };
+  beforeEach(() => fetchWithTimeout.mockImplementation(measuredVerdict()));
+  afterEach(() => {
+    delete process.env.CATALOG_TEXT_ANCHOR;
+    fetchWithTimeout.mockReset().mockRejectedValue(new Error('offline test'));
+  });
+
+  test.each([null, { x: 0.1, y: 0.15, w: 0.12, h: 0.045 }])('an unmeasured or moderately oversized first page is kept without copying it or spending extra renders (%j)', async bbox => {
+    fetchWithTimeout.mockImplementation(measuredVerdict(bbox));
+    generateIllustration.mockClear(); electTypographyAnchor.mockClear();
+    const { results, typographyAnchorUsed, advisories } = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' }));
+    expect(results).toHaveLength(3);
+    expect(results.every(r => r.buffer && r.blocking.length === 0)).toBe(true);
+    expect(results[0].qa.qaUnavailable).toBeUndefined();
+    if (bbox) expect(results[0].qa.textSizeRatio).toBeGreaterThan(1.5);
+    else expect(results[0].qa.textSizeRatio).toBeNull();
+    expect(generateIllustration).toHaveBeenCalledTimes(3);
+    expect(electTypographyAnchor).not.toHaveBeenCalled();
+    expect(typographyAnchorUsed).toBe('none');
+    expect(generateIllustration.mock.calls.every(c => !c[3].typographyRef)).toBe(true);
+    expect(advisories.filter(a => a.stage === 'typographyAnchor')).toEqual([
+      expect.objectContaining({ note: expect.stringContaining('its illustration is kept') }),
+    ]);
+  });
 
   test('the first spread renders ALONE and un-referenced; the others carry the crop as the LAST reference, the assigned text side, and the -ta fold', async () => {
     generateIllustration.mockClear();
