@@ -4,6 +4,7 @@ const { createHash } = require('crypto');
 const { downloadBuffer, uploadBuffer } = require('../../gcsStorage');
 const { verifyImageText, repairImageText } = require('../../illustrationGenerator');
 const { textVerificationCurrent } = require('../../shared/illustration/manuscript');
+const { isRepairableTextBox } = require('../../shared/illustration/textRegion');
 
 // An inconclusive reading is not a spelling error. Re-read the SAME pixels
 // once before parking a book; never spend image calls on a reader outage.
@@ -21,9 +22,14 @@ async function recoverText({ buffer, text, verification, storageKey, spread, ren
   if (verification?.status !== 'mismatch') return { buffer, verification, repaired: false };
   const sourceHash = createHash('sha256').update(buffer).update(text).digest('hex').slice(0, 20);
   let current = verification;
-  // Older proof records have no text location. Locate it from saved pixels.
-  if (!current.textBox) current = await checkSavedText(buffer, text, costTracker);
+  // Older readers included shop signs in a scene-wide box. Re-read narration
+  // before spending an image attempt; a false mismatch needs no artwork edit.
+  if (!isRepairableTextBox(current.textBox)) current = await checkSavedText(buffer, text, costTracker);
   if (current.status !== 'mismatch') return { buffer, verification: current, repaired: false };
+  if (!isRepairableTextBox(current.textBox)) {
+    log('warn', `Spread ${spread}: narration location still uncertain; saved artwork retained without an image attempt`);
+    return { buffer, verification: current, repaired: false };
+  }
   for (let attempt = 1; attempt <= 2; attempt++) {
     const key = storageKey.replace(/\.png$/, `.text-${sourceHash}-${attempt}.png`);
     let edited;

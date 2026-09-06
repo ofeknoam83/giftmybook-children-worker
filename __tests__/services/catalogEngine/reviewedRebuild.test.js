@@ -196,6 +196,27 @@ test('spelling verification is cached against both artwork bytes and the approve
   expect(verifyImageText).not.toHaveBeenCalled();
 });
 
+test.each([true, false])('old all-lettering proofs are rechecked without recreating saved art: reviewedOnly=%s', async reviewedOnly => {
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  const { TEXT_VERIFICATION_VERSION, TEXT_MISMATCH } = require('../../../services/shared/illustration/manuscript');
+  const original = await illustrateStory(params());
+  const key = original.entries[6].spreadIllustrationStorageKey;
+  const markerKey = `${key}.qa.json`;
+  const saved = JSON.parse(objects.get(markerKey));
+  saved.qa.textVerification = { ...saved.qa.textVerification, version: 'painted-manuscript-v1', status: 'mismatch', valid: false };
+  saved.qa.blocking = [TEXT_MISMATCH]; saved.qa.defects = [TEXT_MISMATCH]; saved.unresolved = true;
+  objects.set(markerKey, Buffer.from(JSON.stringify(saved)));
+  verifyImageText.mockClear();
+  const result = await illustrateStory({ ...params(), reviewedOnly, automaticTextRecovery: true });
+  expect(result.entries).toHaveLength(12);
+  expect(result.entries[6].spreadIllustrationBuffer).toEqual(bytes(7));
+  expect(verifyImageText).toHaveBeenCalledTimes(1);
+  expect(repairImageText).not.toHaveBeenCalled();
+  expect(JSON.parse(objects.get(markerKey))).toMatchObject({ unresolved: false, qa: {
+    blocking: [], textVerification: { status: 'verified', version: TEXT_VERIFICATION_VERSION },
+  } });
+});
+
 
 test('a missing QA record is recovered by checking existing pixels, including spread 12', async () => {
   missingMarker = 12;

@@ -1,7 +1,8 @@
 'use strict';
 
 const { createHash } = require('crypto');
-const TEXT_VERIFICATION_VERSION = 'painted-manuscript-v1';
+// Re-read old proofs on saved pixels; this does not invalidate illustration caches.
+const TEXT_VERIFICATION_VERSION = 'painted-manuscript-v2-story-region';
 const TEXT_MISMATCH = 'embedded story text does not match the approved manuscript';
 
 // Compare letters in order, including accents and non-Latin names. OCR line
