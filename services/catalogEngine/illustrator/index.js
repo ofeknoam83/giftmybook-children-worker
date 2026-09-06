@@ -254,9 +254,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
     : '';
   // ce-15: the embedded sibling of the half hint (renderTextColumnHint).
-  const textRules = embedText ? (['guide', 'template'].includes(typographyAnchor?.kind) ? resolveTypographyGuideRules : resolveBookTextRules)(profile?.age, bookTextInk) : null;
+  const typographyScale = typographyAnchor?.kind === 'template' && typographyAnchor.typographyScale === 1.5 ? 1.5 : 1;
+  const textRules = embedText ? (['guide', 'template'].includes(typographyAnchor?.kind) ? resolveTypographyGuideRules : resolveBookTextRules)(profile?.age, bookTextInk, typographyScale) : null;
   if (embedText && typographyAnchor?.kind === 'template') {
-    typographyAnchor = await createTypographyTemplate({ childAge: profile?.age, ink: bookTextInk, text: spreadText, side: shotEntry?.textSide || 'left' });
+    typographyAnchor = await createTypographyTemplate({ childAge: profile?.age, ink: bookTextInk, text: spreadText, side: shotEntry?.textSide || 'left', typographyScale });
   }
   const columnHint = embedText ? renderTextColumnHint(shotEntry ? shotEntry.textSide : null, textRules) : '';
   const sceneWithLayout = `${sceneWithShot}${halfHint}${columnHint}`;
@@ -319,6 +320,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     bookTextInk,
     typographyGuide: typographyAnchor?.kind === 'guide',
     typographyTemplate: typographyAnchor?.kind === 'template',
+    ...(typographyAnchor?.kind === 'template' ? { typographyScale } : {}),
     characterDescription: characterDescription || null,
     // The outfit spec still rides as `characterOutfit` for the renderer's
     // generic-safe rung (its OUTFIT line) — bible mode states it ONCE in the
@@ -1226,19 +1228,26 @@ async function renderStorySpreads(params) {
       bookTextInk = await chooseBookTextInk(refPhoto);
       let candidate = await createTypographyGuide({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text });
       {
-        const template = await createTypographyTemplate({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text,
-          side: shotPlan?.[story.spreads?.[0]?.spread]?.textSide || 'left' });
-        // Keep existing guide renders on ordinary retries. A new template is
-        // a different cache namespace, never a reason to rebuy saved art.
-        // Disabling it affects new books; partial template books still resume.
+        const templateInput = { childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text,
+          side: shotPlan?.[story.spreads?.[0]?.spread]?.textSide || 'left' };
+        const compact = await createTypographyTemplate({ ...templateInput, typographyScale: 1 });
+        const template = await createTypographyTemplate({ ...templateInput, typographyScale: 1.5 });
+        const pathsFor = reference => book.beats.map(b => renderCachePath(bookId, `${storyHash}-ta${reference.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag));
+        // Existing guide AND compact-template books keep their paid-for
+        // namespace. New books use the approved readable template. A prior
+        // explicit upgrade wins when both old and new artwork exist.
         const useTemplate = await canUseTypographyGuide({
           enabled: flags.typographyTemplateEnabled?.() ?? false, reviewedOnly, forceRerender, resumeWhenDisabled: true,
           legacyPaths: [anchorPinPath(renderCachePath(bookId, storyHash, 1, cacheAspect, tuningTag)),
-            ...book.beats.flatMap(b => [renderCachePath(bookId, storyHash, b.spread, cacheAspect, tuningTag),
-              renderCachePath(bookId, `${storyHash}-ta${candidate.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag)])],
-          guidePaths: book.beats.map(b => renderCachePath(bookId, `${storyHash}-ta${template.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag)),
+            ...book.beats.map(b => renderCachePath(bookId, storyHash, b.spread, cacheAspect, tuningTag)),
+            ...pathsFor(candidate), ...pathsFor(compact)],
+          guidePaths: pathsFor(template),
         });
         if (useTemplate) candidate = template;
+        else if (await canUseTypographyGuide({
+          enabled: false, reviewedOnly, forceRerender, resumeWhenDisabled: true,
+          legacyPaths: [], guidePaths: pathsFor(compact),
+        })) candidate = compact;
       }
       const useGuide = await canUseTypographyGuide({
         enabled: true, reviewedOnly, forceRerender,
