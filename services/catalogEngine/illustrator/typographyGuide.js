@@ -31,9 +31,9 @@ async function chooseBookTextInk(reference) {
   } catch { return 'dark'; }
 }
 
-async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left' }) {
+async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left', typographyScale = 1 }) {
   const height = fullSpread ? 3072 : GUIDE_HEIGHT;
-  const rules = resolveTypographyGuideRules(childAge, ink);
+  const rules = resolveTypographyGuideRules(childAge, ink, fullSpread ? typographyScale : 1);
   const f = guideFont();
   const capPercent = rules.capHeightPercent;
   const capHeight = height * capPercent / 100;

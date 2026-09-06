@@ -887,7 +887,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const embedStoryText = opts.embedText && pageText && pageText.trim();
   let embedSummary = null; // ce-15: footprint/column/reference facts reused by the checklist and the final check
   const guideRules = (opts.typographyGuide === true || opts.typographyTemplate === true) && Number.isInteger(opts.typographyRef) && opts.typographyRef > 0;
-  const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules : resolveBookTextRules)(opts.childAge, opts.bookTextInk) : null;
+  const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules : resolveBookTextRules)(opts.childAge, opts.bookTextInk, opts.typographyTemplate ? opts.typographyScale : 1) : null;
   if (embedStoryText) {
     const tr = textRulesForEmbed;
     // ce-13: the geometry is stated as a CONCRETE column box on the shot
@@ -1340,6 +1340,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     bookTextInk: opts.bookTextInk === 'light' ? 'light' : 'dark',
     typographyGuide: opts.typographyGuide === true,
     typographyTemplate: opts.typographyTemplate === true,
+    typographyScale: opts.typographyScale === 1.5 ? 1.5 : 1,
     promptInjection: opts.promptInjection,
     fontStyle: opts.fontStyle,
     additionalCoverCharacters: opts.additionalCoverCharacters || null,

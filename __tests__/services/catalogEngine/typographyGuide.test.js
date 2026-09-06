@@ -109,3 +109,20 @@ test('template words are copied and its image is first without renumbering ident
   expect(prompt).not.toContain('never copy its words');
   expect(prompt).toContain('Playfair Display Regular');
 });
+
+
+test('the intermediate template enlarges glyphs and line pitch together without changing old guides', async () => {
+  const { createTypographyTemplate } = require('../../../services/catalogEngine/illustrator/typographyGuide');
+  const { resolveTypographyGuideRules } = require('../../../services/shared/illustration/config');
+  const input = { childAge: 6, ink: 'light', text: 'A quiet adventure begins.' };
+  const old = await createTypographyTemplate(input);
+  const medium = await createTypographyTemplate({ ...input, typographyScale: 1.5 });
+  expect(medium.capHeightPercent).toBe(1.425);
+  expect(medium.hash).not.toBe(old.hash);
+  expect(medium.lines).toEqual(old.lines);
+  const rules = resolveTypographyGuideRules(6, 'light', 1.5);
+  expect(rules.linePitchPercent).toBe(2.85);
+  expect(rules.fontSize).toContain('cap height 1.425%');
+  expect(rules.fontSize).toContain('line pitch 2.85%');
+  expect((await createTypographyGuide({ ...input, typographyScale: 1.5 })).hash).toBe((await createTypographyGuide(input)).hash);
+});
