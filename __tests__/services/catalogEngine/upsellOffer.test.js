@@ -9,6 +9,7 @@ const { buildStoryRequest, buildUserPrompt, generateStory } = require('../../../
 const { callText } = require('../../../services/shared/llm/openaiClient');
 const { resolveStory } = require('../../../services/catalogEngine/pipeline');
 const { getBookForTag, catalogVersion } = require('../../../services/catalogEngine/catalog');
+const { validateStoryResponse } = require('../../../services/catalogEngine/storyValidation');
 const sourceId = '0041ba89-5e7b-46b1-8586-a040296f3d17';
 const coverPath = `children-jobs/${sourceId}/upsell/0/cover.png`;
 const profile = { name: 'Ziv', age: 6, pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' }, object: 'teddy', trait: 'curious' };
@@ -92,5 +93,47 @@ test('the normal writer validates the new story and the PDF pipeline replays tha
   const replayed = await resolveStory({ storyPair: result, bookDefinitionId: hit.book.id, profile: p, log: jest.fn() });
   expect(replayed.response).toEqual(response);
   expect(replayed.generated).toBe(false);
+  expect(callText).toHaveBeenCalledTimes(1);
+});
+
+test('a rich-profile printed offer exposes every required name before writing and preserves those anchors through print replay', async () => {
+  const p = { ...profile, object: 'Dolls', trait: null, habit: 'She is perfect',
+    interests: ['School', 'first grade', 'dancing', 'gymnastics'],
+    activities: ['Play with her dolls', 'be with friends.. dance'], food: 'Scrambled eggs', place: 'With mom' };
+  outline.companion.name = 'Flicker';
+  outline.beats = outline.beats.map(b => ({ ...b, beat: b.beat.replace('Pip', 'Flicker') }));
+  const { hit, tag } = await prepareOfferDefinition({ ...args(), profile: p });
+  const params = { bookId: hit.book.id, profile: p, sessionId: 'rich-offer', requestId: 'req_rich_offer', definition: hit, definitionTag: tag };
+  const built = buildStoryRequest(params);
+  const { request } = built;
+  const text = 'Ziv opened her moonlit map beside Flicker in Moonlit Grove. A silver trail curved between the quiet trees. She checked the little marks, took one careful step, and smiled happily when the next gentle light appeared beside a smooth stone.';
+  const additions = { 1: 'Her Dolls rested nearby.', 2: 'School felt far away.', 8: 'She thought of dancing.', 12: 'Her Dolls rested nearby.' };
+  const ev = (spread, slot_id, source_field, source_value, moment_type, visual_slot_id) => ({ spread, slot_id,
+    source_field, source_value, moment_type, visual_required: !!visual_slot_id, ...(visual_slot_id ? { visual_slot_id } : {}) });
+  const response = { request_id: request.request_id, book_id: request.book_id, title: request.rendered_title, versions: request.versions,
+    spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text: text + (additions[i + 1] ? ` ${additions[i + 1]}` : '') })),
+    personalization_evidence: [
+      ev(1, 's01_object_intro', 'object', 'Dolls', 'object_presence', 'spread_01_object_near_child'),
+      ev(2, 's02_reaction', 'interests', 'School', 'interest_comparison'),
+      ev(8, 's08_interest', 'interests', 'dancing', 'interest_reaction'),
+      ev(12, 's12_object_close', 'object', 'Dolls', 'object_callback', 'spread_12_object_near_child'),
+    ], omitted_profile_fields: [] };
+  const missingNames = structuredClone(response);
+  for (const n of [5, 9]) missingNames.spreads[n - 1].text = text.replace('Flicker', 'her friend');
+  const rejected = validateStoryResponse({ ...built, theme: hit.theme, response: missingNames });
+  expect(rejected.errors).toEqual([
+    'spread 5: the beat names Flicker — the companion must appear on this spread',
+    'spread 9: the beat names Flicker — the companion must appear on this spread',
+  ]);
+  callText.mockImplementation(async ({ userPrompt }) => {
+    expect(userPrompt).toContain('REQUIRED STORY ANCHORS');
+    expect(userPrompt).toContain('proper name in that spread');
+    for (let n = 1; n <= 12; n++) expect(userPrompt).toContain(`spread ${n}: the beat names Flicker`);
+    return { json: response, usage: { inputTokens: 1, outputTokens: 1 } };
+  });
+  const result = await generateStory(params);
+  expect(result.response.personalization_evidence).toHaveLength(4);
+  const replayed = await resolveStory({ storyPair: result, bookDefinitionId: hit.book.id, profile: p, log: jest.fn() });
+  expect(replayed.response).toEqual(response);
   expect(callText).toHaveBeenCalledTimes(1);
 });
