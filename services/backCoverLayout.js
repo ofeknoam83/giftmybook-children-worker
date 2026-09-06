@@ -79,7 +79,6 @@ async function drawBookBackCover(page, geom, content) {
     const image = await doc.embedPng(barcode);
     const bx = x + width - 212;
     page.drawRectangle({ x: bx, y: footerY + 8, width: 200, height: 60, color: rgb(1, 1, 1) });
-    page.drawText('BOOK REFERENCE', { x: bx + 12, y: footerY + 56, size: 7, font, color: rgb(0, 0, 0) });
     page.drawImage(image, { x: bx + 8, y: footerY + 17, width: 184, height: 32 });
   }
   return { summaryBottom: top - height, footerTop: footerY + 100 };

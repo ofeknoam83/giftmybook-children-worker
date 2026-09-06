@@ -833,7 +833,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`CONSISTENCY RULES (NON-NEGOTIABLE):`);
   parts.push(`- The child's FACE must have the same bone structure, nose shape, and eye placement as the reference photo`);
   parts.push(`- HAIR must be exactly ${hairStyle} — no variation, no accessories added or removed`);
-  parts.push(`- SKIN TONE must be exactly ${skinTone} — not lighter, not darker, regardless of scene lighting`);
+  parts.push(`- Preserve the child's natural SKIN TONE (${skinTone}) and identity; let the scene's light, shadows, and reflected colors illuminate the skin naturally, together with the surrounding environment.`);
   parts.push(bathWaterScene
     ? `- OUTFIT on THIS spread: BATH/WATER MODE (bubbles/towel/modest swimwear) — not ${outfitDesc} in the water.`
     : `- OUTFIT must be exactly ${outfitDesc} — same colors, same design, same details`);
