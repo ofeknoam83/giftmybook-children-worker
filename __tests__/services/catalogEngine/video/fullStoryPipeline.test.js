@@ -53,3 +53,21 @@ test('a wrong speaking character never produces a deliverable film', async () =>
   await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_scene_unresolved' });
   expect(storage.saveJson.mock.calls.some(([value]) => value.mode === 'full-story')).toBe(false);
 });
+
+test('audio-quality defects are reported accurately with reviewable evidence', async () => {
+  renderChunk.mockResolvedValue({ transcript: 'Hello.', qa: { blocking: ['clipped audio'] }, unresolved: true, storageKey: 'take.wav', candidateFiles: [{ storageKey: 'candidate.wav' }] });
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({
+    failureCode: 'film_audio_unresolved', message: expect.stringContaining('clipped audio'),
+    details: { unresolved: [expect.objectContaining({ spread: 1, passage: 1, expectedText: 'Hello.', transcript: 'Hello.', storageKey: 'take.wav', defects: ['clipped audio'] })] },
+  });
+  expect(generateCandidates).not.toHaveBeenCalled();
+});
+
+test('an unavailable verifier is distinct from a recording that dropped words', async () => {
+  renderChunk.mockResolvedValue({ transcript: null, qa: { blocking: [], qaUnavailable: 'transcript check failed (HTTP 503)' }, unresolved: true });
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({
+    failureCode: 'film_audio_verification_unavailable',
+    details: { unresolved: [expect.objectContaining({ defects: ['audio verification unavailable'], qaUnavailable: expect.stringContaining('HTTP 503') })] },
+  });
+  expect(generateCandidates).not.toHaveBeenCalled();
+});

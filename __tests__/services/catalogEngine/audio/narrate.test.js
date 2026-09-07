@@ -152,3 +152,70 @@ test('full-film exact text rejects a permissive cached take and repairs missing 
   expect(result.cached).toBe(false);
   expect(result.transcript).toBe('Emma looked around.');
 });
+
+describe('full-film narration recovery', () => {
+  const exact = a => ({ ...base({ adapter: a }), chunk: narrate.chunkLines(segment)[0], voice: cast.narrator,
+    opts: { candidates: 1, maxRepairs: 0, budget: 1, requireExactText: true } });
+  test.each([
+    { qa: { blocking: [], qaUnavailable: 'judge down' } },
+    { qa: null },
+    { qa: { blocking: ['clipped audio'] } },
+    { qa: { blocking: [] }, unresolved: true, adminPicked: true },
+  ])('exact transcript does not make an unverified or defective cache reusable: %p', async over => {
+    const buffer = take(3);
+    gcs.loadJson.mockResolvedValue({ audioQaVersion: AUDIO_QA_VERSION, renderHash: narrate.contentHash(buffer),
+      unresolved: false, transcript: 'Emma looked around.', ...over });
+    gcs.downloadBuffer.mockResolvedValue(buffer);
+    judgeAudio.mockResolvedValue(verdict('Emma looked around.'));
+    const a = adapter();
+    const result = await narrate.renderChunk(exact(a));
+    expect(result.cached).toBe(false);
+    expect(result.unresolved).toBe(false);
+    expect(a.synthesize).toHaveBeenCalledTimes(1);
+  });
+  test('retry uses new seeds and candidate paths while retaining the canonical key', async () => {
+    const a = adapter();
+    judgeAudio.mockResolvedValue(verdict('Emma looked.'));
+    const first = await narrate.renderChunk(exact(a));
+    const marker = JSON.parse(gcs.uploadBuffer.mock.calls.find(c => c[1] === `${first.storageKey}.qa.json`)[0]);
+    gcs.loadJson.mockResolvedValue(marker);
+    const second = await narrate.renderChunk(exact(a));
+    expect(first.unresolved).toBe(true);
+    expect(second.unresolved).toBe(true);
+    expect(second.storageKey).toBe(first.storageKey);
+    expect(second.candidateFiles[0].storageKey).not.toBe(first.candidateFiles[0].storageKey);
+    const { parseTakeCandidateKey } = require('../../../../services/catalogEngine/audio/candidates');
+    expect(parseTakeCandidateKey('book1', second.candidateFiles[0].storageKey)).toMatchObject({ canonicalKey: first.storageKey });
+    expect(parseTakeCandidateKey('another-book', second.candidateFiles[0].storageKey)).toBeNull();
+    expect(a.synthesize.mock.calls[1][0].seed).not.toBe(a.synthesize.mock.calls[0][0].seed);
+    expect(a.synthesize).toHaveBeenCalledTimes(2);
+  });
+  test('a fully verified exact take still replays without another synthesis', async () => {
+    const buffer = take(3);
+    gcs.loadJson.mockResolvedValue({ audioQaVersion: AUDIO_QA_VERSION, renderHash: narrate.contentHash(buffer),
+      unresolved: false, transcript: 'Emma looked around.', qa: { blocking: [], qaUnavailable: null } });
+    gcs.downloadBuffer.mockResolvedValue(buffer);
+    const a = adapter();
+    expect((await narrate.renderChunk(exact(a))).cached).toBe(true);
+    expect(a.synthesize).not.toHaveBeenCalled();
+  });
+  test('an unavailable checker retries the same recording without paying for a new take', async () => {
+    judgeAudio.mockRejectedValueOnce(new Error('HTTP 503')).mockResolvedValueOnce(verdict('Emma looked around.'));
+    const a = adapter();
+    const result = await narrate.renderChunk(exact(a));
+    expect(result.unresolved).toBe(false);
+    expect(a.synthesize).toHaveBeenCalledTimes(1);
+    expect(judgeAudio).toHaveBeenCalledTimes(2);
+    expect(judgeAudio.mock.calls[0][0].audio[0].buffer).toEqual(judgeAudio.mock.calls[1][0].audio[0].buffer);
+  });
+  test('persistent verification failure stays unresolved and is not mislabeled as a text mismatch', async () => {
+    judgeAudio.mockRejectedValue(new Error('HTTP 503'));
+    const a = adapter();
+    const result = await narrate.renderChunk(exact(a));
+    expect(result.unresolved).toBe(true);
+    expect(result.qa.qaUnavailable).toContain('HTTP 503');
+    expect(result.qa.blocking).not.toContain('narration text mismatch');
+    expect(judgeAudio).toHaveBeenCalledTimes(2);
+    expect(a.synthesize).toHaveBeenCalledTimes(1);
+  });
+});

@@ -16,6 +16,12 @@ continue to use the trailer, including short Art Bench motion previews.
 2. Use the existing narration adapters, take QA and bounded repair ladder.
    Full-film takes require the complete normalized transcript, including on
    cache replay. Character voices are enabled for every age band.
+   Exact-text replay also requires a checked verdict with no blocking defects;
+   an admin pick or matching transcript alone cannot approve an unchecked take.
+   A failed passage retry keeps the canonical key but gets fresh synthesis seeds
+   and distinct candidate paths, preserving earlier attempts. Temporary verifier
+   failures get one additional check on the same recording within each candidate;
+   disabled or persistently unavailable checks still stop delivery.
 3. Partition measured PCM audio into frame-aligned shots, each 3–14 seconds,
    preserving every source sample. Use quiet boundaries for long passages.
 4. Keep all 12 scenes; re-render embedded-text illustrations through the
@@ -51,6 +57,14 @@ deadline; exceeding it fails explicitly without shortening the manuscript.
 Progress heartbeats keep the app's 20-minute *inactivity* watchdog informed.
 Finished shots can be resumed after failure. Vendor work may continue after
 cancellation; persisted prediction IDs allow the next attempt to collect it.
+
+Audio failures report their actual blocking defects (such as clipping, duration,
+or text mismatch). `film_audio_verification_unavailable` distinguishes an absent
+verdict from defective speech. The failure callback's `unresolved` entries retain
+the passage/spread, expected text, observed transcript, measurements, take key,
+candidate keys and verifier error for diagnosis. They never include API keys.
+Retry video preserves verified passages; no complete-story regeneration is needed
+to retry a failed recording. The exact normalized-transcript requirement remains.
 
 Spend is tracked by generated video seconds and synthesized characters. Current
 CostTracker rates are estimates, not a provider invoice; new models use its

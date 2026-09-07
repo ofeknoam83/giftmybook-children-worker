@@ -121,9 +121,10 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
   const nameInText = name && new RegExp(`(?<![\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(expectedText) ? name : null;
 
   // ── Replay ──────────────────────────────────────────────────────────────
+  const marker = !forceRetake && await loadJson(`${canonical}.qa.json`).catch(() => null);
   if (!forceRetake) {
-    const marker = await loadJson(`${canonical}.qa.json`).catch(() => null);
-    if (marker && marker.audioQaVersion === AUDIO_QA_VERSION && (marker.adminPicked || !marker.unresolved) && (!opts.requireExactText || normalizeSpoken(marker.transcript) === normalizeSpoken(expectedText))) {
+    const exactReplay = !opts.requireExactText || (marker?.qa && !marker.qa.qaUnavailable && Array.isArray(marker.qa.blocking) && marker.qa.blocking.length === 0 && !marker.unresolved && normalizeSpoken(marker.transcript) === normalizeSpoken(expectedText));
+    if (marker && marker.audioQaVersion === AUDIO_QA_VERSION && (marker.adminPicked || !marker.unresolved) && exactReplay) {
       const buffer = await downloadBuffer(canonical).catch(() => null);
       if (buffer && buffer.length > 44 && contentHash(buffer) === marker.renderHash) {
         log('info', `${label}: replays from ${canonical}${marker.adminPicked ? ' (admin-picked)' : ''}`);
@@ -137,6 +138,12 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
       }
     }
   }
+
+  // A user retry must not request the same deterministic failed performances.
+  // Keep the canonical identity stable, but preserve each retry's candidates
+  // under distinct names and use new provider seeds within the same budget.
+  const attemptId = opts.requireExactText && (forceRetake || marker) ? crypto.randomBytes(8).toString('hex') : null;
+  const candidateBase = attemptId ? canonical.replace(/\.wav$/, `.retry-${attemptId}.wav`) : canonical;
 
   // ── Candidates → verify → select → repair ───────────────────────────────
   let best = null;
@@ -159,7 +166,7 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
     if (count <= 0) { log('warn', `${label}: render budget exhausted (${budget})`); break; }
     const rendered = await Promise.all(Array.from({ length: count }, (_, i) => {
       const k = i + 1;
-      const seed = adapter.supportsSeed ? fnv1a(`${hash}|${pass}|${k}`) : null;
+      const seed = adapter.supportsSeed ? fnv1a(`${hash}|${pass}|${k}${attemptId ? `|${attemptId}` : ''}`) : null;
       return adapter.synthesize({
         lines: chunk.lines, directionWords: dWords, paceWords: pWords, rung, voice, language, seed, tuning: rung === 'plain' ? null : tuning,
         aliases: useAlias && alias ? [{ name, alias }] : [], credentials, signal, pace: first.direction.pace,
@@ -168,7 +175,7 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
     spent += count;
     touch();
     for (const r of rendered) {
-      const key = takeCandidateKey(canonical, r.k, pass);
+      const key = takeCandidateKey(candidateBase, r.k, pass);
       if (r.error) {
         if (r.error.failureCode === 'audiobook_provider_unavailable' || r.error.failureCode === 'audiobook_provider_input_rejected') throw r.error;
         log('warn', `${label}: candidate ${r.k} failed (${r.error.message})`);
@@ -178,8 +185,13 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
       if (costTracker && typeof costTracker.addAudioCharacters === 'function') costTracker.addAudioCharacters(`${provider}:${r.model}`, r.characters || expectedText.length);
       let measure;
       try { measure = measureTake(r.wav); } catch (err) { all.push({ k: r.k, pass, storageKey: key, error: `unreadable audio (${err.message})`, score: null }); continue; }
-      const qa = await checkTake({ wav: r.wav, measure, expectedText, expectedSeconds: timing.expectedSeconds, directionWords: dWords, name: nameInText, alias: useAlias ? alias : null, controlWords: ctrl, expectedEmotion: first.direction.emotion, costTracker, signal, log });
-      if (opts.requireExactText && normalizeSpoken(qa.transcript) !== normalizeSpoken(expectedText) && !qa.blocking.includes('narration text mismatch')) qa.blocking.push('narration text mismatch');
+      const qaInput = { wav: r.wav, measure, expectedText, expectedSeconds: timing.expectedSeconds, directionWords: dWords, name: nameInText, alias: useAlias ? alias : null, controlWords: ctrl, expectedEmotion: first.direction.emotion, costTracker, signal, log };
+      let qa = await checkTake(qaInput);
+      if (opts.requireExactText && qa.qaUnavailable && flags.audioTranscriptQaEnabled() && !signal?.aborted) {
+        log('warn', `${label}: verification unavailable — retrying the check on the same recording`);
+        qa = await checkTake(qaInput);
+      }
+      if (opts.requireExactText && !qa.qaUnavailable && normalizeSpoken(qa.transcript) !== normalizeSpoken(expectedText) && !qa.blocking.some(d => d.startsWith('narration text mismatch'))) qa.blocking.push('narration text mismatch');
       const cand = {
         k: r.k, pass, storageKey: key, buffer: r.wav, rung, alignment: r.alignment || null, model: r.model,
         measure: { seconds: measure.seconds, trim: measure.trim, trimmedSeconds: measure.trimmedSeconds, lufs: measure.lufs, peakDb: measure.peakDb, truePeakDb: measure.truePeakDb, longestSilenceSeconds: measure.longestSilenceSeconds, sampleRate: measure.sampleRate },
@@ -202,13 +214,13 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
   }
 
   // ── Promote ─────────────────────────────────────────────────────────────
-  const unresolved = best.qa.blocking.length > 0;
+  const unresolved = best.qa.blocking.length > 0 || (!!opts.requireExactText && !!best.qa.qaUnavailable);
   const renderHash = contentHash(best.buffer);
   await uploadBuffer(best.buffer, canonical, 'audio/wav');
   await uploadBuffer(Buffer.from(JSON.stringify({
     audioQaVersion: AUDIO_QA_VERSION, audioVersion: AUDIO_VERSION, takeHash: hash, renderHash, score: best.score,
     qa: best.qa, measure: best.measure, transcript: best.transcript, compare: best.compare, judged: best.judged, alignment: best.alignment,
-    provider, model: best.model, voiceKey: voice.key, rung: best.rung, candidate: best.storageKey, pass: best.pass, repairs, unresolved, checkedAt: new Date().toISOString(),
+    provider, model: best.model, voiceKey: voice.key, rung: best.rung, candidate: best.storageKey, pass: best.pass, attemptId, repairs, unresolved, checkedAt: new Date().toISOString(),
   })), `${canonical}.qa.json`, 'application/json');
   return {
     chunk: chunk.index, speaker: chunk.speaker, lineIndexes: chunk.lines.map(l => l.index), storageKey: canonical, takeHash: hash, buffer: best.buffer, measure: best.measure,
