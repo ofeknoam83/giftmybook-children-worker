@@ -15,21 +15,25 @@ jest.mock('../../../../services/illustrationGenerator', () => ({
 const { modelProfile, clipSecondsFor, KLING_DURATIONS } = require('../../../../services/catalogEngine/video/providers/models');
 const { resolveProvider, allowedProviders } = require('../../../../services/catalogEngine/video/providers');
 const replicate = require('../../../../services/catalogEngine/video/providers/replicate');
-const { buildClipBrief } = require('../../../../services/catalogEngine/video/brief');
+const { buildJourneyBrief } = require('../../../../services/catalogEngine/video/brief');
+const { buildFilmPlan } = require('../../../../services/catalogEngine/video/plan');
 
-const brief = buildClipBrief({ segment: { kind: 'spread', spread: 1, motion: 'push-in', seconds: 3 }, name: 'Emma', beat: 'Child waves.', companion: null, emotion: null, propValues: [], references: [{ kind: 'character' }] });
-const job = { brief, startFrameUrl: 'https://s/f.jpg', referenceUrls: [{ kind: 'character', urls: ['https://s/c.jpg', 'https://s/sheet.png'] }], seconds: 4, aspect: '16:9', seed: null };
+const brief = buildJourneyBrief({ segment: buildFilmPlan({ scenes: [1, 7, 12] }).segments[0], name: 'Emma', acts: [{ spread: 1, beat: 'Child waves.', emotion: null, companion: null, propValues: [] }], references: [{ kind: 'character' }], theme: null });
+const job = { brief, startFrameUrl: 'https://s/f.jpg', endFrameUrl: 'https://s/e.jpg', referenceUrls: [{ kind: 'character', urls: ['https://s/c.jpg', 'https://s/sheet.png'] }], seconds: 4, aspect: '16:9', seed: null };
 
 describe('model profile', () => {
   afterEach(() => { delete process.env.CATALOG_VIDEO_MODEL_INPUT_JSON; });
-  test('Kling 3.0 on Replicate: whole seconds from 3, elements from the references, audio off', () => {
+  test('Kling 3.0 on Replicate: whole seconds from 3, start + end frames, elements from the references, audio off', () => {
     const p = modelProfile('kwaivgi/kling-v3-video');
     expect(p.provider).toBe('replicate');
+    expect(p.supportsEndFrame).toBe(true);
     expect(clipSecondsFor(4, p.durations)).toBe(4);
     expect(clipSecondsFor(2, KLING_DURATIONS)).toBe(3);
     expect(clipSecondsFor(99, KLING_DURATIONS)).toBe(15);
     const input = p.input(job, { elements: true });
     expect(input.start_image).toBe('https://s/f.jpg');
+    expect(input.end_image).toBe('https://s/e.jpg');
+    expect('end_image' in p.input({ ...job, endFrameUrl: null }, { elements: true })).toBe(false);
     expect(input.duration).toBe(4);
     expect(input.generate_audio).toBe(false);
     expect(input.prompt).toContain('@Element1');

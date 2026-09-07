@@ -1,4 +1,51 @@
-# Gift Video — the 10-second animated story film (plan, gv-1)
+# Gift Video — the 10-second animated story film (plan, gv-2)
+
+> **Revision 4 (2026-09-07, gv-2) — ONE take through the best stills.** The owner's call after
+> the first Replicate rounds: the gv-1 film generated too many clips (cover + opening + peak +
+> resolution, two candidates each, repairs on top — the round in the screenshot spent six
+> candidates on one segment and still failed `video_unresolved`) and never read as one story.
+> The product is now:
+>
+> 1. **Pick the best illustrations first** (`video/stillSelect.js`). Every shipped render the app
+>    names is judged ONCE by a strict-JSON vision call for what a film frame needs — a COMPLETE
+>    picture: `text_present`, `child_visible`, `child_cut_off`, `reserved_side` (`none|left|right`
+>    — the half layout's calm column left for a text panel), `band_or_panel`, `complete_picture`,
+>    `quality` 1-5. Verdicts are pinned per render hash (`gift-video/{VIDEO_VERSION}/stills/`).
+>    `rankStills` is pure: painted text, a band or a missing child DISQUALIFY; score =
+>    40·complete + 10·quality − 25·reserved side − 15·cut off; every eligible combination of
+>    `CATALOG_VIDEO_SCENES` (default 3) is valued as the sum of scores + 6 per adjacent gap ≥ 2
+>    + 4 when the first pick ≤ 4 and 4 when the last ≥ 9, with span/imbalance tie-breakers
+>    below one quality point, so equal stills give an evenly spaced arc ([1, 6, 12]) and a
+>    clearly better still wins over the arc. Picks are in story order. Nothing eligible →
+>    `video_text_visible` when every render carried text, else `video_no_sources` with the
+>    reasons; the `stills[]` report rides every callback. An EMBEDDED book has no text-free
+>    stills, so its story-arc trio (`pickStorySpreads`, kept only for this) is re-rendered
+>    text-free under the `half` layout (the gv-1 rule) and gated by the same judge.
+> 2. **One clip, the child advancing through the picked scenes, the camera angle changing**
+>    (`video/plan.js` + `video/brief.js` `buildJourneyBrief`). The plan is ONE `journey` segment
+>    of 10 s with one ACT per pick — equal time windows, a camera ANGLE from a closed vocabulary
+>    (`wide | eye-level | low-angle | overhead | close`, keyed by the spread's shot type, made
+>    DISTINCT across the acts; band 1-3 keeps to `wide | eye-level | close`) and the MOVE that
+>    carries the take into it (`push-in | glide | sweep | rise | pull-out`). The brief says "ONE
+>    continuous, unbroken 10-second shot … no cuts, no fades, no wipes", a MOMENT line per act
+>    ("MOMENT 2 (3.3–6.7s): Emma advances into the next part of Sunnybrook Farm: … CAMERA: the
+>    camera pushes in slowly to a close angle …"), companion / performance / character / props /
+>    world / rules lines from pinned data, the identity kit as `@Element` references. The take
+>    opens on the first pick (`start_image`) and lands on the last (`end_image`, when the model
+>    profile `supportsEndFrame` and `CATALOG_VIDEO_END_FRAME` is on — the field name is a
+>    verify-at-deploy fact: a 422 with the end frame is resubmitted ONCE without it and flagged).
+>    The cover is no longer a segment; it stays the identity reference.
+> 3. **Fewer clips by default.** `CATALOG_VIDEO_CLIP_CANDIDATES` 2 → 1, `CATALOG_VIDEO_CLIP_MAX_REPAIRS`
+>    2 → 1, `CATALOG_VIDEO_MAX_CLIP_SECONDS` 60 → 30: a normal run is ONE 10 s clip, the worst
+>    case two. `video/verify.js` checks each sampled frame against the act its timestamp falls
+>    in and the video judge adds `cuts` (BLOCKING `cut break`), `scene_progression` (advisory
+>    `journey break`) and a journey-aware `camera_matches` (advisory `composition break: the
+>    camera angle does not change along the take`); `repairBrief` has single-take / journey /
+>    camera notes. The stitch graph is unchanged (one segment: normalize, white fades, silent or
+>    music track, exactly 10.000 s). `VIDEO_VERSION` is `gv-2`; the callback `plan[]` entry is
+>    `{kind: 'journey', spreads, acts[], startFrame, endFrame, clip}` and `unresolved[]` carries
+>    `spreads` (segment 0). §4.1–4.2 below describe the gv-1 plan they replace and are kept for
+>    the record; §4.3–4.7 still hold.
 
 > **Status:** WORKER IMPLEMENTED on this branch (2026-09-02): `services/catalogEngine/video/`
 > (`plan.js`, `brief.js`, `stills.js`, `providers/{index,models,replicate}.js`, `generate.js`,

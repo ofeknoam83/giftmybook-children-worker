@@ -172,7 +172,8 @@ describe('POST /v13/generate-video', () => {
     expect(payload.plan).toHaveLength(1);
     expect(payload.bookBible).toEqual({ bibleHash: 'bh' });
     expect(payload.costs).toEqual(expect.objectContaining({ totalCost: expect.any(Number) }));
-    for (const k of ['video', 'plan', 'textGate', 'bookBible', 'unresolved', 'advisories', 'warnings', 'costs', 'failureCode', 'error']) expect(payload).toHaveProperty(k);
+    for (const k of ['video', 'plan', 'stills', 'textGate', 'bookBible', 'unresolved', 'advisories', 'warnings', 'costs', 'failureCode', 'error']) expect(payload).toHaveProperty(k);
+    expect(payload.stills).toEqual([]);
   });
 
   test('a failed film keeps every key and passes the unresolved payload through', async () => {
@@ -188,7 +189,7 @@ describe('POST /v13/generate-video', () => {
     expect(payload.unresolved).toHaveLength(1);
     expect(payload.plan).toEqual([{ index: 2 }]);
     expect(payload.bookBible).toEqual({ bibleHash: 'bh' });
-    for (const k of ['video', 'plan', 'textGate', 'bookBible', 'unresolved', 'advisories', 'warnings', 'costs', 'failureCode', 'error']) expect(payload).toHaveProperty(k);
+    for (const k of ['video', 'plan', 'stills', 'textGate', 'bookBible', 'unresolved', 'advisories', 'warnings', 'costs', 'failureCode', 'error']) expect(payload).toHaveProperty(k);
   });
 
   test('a provider override and probe salts pass through', async () => {

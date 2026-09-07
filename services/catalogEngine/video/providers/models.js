@@ -1,14 +1,17 @@
 /**
- * Video model profiles (gift video, gv-1 — docs/GIFT_VIDEO_PLAN.md §4.4).
+ * Video model profiles (gift video, gv-2 — docs/GIFT_VIDEO_PLAN.md §4.4).
  *
  * A profile says, per model id, which host serves it, which clip lengths
- * and aspect ratios it accepts, how it names a reference element in the
- * prompt, and how the provider-neutral brief renders into its input
- * object. The exact input field names of a hosted model are a
- * verify-at-build fact (the vendors' docs were unreachable when this was
- * written), so `CATALOG_VIDEO_MODEL_INPUT_JSON` can add or override input
- * fields on the revision without a deploy, and `CATALOG_VIDEO_ELEMENTS=0`
- * drops the reference elements entirely.
+ * and aspect ratios it accepts, whether it takes an END frame beside the
+ * start frame (gv-2's single take opens on the first picked still and
+ * lands on the last), how it names a reference element in the prompt, and
+ * how the provider-neutral brief renders into its input object. The exact
+ * input field names of a hosted model are a verify-at-build fact (the
+ * vendors' docs were unreachable when this was written), so
+ * `CATALOG_VIDEO_MODEL_INPUT_JSON` can add or override input fields on the
+ * revision without a deploy, `CATALOG_VIDEO_ELEMENTS=0` drops the reference
+ * elements entirely, and `CATALOG_VIDEO_END_FRAME=0` drops the end frame
+ * (generate.js also retries a 422 once without it).
  */
 
 const { renderPromptForModel } = require('../brief');
@@ -33,10 +36,12 @@ const MODELS = {
     durations: KLING_DURATIONS,
     aspectRatios: ['16:9', '9:16', '1:1'],
     supportsReferences: true,
+    /** Kling's first+last-frame mode (`end_image` on Replicate's Kling models — verify). */
+    supportsEndFrame: true,
     referenceMention: (i) => `@Element${i}`,
     /**
      * Replicate input for one clip job.
-     * @param {object} job {brief, startFrameUrl, referenceUrls: Array<{kind, url}>, seconds, aspect, seed}
+     * @param {object} job {brief, startFrameUrl, endFrameUrl?, referenceUrls: Array<{kind, url}>, seconds, aspect, seed}
      * @param {{elements: boolean}} opts
      * @returns {object}
      */
@@ -46,6 +51,7 @@ const MODELS = {
         prompt: renderPromptForModel(job.brief, elements ? this.referenceMention : null),
         negative_prompt: job.brief.negativePrompt,
         start_image: job.startFrameUrl,
+        ...(job.endFrameUrl ? { end_image: job.endFrameUrl } : {}),
         duration: job.seconds,
         aspect_ratio: job.aspect,
         cfg_scale: job.brief.params.cfgScale,
