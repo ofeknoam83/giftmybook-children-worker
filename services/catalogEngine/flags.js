@@ -229,11 +229,6 @@ module.exports = {
   // ce-9 — the Book Bible + selection gate
   characterSheetEnabled: () => !envOff('CATALOG_CHARACTER_SHEET'),
   sheetRequired: () => !envOff('CATALOG_SHEET_REQUIRED'),
-  // 2026-09-07 — the sheet judge scores every candidate's likeness to the
-  // child's PHOTO; a candidate below this floor is rejected like any other
-  // defect (0 = off: the score still elects the winner and rides the
-  // result, sidecar and callbacks as `photoLikeness`).
-  sheetPhotoLikenessMin: () => envFloat('CATALOG_SHEET_PHOTO_LIKENESS_MIN', 0, 0, 1),
   propSheetsEnabled: () => !envOff('CATALOG_PROP_SHEETS'),
   // ce-19 — secondary characters: a person-typed companion gets a sheet too
   humanCompanionSheetEnabled: () => !envOff('CATALOG_HUMAN_COMPANION_SHEET'),

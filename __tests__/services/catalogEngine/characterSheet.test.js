@@ -25,16 +25,13 @@ const { STYLE_VERSION } = require('../../../services/catalogEngine/versions');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
 const {
   getCharacterSheet, characterSheetPath, characterSheetSidecarPath, buildSheetPrompt, buildSheetQaPrompt,
-  cleanDescription, parseSheetVerdict, sheetCandidateCount, anchorHash, FAILURE_CODE, PHOTO_LIKENESS_ADVISORY,
+  cleanDescription, parseSheetVerdict, sheetCandidateCount, anchorHash, FAILURE_CODE, PHOTO_LIKENESS_ADVISORY, COVER_LIKENESS_MIN,
 } = require('../../../services/catalogEngine/illustrator/bible/characterSheet');
-const { LOCATE_PROMPT } = require('../../../services/catalogEngine/illustrator/bible/faceCrop');
 
 const REF = { base64: 'YW5jaG9y', mimeType: 'image/png' };
-// Not a decodable image: the likeness-reference step falls through to the
-// raw bytes (no upright re-encode, no face locate call, no crop) — the
-// pre-2026-09-07 request shape, which most tests below still assert.
+// Photo bytes are diagnostic QA input only; never a render reference.
 const PHOTO = { base64: 'cGhvdG8=', mimeType: 'image/jpeg' };
-/** A real, decodable JPEG photo (built in beforeAll) for the face-crop path. */
+/** A real, decodable JPEG photo (built in beforeAll) to verify that even a decodable photo stays out of generation. */
 let PHOTO_JPEG;
 const PROFILE = { name: 'Mia', age: 5 };
 const IMAGE_MODEL_URL = 'test-image-model';
@@ -53,6 +50,7 @@ beforeAll(async () => {
 const CLEAN_VERDICT = {
   readable_text: false, figure_count: 3, one_child: true, feet_visible: true,
   outfit_consistent_across_views: true, anatomy_ok: true, likeness: 0.8,
+  cover_identity_matches: true, cover_outfit_matches: true,
 };
 const imageResponse = buffer => ({
   ok: true,
@@ -70,7 +68,7 @@ const qaResponse = verdict => ({
  * carry the candidate bytes as the first inline_data part, which is how
  * the judge answer is matched back to its candidate.
  */
-function installTransport(verdicts, { imageFailures = [], locate = null } = {}) {
+function installTransport(verdicts, { imageFailures = [] } = {}) {
   let imageCall = 0;
   fetchWithTimeout.mockImplementation(async (url, init) => {
     if (url.includes(IMAGE_MODEL_URL)) {
@@ -79,12 +77,6 @@ function installTransport(verdicts, { imageFailures = [], locate = null } = {}) 
       return imageResponse(CANDIDATE_PNGS[i]);
     }
     const body = JSON.parse(init.body);
-    // The face-locate read (faceCrop.js) — answered by `locate` (a verdict
-    // object or a response function); "no face" when the test gave none.
-    if (body.contents[0].parts[0].text === LOCATE_PROMPT) {
-      if (typeof locate === 'function') return locate();
-      return qaResponse(locate || { found: false, face_bbox: null });
-    }
     const sheetB64 = body.contents[0].parts.find(p => p.inline_data).inline_data.data;
     const i = CANDIDATE_PNGS.findIndex(png => png.toString('base64') === sheetB64);
     const v = verdicts[i];
@@ -94,9 +86,7 @@ function installTransport(verdicts, { imageFailures = [], locate = null } = {}) 
 }
 
 const imageCalls = () => fetchWithTimeout.mock.calls.filter(c => c[0].includes(IMAGE_MODEL_URL));
-const isLocateCall = c => !c[0].includes(IMAGE_MODEL_URL) && JSON.parse(c[1].body).contents[0].parts[0].text === LOCATE_PROMPT;
-const locateCalls = () => fetchWithTimeout.mock.calls.filter(isLocateCall);
-const judgeCalls = () => fetchWithTimeout.mock.calls.filter(c => !c[0].includes(IMAGE_MODEL_URL) && !isLocateCall(c));
+const judgeCalls = () => fetchWithTimeout.mock.calls.filter(c => !c[0].includes(IMAGE_MODEL_URL));
 
 // Module-level caches (sheet LRU + failure cooldown) persist across tests —
 // every test uses its own anchor URL so no state leaks between them.
@@ -115,9 +105,9 @@ beforeEach(() => {
 
 test('elects the passing candidate with the highest likeness, persists PNG + sidecar, counts one image per candidate', async () => {
   installTransport([
-    { ...CLEAN_VERDICT, likeness: 0.6 },
+    { ...CLEAN_VERDICT, likeness: 0.85 },
     { ...CLEAN_VERDICT, likeness: 0.93 },
-    { ...CLEAN_VERDICT, likeness: 0.7 },
+    { ...CLEAN_VERDICT, likeness: 0.82 },
   ]);
   const costTracker = { addImageGeneration: jest.fn() };
   const log = jest.fn();
@@ -141,7 +131,7 @@ test('elects the passing candidate with the highest likeness, persists PNG + sid
   expect(costTracker.addImageGeneration).toHaveBeenCalledTimes(3);
   expect(costTracker.addImageGeneration).toHaveBeenCalledWith('test-image-model', 1);
 
-  // Every image call: prompt + labeled REFERENCE 1 (anchor) + labeled REFERENCE 2 (photo), 16:9, safety settings.
+  // Every image call uses the approved cover alone, 16:9, and safety settings.
   for (const [, init] of imageCalls()) {
     const body = JSON.parse(init.body);
     const parts = body.contents[0].parts;
@@ -151,13 +141,12 @@ test('elects the passing candidate with the highest likeness, persists PNG + sid
     expect(parts[0].text).toContain('Character description: curly brown hair.');
     expect(parts[1].text).toMatch(/^REFERENCE 1 — APPROVED CHARACTER/);
     expect(parts[2]).toEqual({ inline_data: { mimeType: 'image/png', data: REF.base64 } });
-    expect(parts[3].text).toMatch(/^REFERENCE 2 — CHILD PHOTO/);
-    expect(parts[4]).toEqual({ inline_data: { mimeType: 'image/jpeg', data: PHOTO.base64 } });
+    expect(parts).toHaveLength(3);
     expect(body.generationConfig).toEqual({ responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '16:9' } });
     expect(body.safetySettings).toEqual(GEMINI_IMAGE_SAFETY_SETTINGS);
   }
   // Every judge call carries the candidate, the anchor AND the child's
-  // photo (the likeness ground truth), strict JSON at temperature 0.
+  // photo (an advisory diagnostic), strict JSON at temperature 0.
   for (const [, init] of judgeCalls()) {
     const body = JSON.parse(init.body);
     const inline = body.contents[0].parts.filter(p => p.inline_data);
@@ -167,8 +156,7 @@ test('elects the passing candidate with the highest likeness, persists PNG + sid
     expect(body.contents[0].parts[0].text).toContain('"photo_likeness"');
     expect(body.generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json' });
   }
-  // An undecodable photo: no face-locate read, no crop, and no REFERENCE 3.
-  expect(locateCalls()).toHaveLength(0);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(6);
 
   // Election: the winner's bytes are created-if-absent at the deterministic path, then the sidecar is written.
   expect(uploadBufferIfAbsent).toHaveBeenCalledTimes(1);
@@ -201,118 +189,102 @@ test('without a child photo the call carries only REFERENCE 1, and the judge is 
   expect(sheet.likeness).toBe(0.8);
 });
 
-// ── 2026-09-07: the sheet is drawn from — and judged against — the child's FACE ──
-
-const FACE_BOX = { found: true, face_bbox: { x: 0.3, y: 0.2, w: 0.3, h: 0.4 } };
+// Cover approval fixes the character; photo resemblance is audited upstream.
 const withPhoto = (likeness, photo_likeness) => ({ ...CLEAN_VERDICT, likeness, photo_likeness });
 
-test('a decodable photo rides the render UPRIGHT as REFERENCE 2 plus its FACE CLOSE-UP as REFERENCE 3, under the likeness-first prompt; the judge sees the photo; the face is located ONCE', async () => {
-  installTransport([withPhoto(0.8, 0.9), withPhoto(0.8, 0.9), withPhoto(0.8, 0.9)], { locate: FACE_BOX });
+test('a decodable child photo is used only for QA; the cover alone drives every render', async () => {
+  installTransport([withPhoto(0.8, 0.9), withPhoto(0.8, 0.9), withPhoto(0.8, 0.9)]);
   const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO_JPEG, profile: PROFILE });
-  expect(locateCalls()).toHaveLength(1);
-  expect(imageCalls()).toHaveLength(3);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(6); // no face-location call
   for (const [, init] of imageCalls()) {
     const parts = JSON.parse(init.body).contents[0].parts;
-    expect(parts).toHaveLength(7);
-    expect(parts[0].text).toContain('LIKENESS (ground truth for the face): REFERENCE 2 is the child\'s own photo and REFERENCE 3 is a close-up of the same child\'s face');
-    expect(parts[0].text).toContain('the PHOTO wins');
-    expect(parts[0].text).toContain('stylize the RENDERING, never the identity');
-    // With a photo the approved character is the outfit + style truth, not the face truth.
-    expect(parts[0].text).toContain('The colours and materials of its outfit and its rendering style are GROUND TRUTH');
-    expect(parts[1].text).toMatch(/^REFERENCE 1 — APPROVED CHARACTER/);
-    expect(parts[1].text).toContain('the face follows the photo references');
-    expect(parts[3].text).toMatch(/^REFERENCE 2 — CHILD PHOTO \(likeness ground truth/);
-    // The upright re-encode: a JPEG, not the caller's bytes verbatim.
-    expect(parts[4].inline_data.mimeType).toBe('image/jpeg');
-    expect(parts[4].inline_data.data).not.toBe(PHOTO_JPEG.base64);
-    const upright = await sharp(Buffer.from(parts[4].inline_data.data, 'base64')).metadata();
-    expect([upright.width, upright.height]).toEqual([64, 48]);
-    expect(parts[5].text).toMatch(/^REFERENCE 3 — FACE CLOSE-UP/);
-    // The crop: a square around the judged box, inside the frame (≤ the short edge).
-    const face = await sharp(Buffer.from(parts[6].inline_data.data, 'base64')).metadata();
-    expect(face.format).toBe('jpeg');
-    expect(face.width).toBe(face.height);
-    expect(face.width).toBeLessThanOrEqual(48);
-    expect(face.width).toBeGreaterThan(19);
+    expect(parts).toHaveLength(3);
+    expect(parts[0].text).toContain('Its face, hair, skin tone');
+    expect(parts[0].text).toContain('IDENTITY LOCK');
+    expect(parts[0].text).toContain('EVERY view and both head insets');
+    expect(parts[0].text).not.toContain('PHOTO wins');
+    expect(parts[0].text).not.toContain('REFERENCE 2');
+    expect(parts[2].inline_data.data).toBe(REF.base64);
+    expect(JSON.stringify(parts)).not.toContain(PHOTO_JPEG.base64);
   }
   for (const [, init] of judgeCalls()) {
-    const body = JSON.parse(init.body);
-    const inline = body.contents[0].parts.filter(p => p.inline_data);
+    const parts = JSON.parse(init.body).contents[0].parts;
+    const inline = parts.filter(p => p.inline_data);
     expect(inline).toHaveLength(3);
-    expect(inline[2].inline_data.mimeType).toBe('image/jpeg');
-    expect(body.contents[0].parts[0].text).toContain('Image 3 is a PHOTO of the real child');
+    expect(inline[2].inline_data.data).toBe(PHOTO_JPEG.base64);
+    expect(parts[0].text).toContain('advisory resemblance score only');
+    expect(parts[0].text).toContain('Do not use image 3 to redefine the approved character');
   }
   expect(sheet.photoLikeness).toBe(0.9);
   expect(sheet.likeness).toBe(0.8);
   expect(sheet.advisories).toEqual([]);
 });
 
-test('election prefers PHOTO likeness over likeness to the cover; both numbers ride the result and the sidecar', async () => {
-  installTransport([withPhoto(0.95, 0.4), withPhoto(0.6, 0.9), withPhoto(0.7, 0.7)], { locate: FACE_BOX });
-  const log = jest.fn();
-  const anchorUrl = freshAnchor();
-  const sheet = await getCharacterSheet({ anchorUrl, refPhoto: REF, childPhoto: PHOTO_JPEG, log });
-  expect(sheet.base64).toBe(CANDIDATE_PNGS[1].toString('base64'));
-  expect(sheet.photoLikeness).toBe(0.9);
-  expect(sheet.likeness).toBe(0.6);
-  expect(sheet.advisories).toEqual([]);
+test('highest cover likeness wins even when another passing candidate looks more like the photo', async () => {
+  installTransport([withPhoto(0.95, 0.4), withPhoto(0.85, 0.99), withPhoto(0.9, 0.7)]);
+  const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO_JPEG });
+  expect(sheet.base64).toBe(CANDIDATE_PNGS[0].toString('base64'));
+  expect(sheet.photoLikeness).toBe(0.4);
+  expect(sheet.likeness).toBe(0.95);
+  expect(sheet.advisories).toEqual([
+    { stage: 'characterSheet', note: expect.stringContaining('review the cover against the child photo') },
+  ]);
   const [sidecarBody] = uploadBuffer.mock.calls[0];
-  expect(JSON.parse(sidecarBody.toString('utf8'))).toMatchObject({ likeness: 0.6, photoLikeness: 0.9, candidates: 3 });
-  expect(log.mock.calls.some(([, msg]) => msg.includes('candidate 2: PASS (photo likeness 0.90, cover likeness 0.60)'))).toBe(true);
+  expect(JSON.parse(sidecarBody.toString('utf8'))).toMatchObject({ likeness: 0.95, photoLikeness: 0.4, candidates: 3 });
 });
 
-test('a low photo likeness still elects (with an advisory) by default; CATALOG_SHEET_PHOTO_LIKENESS_MIN rejects it like any other defect', async () => {
-  installTransport([withPhoto(0.9, 0.3), withPhoto(0.9, 0.45), withPhoto(0.9, 0.2)], { locate: FACE_BOX });
+test('photo score and the retired photo floor cannot redefine an approved character; ties retain candidate order', async () => {
+  process.env.CATALOG_SHEET_PHOTO_LIKENESS_MIN = '0.9';
+  installTransport([withPhoto(0.9, 0.3), withPhoto(0.9, 0.95), withPhoto(0.9, 0.2)]);
   const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO_JPEG });
-  expect(sheet.base64).toBe(CANDIDATE_PNGS[1].toString('base64'));
-  expect(sheet.photoLikeness).toBe(0.45);
+  expect(sheet.base64).toBe(CANDIDATE_PNGS[0].toString('base64'));
+  expect(sheet.photoLikeness).toBe(0.3);
   expect(PHOTO_LIKENESS_ADVISORY).toBe(0.5);
   expect(sheet.advisories).toEqual([
-    { stage: 'characterSheet', note: expect.stringMatching(/^elected sheet photo likeness 0\.45 — the child may not be recognizable/) },
+    { stage: 'characterSheet', note: expect.stringContaining('do not redesign the kit independently') },
   ]);
+});
 
-  process.env.CATALOG_SHEET_PHOTO_LIKENESS_MIN = '0.6';
-  fetchWithTimeout.mockReset();
-  uploadBufferIfAbsent.mockReset().mockResolvedValue({ created: true });
-  installTransport([withPhoto(0.9, 0.3), withPhoto(0.9, 0.45), withPhoto(0.9, 0.2)], { locate: FACE_BOX });
+test('visible identity drift, cover outfit drift, and low cover likeness all block election despite perfect photo scores', async () => {
+  installTransport([
+    { ...withPhoto(0.99, 1), cover_identity_matches: false },
+    { ...withPhoto(0.99, 1), cover_outfit_matches: false },
+    withPhoto(COVER_LIKENESS_MIN - 0.01, 1),
+  ]);
   let caught;
-  await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO_JPEG }).catch((err) => { caught = err; });
-  expect(caught.failureCode).toBe('identity_kit_failed');
+  await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO }).catch(err => { caught = err; });
+  expect(caught).toMatchObject({ failureCode: FAILURE_CODE });
   expect(caught.advisories.map(a => a.note)).toEqual([
-    'candidate 1 rejected: photo likeness 0.30 below the 0.6 floor',
-    'candidate 2 rejected: photo likeness 0.45 below the 0.6 floor',
-    'candidate 3 rejected: photo likeness 0.20 below the 0.6 floor',
+    'candidate 1 rejected: identity differs from the approved character',
+    'candidate 2 rejected: outfit differs from the approved character',
+    'candidate 3 rejected: cover likeness 0.79 below the 0.8 floor',
   ]);
   expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+  expect(uploadBuffer).not.toHaveBeenCalled();
 });
 
-test('the floor never touches a candidate the judge scored without a photo likeness (cover likeness elects, photoLikeness null)', async () => {
-  process.env.CATALOG_SHEET_PHOTO_LIKENESS_MIN = '0.9';
-  installTransport([CLEAN_VERDICT, { ...CLEAN_VERDICT, likeness: 0.85 }, CLEAN_VERDICT], { locate: FACE_BOX });
-  const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO_JPEG });
-  expect(sheet.base64).toBe(CANDIDATE_PNGS[1].toString('base64'));
-  expect(sheet.photoLikeness).toBeNull();
-  expect(sheet.likeness).toBe(0.85);
-});
-
-test('a face-locate outage or a "no face" answer is fail-open: the upright photo still rides as REFERENCE 2, without a REFERENCE 3', async () => {
-  installTransport([CLEAN_VERDICT, CLEAN_VERDICT, CLEAN_VERDICT], { locate: () => ({ ok: false, status: 500, text: async () => 'boom' }) });
-  const log = jest.fn();
-  await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO_JPEG, log });
+test('coverless runs using a photo anchor still have exactly one authoritative render reference', async () => {
+  installTransport([CLEAN_VERDICT, CLEAN_VERDICT, CLEAN_VERDICT]);
+  await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: PHOTO_JPEG });
   for (const [, init] of imageCalls()) {
-    const parts = JSON.parse(init.body).contents[0].parts;
-    expect(parts).toHaveLength(5);
-    expect(parts[0].text).toContain('REFERENCE 2 is the child\'s own photo.');
-    expect(parts[0].text).not.toContain('REFERENCE 3');
-    expect(parts[3].text).toMatch(/^REFERENCE 2 — CHILD PHOTO/);
+    const inline = JSON.parse(init.body).contents[0].parts.filter(p => p.inline_data);
+    expect(inline).toEqual([{ inline_data: { mimeType: 'image/jpeg', data: PHOTO_JPEG.base64 } }]);
   }
-  expect(log.mock.calls.some(([, msg]) => /face locate: HTTP 500 — no face crop/.test(msg))).toBe(true);
+});
 
-  fetchWithTimeout.mockReset();
-  uploadBufferIfAbsent.mockReset().mockResolvedValue({ created: true });
-  installTransport([CLEAN_VERDICT, CLEAN_VERDICT, CLEAN_VERDICT], { locate: { found: false, face_bbox: null } });
-  await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF, childPhoto: PHOTO_JPEG });
-  for (const [, init] of imageCalls()) expect(JSON.parse(init.body).contents[0].parts).toHaveLength(5);
+test('a ce-21 cached kit cannot bypass the new cover fidelity checks', async () => {
+  const anchorUrl = freshAnchor();
+  const oldKey = characterSheetPath(anchorHash(anchorUrl)).replace(`/${STYLE_VERSION}/`, '/ce-21/');
+  downloadBuffer.mockImplementation(async key => {
+    if (key === oldKey) return CANDIDATE_PNGS[3];
+    throw new Error('not found');
+  });
+  installTransport([CLEAN_VERDICT, CLEAN_VERDICT, CLEAN_VERDICT]);
+  const sheet = await getCharacterSheet({ anchorUrl, refPhoto: REF });
+  expect(imageCalls()).toHaveLength(3);
+  expect(sheet.base64).toBe(CANDIDATE_PNGS[0].toString('base64'));
+  expect(sheet.storageKey).not.toBe(oldKey);
+  expect(uploadBufferIfAbsent).toHaveBeenCalledWith(CANDIDATE_PNGS[0], sheet.storageKey, 'image/png');
 });
 
 test('a cached sheet returns the sidecar\'s photo likeness beside the cover likeness', async () => {
@@ -329,10 +301,12 @@ describe('buildSheetQaPrompt', () => {
   test('asks for photo_likeness — judged on the face, ignoring style/outfit/pose — only when the photo rides as image 3', () => {
     const without = buildSheetQaPrompt(false);
     expect(without).not.toContain('photo_likeness');
+    expect(without).toContain('cover_identity_matches');
+    expect(without).toContain('cover_outfit_matches');
     expect(without).not.toContain('Image 3');
     expect(without).toContain('"likeness": <number 0.0-1.0>   //');
     const withPhotoPrompt = buildSheetQaPrompt(true);
-    expect(withPhotoPrompt).toContain('Image 3 is a PHOTO of the real child the character portrays.');
+    expect(withPhotoPrompt).toContain('Image 3 is a PHOTO of the real child for an advisory resemblance score only.');
     expect(withPhotoPrompt).toContain('"likeness": <number 0.0-1.0>,');
     expect(withPhotoPrompt).toMatch(/"photo_likeness": <number 0\.0-1\.0>.*ignore the art style, outfit, pose, expression and lighting/);
     expect(() => JSON.parse(withPhotoPrompt)).toThrow(); // a template, not a payload — sanity
@@ -343,11 +317,11 @@ test('a text-bearing candidate and a two-figure candidate are rejected even with
   installTransport([
     { ...CLEAN_VERDICT, readable_text: true, likeness: 0.99 },
     { ...CLEAN_VERDICT, figure_count: 2, likeness: 0.97 },
-    { ...CLEAN_VERDICT, likeness: 0.5 },
+    { ...CLEAN_VERDICT, likeness: 0.8 },
   ]);
   const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF });
   expect(sheet.base64).toBe(CANDIDATE_PNGS[2].toString('base64'));
-  expect(sheet.likeness).toBe(0.5);
+  expect(sheet.likeness).toBe(0.8);
   expect(sheet.advisories).toEqual([
     { stage: 'characterSheet', note: 'candidate 1 rejected: readable text on the sheet' },
     { stage: 'characterSheet', note: 'candidate 2 rejected: 2 full-body figures (expected 3)' },
@@ -607,6 +581,8 @@ describe('parseSheetVerdict', () => {
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, likeness: 'high' })).toBeNull();
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, likeness: NaN })).toBeNull();
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, anatomy_ok: undefined })).toBeNull();
+    expect(parseSheetVerdict({ ...CLEAN_VERDICT, cover_identity_matches: undefined })).toBeNull();
+    expect(parseSheetVerdict({ ...CLEAN_VERDICT, cover_outfit_matches: 'true' })).toBeNull();
   });
   test('passes only the closed set of conditions and clamps likeness into 0-1', () => {
     expect(parseSheetVerdict(CLEAN_VERDICT)).toEqual({ pass: true, defects: [], likeness: 0.8, photoLikeness: null });
@@ -643,7 +619,7 @@ describe('sheetCandidateCount', () => {
   });
   test('the knob bounds the number of renders', async () => {
     process.env.CATALOG_SHEET_CANDIDATES = '1';
-    installTransport([{ ...CLEAN_VERDICT, likeness: 0.4 }]);
+    installTransport([CLEAN_VERDICT]);
     const sheet = await getCharacterSheet({ anchorUrl: freshAnchor(), refPhoto: REF });
     expect(imageCalls()).toHaveLength(1);
     expect(sheet.candidates).toBe(1);
@@ -662,7 +638,8 @@ describe('determinism', () => {
     expect(a).toContain('flat light-grey studio background');
     expect(a).toContain('exactly two arms and two hands with exactly five clearly separated fingers');
     expect(a).toContain('NO text, letters, labels, numbers');
-    expect(a).toContain('REFERENCE 2');
+    expect(a).not.toContain('REFERENCE 2');
+    expect(a).toContain('must never override it or redesign the child');
     expect(buildSheetPrompt({})).not.toContain('The child is');
     expect(buildSheetPrompt({})).not.toContain('REFERENCE 2');
   });
