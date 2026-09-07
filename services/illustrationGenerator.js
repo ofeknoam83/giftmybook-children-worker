@@ -341,6 +341,7 @@ function levenshteinDistance(a, b) {
 // SAME numbers the prompt states (wrapStoryLines is re-exported below for
 // the legacy import path).
 const { wrapStoryLines, expectedTextBlock } = require('./shared/illustration/textBlock');
+const { imageDimensions } = require('./shared/illustration/renderSize');
 
 function compareTexts(expected, extracted) {
   // Glyph-insensitive normalization: the manuscript and the OCR transcript
@@ -1489,6 +1490,24 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       if (costTracker) {
         costTracker.addImageGeneration(photoBase64 && opts.imageSize === '4K'
           ? 'gemini-3.1-flash-image:4K' : 'gemini-3.1-flash-image', 1);
+      }
+
+      // Resolution guard (2026-09-07): `opts.minRenderHeight` is the pixel
+      // height an accepted image must reach. An image below it — the
+      // model's default size after the `imageSize` field was rejected (the
+      // retry-without above), or a tier the model quietly ignored — is a
+      // FAILED attempt with its measured size on the attempt log, never a
+      // shipped page: embedded story text painted at a 1K default is an
+      // 8 px cap height that prints as blur, and until now nothing measured
+      // what came back. Fail-open on an unreadable buffer (OCR/QA judge it).
+      const minRenderHeight = Number(opts.minRenderHeight) > 0 ? Number(opts.minRenderHeight) : 0;
+      if (minRenderHeight > 0) {
+        const dims = await imageDimensions(imageBuffer);
+        if (dims && dims.height < minRenderHeight) {
+          const err = new Error(`undersized render ${dims.width}×${dims.height}px — this spread's painted text needs at least ${minRenderHeight}px of height (requested imageSize ${opts.imageSize || 'default'})`);
+          err.geminiDetail = { undersized: true, width: dims.width, height: dims.height };
+          throw err;
+        }
       }
 
       // Every legacy attempt is checked, including the last. Catalog callers

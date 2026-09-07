@@ -270,6 +270,66 @@ describe('ce-16: an opt-in output size rides the Gemini image call and falls bac
   });
 });
 
+describe('resolution guard (2026-09-07): an embedded render below the requested tier is a failed attempt, never a page', () => {
+  const sharp = require('sharp');
+  const { imageDimensions, renderTierFloor } = require('../../services/shared/illustration/renderSize');
+  const png = (w, h) => sharp({ create: { width: w, height: h, channels: 3, background: { r: 200, g: 180, b: 140 } } }).png().toBuffer();
+  const ok = (buf) => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: buf.toString('base64') } }] } }] }) });
+  // bookId null: an accepted render returns null without an upload.
+  const renderOpts = (over = {}) => ({
+    bookId: null, childName: 'Aaron', isSpread: true, spreadIndex: 3, totalSpreads: 12, embedText: true, deferTextVerification: true,
+    pageText: 'Aaron checked the ground nearby first.', childAge: 7, aspectRatio: '16:9', textSide: 'left', imageSize: '4K', minRenderHeight: 2000,
+    childPhotoUrl: 'https://p/x.png', _cachedPhotoBase64: 'YmFzZTY0', _cachedPhotoMime: 'image/jpeg',
+    ...over,
+  });
+
+  test('a small image fails EVERY attempt, with the measured size on the attempt log and in the final error', async () => {
+    const small = await png(64, 36);
+    const realFetch = global.fetch;
+    global.fetch = jest.fn(async () => ok(small));
+    const attemptLog = [];
+    try {
+      await expect(generateIllustration('scene', 'https://p/x.png', 'pixar_premium', renderOpts({ attemptLog })))
+        .rejects.toThrow(/undersized render 64×36px — this spread's painted text needs at least 2000px of height \(requested imageSize 4K\)/);
+      expect(global.fetch).toHaveBeenCalledTimes(3); // BASE_MAX_RETRIES for a short page text
+    } finally {
+      global.fetch = realFetch;
+    }
+    expect(attemptLog).toHaveLength(3);
+    expect(attemptLog.every(a => a.undersized === true && a.width === 64 && a.height === 36 && /undersized render/.test(a.error))).toBe(true);
+  });
+
+  test('a tall enough image is accepted first try; with the floor off the small one ships (its size rides upstream instead)', async () => {
+    const tall = await png(64, 2304);
+    const small = await png(64, 36);
+    const realFetch = global.fetch;
+    try {
+      global.fetch = jest.fn(async () => ok(tall));
+      await expect(generateIllustration('scene', 'https://p/x.png', 'pixar_premium', renderOpts())).resolves.toBeNull();
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      global.fetch = jest.fn(async () => ok(small));
+      await expect(generateIllustration('scene', 'https://p/x.png', 'pixar_premium', renderOpts({ minRenderHeight: 0 }))).resolves.toBeNull();
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      global.fetch = jest.fn(async () => ok(small));
+      await expect(generateIllustration('scene', 'https://p/x.png', 'pixar_premium', renderOpts({ minRenderHeight: undefined }))).resolves.toBeNull();
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  test('the helpers: tier floors follow the requested size and the measurement is fail-open', async () => {
+    expect(renderTierFloor('4K')).toBe(2000);
+    expect(renderTierFloor('2k')).toBe(1000);
+    expect(renderTierFloor('1K')).toBe(500);
+    expect(renderTierFloor(null)).toBe(0);
+    expect(renderTierFloor('huge')).toBe(0);
+    expect(await imageDimensions(await png(10, 20))).toEqual({ width: 10, height: 20 });
+    expect(await imageDimensions(Buffer.from('not an image'))).toBeNull();
+    expect(await imageDimensions(null)).toBeNull();
+    expect(await imageDimensions(Buffer.alloc(0))).toBeNull();
+  });
+});
+
 describe('buildGenericSafePrompt (NSFW last-resort variant keeps identity)', () => {
   const { buildGenericSafePrompt } = require('../../services/illustrationGenerator');
 

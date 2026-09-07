@@ -1180,6 +1180,54 @@ describe('per-spread full-canvas lettering template', () => {
     expect(generateIllustration).toHaveBeenCalledTimes(1);
     expect(generateIllustration.mock.calls[0][3].typographyScale).toBe(1);
   });
+  test('template renders carry the 4K resolution floor, echo their measured size, and flag an undersized page (2026-09-07)', async () => {
+    const sharp = require('sharp');
+    const flags = require('../../../services/catalogEngine/flags');
+    expect(flags.minEmbeddedRenderHeight('4K')).toBe(2000);
+    expect(flags.minEmbeddedRenderHeight('2K')).toBe(1000);
+    expect(flags.minEmbeddedRenderHeight(null)).toBe(0);
+    process.env.CATALOG_MIN_EMBEDDED_RENDER_HEIGHT = '1500';
+    expect(flags.minEmbeddedRenderHeight('4K')).toBe(1500);
+    process.env.CATALOG_MIN_EMBEDDED_RENDER_HEIGHT = '0';
+    expect(flags.minEmbeddedRenderHeight('4K')).toBe(0);
+    delete process.env.CATALOG_MIN_EMBEDDED_RENDER_HEIGHT;
+    // The harness's "render" bytes become a real (tiny) PNG so the size is measurable.
+    const tiny = await sharp({ create: { width: 32, height: 18, channels: 3, background: { r: 1, g: 2, b: 3 } } }).png().toBuffer();
+    const download = downloadBuffer.getMockImplementation();
+    downloadBuffer.mockImplementation(async key => {
+      const b = await download(key);
+      return b.equals(Buffer.from('png-bytes')) ? tiny : b;
+    });
+    // A clean verdict so the QA marker is written (an offline checker never writes one).
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      const expected = prompt.match(/STORY TEXT THAT MUST APPEAR IN THE IMAGE:\n"([^"]*)"/)?.[1] || '';
+      const verdict = { child_absent: false, multiple_children: false, flat_or_photo_style: false,
+        readable_text: !!expected, visible_text: expected, companion: { present: true, look_match: true },
+        text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
+        text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false,
+        text_bbox: { x: 0.7, y: 0.25, w: 0.08, h: 0.03 }, consistent: true, flagged: [] };
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(verdict) }] } }] }) };
+    });
+    const { uploadBuffer } = require('../../../services/gcsStorage');
+    uploadBuffer.mockClear();
+    try {
+      const { results } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' }));
+      expect(generateIllustration.mock.calls.every(c => c[3].imageSize === '4K' && c[3].minRenderHeight === 2000)).toBe(true);
+      expect(results.map(r => r.size)).toEqual([{ width: 32, height: 18 }, { width: 32, height: 18 }]);
+      // A shipped page below the floor (here: the harness bytes) is never silent.
+      expect(results.every(r => r.advisories.some(a => a.stage === 'render' && /undersized render 32×18px shipped — below the 2000px floor/.test(a.note)))).toBe(true);
+      const marker = uploadBuffer.mock.calls.map(([body, key]) => key.endsWith('.qa.json') && key.includes('spread-1.') ? JSON.parse(body.toString()) : null).filter(Boolean).pop();
+      expect(marker.size).toEqual({ width: 32, height: 18 });
+      // A caption-layout render requests no size and carries no floor.
+      generateIllustration.mockClear();
+      downloadBuffer.mockImplementation(download);
+      await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+      expect(generateIllustration.mock.calls.every(c => c[3].imageSize === undefined && c[3].minRenderHeight === undefined)).toBe(true);
+    } finally {
+      fetchWithTimeout.mockReset().mockRejectedValue(new Error('offline test'));
+    }
+  });
   test('the first and later spread prompts preserve sentence gaps and the approved font target', async () => {
     const { buildCharacterPrompt } = jest.requireActual('../../../services/illustrationGenerator');
     const { expectedTextBlock } = require('../../../services/shared/illustration/textBlock');

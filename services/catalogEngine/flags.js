@@ -116,6 +116,15 @@
  *                                   sample-column guide rides instead).
  *                                   Default is ON with 4K output.
  *                                   Retries retain saved artwork and size.
+ *  - CATALOG_MIN_EMBEDDED_RENDER_HEIGHT=N — (2026-09-07) the pixel height an
+ *                                   embedded render must reach or the
+ *                                   attempt fails (illustrationGenerator's
+ *                                   resolution guard). Unset: follows the
+ *                                   requested tier (4K → 2000, 2K → 1000,
+ *                                   1K → 500; nothing requested → off).
+ *                                   0 disables; the measured size still
+ *                                   rides every callback (`renders[].size`,
+ *                                   `renderSizes`).
  *  - CATALOG_EMBEDDED_IMAGE_SIZE=2K — (ce-16, OPT-IN) request this output
  *                                   size ('1K'|'2K'|'4K') on embedded renders
  *                                   (more pixels per glyph keeps small
@@ -164,6 +173,8 @@
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
  */
+
+const { renderTierFloor } = require('../shared/illustration/renderSize');
 
 function envOff(name) {
   const v = process.env[name];
@@ -223,6 +234,11 @@ module.exports = {
   // ce-18 — the painted text's ink colour
   textInkQaEnabled: () => !envOff('CATALOG_TEXT_INK_QA'),
   textInkMaxRerenders: () => envInt('CATALOG_TEXT_INK_MAX_RERENDERS', 2, 0, 4),
+  // 2026-09-07 — the resolution floor for embedded renders (see the header).
+  minEmbeddedRenderHeight: (imageSize) => {
+    const explicit = envInt('CATALOG_MIN_EMBEDDED_RENDER_HEIGHT', -1, 0, 8000);
+    return explicit >= 0 ? explicit : renderTierFloor(imageSize);
+  },
   embeddedImageSize: () => {
     const v = String(process.env.CATALOG_EMBEDDED_IMAGE_SIZE || '').trim().toUpperCase();
     return v === '1K' || v === '2K' || v === '4K' ? v : null;
