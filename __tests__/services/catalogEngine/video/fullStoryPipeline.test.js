@@ -44,7 +44,21 @@ test('all 12 scenes reach the final film; only character dialogue is lip-synced'
 
 test('missing spoken words stop the film before any animation is purchased', async () => {
   renderChunk.mockResolvedValue({ transcript: 'Goodbye.', qa: {}, unresolved: false });
-  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_audio_unresolved' });
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_audio_unresolved',
+    message: expect.stringContaining('at word 1: manuscript "hello"; transcript "goodbye"'),
+  });
+  expect(generateCandidates).not.toHaveBeenCalled();
+});
+
+test.each([
+  ['Hello again.', 'Hello.', 'at word 2: manuscript "again"; transcript "(end of passage)"'],
+  ['Hello.', 'Hello again.', 'at word 2: manuscript "(end of passage)"; transcript "again"'],
+  ['Hello.', '', 'at word 1: manuscript "hello"; transcript "(end of passage)"'],
+])('mismatch errors identify the first differing words including truncated passages', async (text, transcript, detail) => {
+  const direction = await directScript();
+  direction.script.turns[0].text = text;
+  renderChunk.mockResolvedValue({ transcript, qa: { blocking: ['narration text mismatch'] }, unresolved: true });
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ message: expect.stringContaining(detail) });
   expect(generateCandidates).not.toHaveBeenCalled();
 });
 

@@ -42,7 +42,17 @@ function requireVerifiedSpeech(take, turn, speaker) {
   if (!unavailable && !take.unresolved && !defects.length) return;
   if (unavailable) defects.push('audio verification unavailable');
   if (!defects.length) defects.push('unresolved audio take');
-  const reason = unavailable ? 'audio verification was unavailable; the recording was not approved' : defects.join('; ');
+  let reason = unavailable ? 'audio verification was unavailable; the recording was not approved' : defects.join('; ');
+  if (!unavailable && expected !== heard) {
+    const sourceWords = expected ? expected.split(' ') : [];
+    const heardWords = heard ? heard.split(' ') : [];
+    let offset = 0;
+    while (offset < sourceWords.length && offset < heardWords.length && sourceWords[offset] === heardWords[offset]) offset++;
+    const excerpt = words => JSON.stringify(words.slice(offset, offset + 4).join(' ').slice(0, 100) || '(end of passage)');
+    // The human-readable error survives older callback consumers that drop
+    // passage diagnostics. Say transcript, not audio: STT may be mistaken.
+    reason += ` at word ${offset + 1}: manuscript ${excerpt(sourceWords)}; transcript ${excerpt(heardWords)}`;
+  }
   const err = filmError(`Spread ${turn.spread}, passage ${turn.index + 1} (${speaker}): ${reason}. Retry video to resume; approved passages are kept.`, unavailable ? 'film_audio_verification_unavailable' : 'film_audio_unresolved');
   err.details = { unresolved: [{
     spread: turn.spread, passage: turn.index + 1, speaker, defects,
