@@ -258,4 +258,26 @@ module.exports = {
   videoMaxClipSeconds: () => envInt('CATALOG_VIDEO_MAX_CLIP_SECONDS', 30, 0, 600),
   videoShipOnExhaustion: () => envOn('CATALOG_VIDEO_SHIP_ON_EXHAUSTION'),
   videoMusic: () => String(process.env.CATALOG_VIDEO_MUSIC || 'none').trim() || 'none',
+  // cb-1 — the coloring book (docs/COLORING_BOOK_V2_PLAN.md §5.4). Every
+  // switch is a kill-switch (on by default) except the explicit opt-ins.
+  coloringBookEnabled: () => !envOff('CATALOG_COLORING_BOOK'),
+  coloringCandidates: () => envInt('CATALOG_COLORING_CANDIDATES', 2, 1, 3),
+  coloringMaxRepairs: () => envInt('CATALOG_COLORING_MAX_REPAIRS', 2, 0, 4),
+  coloringMomentWriterEnabled: () => !envOff('CATALOG_COLORING_MOMENT_WRITER'),
+  coloringSheetCandidates: () => envInt('CATALOG_COLORING_SHEET_CANDIDATES', 3, 1, 4),
+  coloringSheetRequired: () => !envOff('CATALOG_COLORING_SHEET_REQUIRED'),
+  coloringContactQaEnabled: () => !envOff('CATALOG_COLORING_CONTACT_QA'),
+  coloringContactMaxRerenders: () => envInt('CATALOG_COLORING_CONTACT_MAX_RERENDERS', 3, 0, 6),
+  coloringStrokeGateEnabled: () => !envOff('CATALOG_COLORING_STROKE_GATE'),
+  coloringStrokeMaxRerenders: () => envInt('CATALOG_COLORING_STROKE_MAX_RERENDERS', 2, 0, 4),
+  coloringImageSize: () => {
+    const v = String(process.env.CATALOG_COLORING_IMAGE_SIZE || '2K').trim().toUpperCase();
+    return v === '1K' || v === '2K' || v === '4K' ? v : '2K';
+  },
+  coloringDespeckleEnabled: () => !envOff('CATALOG_COLORING_DESPECKLE'),
+  coloringCaptionsEnabled: () => !envOff('CATALOG_COLORING_CAPTIONS'),
+  // 0 = the band's default page count (plan.js PAGES_BY_BAND).
+  coloringPages: () => envInt('CATALOG_COLORING_PAGES', 0, 8, 28),
+  coloringShipOnExhaustion: () => envOn('CATALOG_COLORING_SHIP_ON_EXHAUSTION'),
+  coloringTimeoutMinutes: () => envInt('CATALOG_COLORING_TIMEOUT_MINUTES', 30, 5, 90),
 };

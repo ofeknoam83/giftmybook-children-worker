@@ -281,6 +281,24 @@ const QA_VERSION = 'qa-12';
  */
 const VIDEO_VERSION = 'gv-2';
 
+/**
+ * Coloring-book version (cb-1 — docs/COLORING_BOOK_V2_PLAN.md §5.4) — owns
+ * the page cache namespace (`children-jobs/{bookId}/coloring/{COLORING_VERSION}/…`)
+ * and the line-sheet / border-plate election paths under `catalog-assets/`.
+ * Bump on ANY change to the scene grammar, the moment templates, the
+ * LINE_RULES spec, a prompt block, the reference-pack order, or the layout
+ * geometry: cb-(N-1) pages must never replay as cb-N.
+ */
+const COLORING_VERSION = 'cb-1';
+
+/**
+ * Coloring page-QA verdict version — written into every page's `.qa.json`
+ * marker (the verdict fields, the defect vocabulary and the metric
+ * thresholds). A replay whose marker predates it re-checks the cached
+ * page instead of trusting an older checker's verdict.
+ */
+const COLORING_QA_VERSION = 'cq-1';
+
 module.exports = {
   WRITER_ENGINE_VERSION,
   AGE_ENGINE_VERSION,
@@ -292,4 +310,6 @@ module.exports = {
   SCENE_INTEGRATION_VERSION,
   QA_VERSION,
   VIDEO_VERSION,
+  COLORING_VERSION,
+  COLORING_QA_VERSION,
 };

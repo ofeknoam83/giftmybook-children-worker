@@ -1067,6 +1067,184 @@ app.post('/v13/pick-clip', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /v13/generate-coloring-book — the coloring book (cb-1,
+// docs/COLORING_BOOK_V2_PLAN.md): companion scenes from the story world
+// authored from the catalog as a closed grammar of "beside-the-story" kinds,
+// drawn as verified LINE ART starring the book's own hero (identity through
+// the Book Bible as line-art model sheets), every page judged + measured,
+// selected among candidates, repaired within a budget, failed closed
+// (`coloring_unresolved` with the scored candidates attached), typeset for
+// Lulu (saddle-stitch 8.5×11, preflighted) with a cover built from the
+// approved cover's OWN pixels. 202 + callback; every callback key present on
+// failure. Replaces the deleted /generate-coloring-book.
+app.post('/v13/generate-coloring-book', authenticate, async (req, res) => {
+  if (!catalogEngine.flags.coloringBookEnabled()) {
+    return res.status(503).json({ success: false, error: 'the coloring book is disabled on this revision (CATALOG_COLORING_BOOK=0)', failureCode: 'coloring_disabled' });
+  }
+  const body = req.body || {};
+  const { bookId, callbackUrl, progressCallbackUrl, dispatchId } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (!callbackUrl) {
+    return res.status(400).json({ success: false, error: 'callbackUrl is required — the coloring book is delivered by callback only' });
+  }
+  if (dispatchId !== undefined && dispatchId !== null && (typeof dispatchId !== 'string' || dispatchId.length > 128)) {
+    return res.status(400).json({ success: false, error: 'dispatchId must be a string' });
+  }
+  let profile;
+  try {
+    profile = catalogEngine.normalizeProfile(body.profile);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+  const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
+  if (!storyPair) {
+    return res.status(400).json({ success: false, error: 'story {request, response} is required — the coloring book draws beside an existing validated story, never a fresh one' });
+  }
+  const { MIN_PAGES, MAX_PAGES, PAGES_BY_BAND } = require('./services/catalogEngine/coloring/plan');
+  if (body.pageCount !== undefined && body.pageCount !== null && (!Number.isInteger(body.pageCount) || body.pageCount < MIN_PAGES || body.pageCount > MAX_PAGES)) {
+    return res.status(400).json({ success: false, error: `pageCount must be an integer between ${MIN_PAGES} and ${MAX_PAGES}` });
+  }
+  if (body.pages !== undefined && body.pages !== null) {
+    const ok = Array.isArray(body.pages) && body.pages.length > 0 && body.pages.length <= MAX_PAGES
+      && body.pages.every(n => Number.isInteger(n) && n >= 1 && n <= MAX_PAGES) && new Set(body.pages).size === body.pages.length;
+    if (!ok) return res.status(400).json({ success: false, error: `pages must be a unique list of page indices between 1 and ${MAX_PAGES}` });
+  }
+  const isHttp = u => typeof u === 'string' && /^https?:\/\//i.test(u);
+  const approvedCoverUrl = isHttp(body.approvedCoverUrl) ? body.approvedCoverUrl : null;
+  const childPhotoUrl = Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls.find(isHttp) || null : null;
+  if (!approvedCoverUrl && !childPhotoUrl) {
+    return res.status(400).json({ success: false, error: 'no approvedCoverUrl and no childPhotoUrls — the pages would have no identity reference', failureCode: 'missing_identity_reference' });
+  }
+  let story;
+  try {
+    story = await resolveStory({
+      storyPair, checkpointStory: null, bookDefinitionId: null, profile,
+      sessionId: body.sessionId || bookId,
+      log: (level, msg) => console.log(`[coloring:${bookId}] ${msg}`),
+    });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message, failureCode: err.failureCode || 'invalid_story' });
+  }
+  const coloringBookDef = await catalogEngine.getBookForTag(story.request.book_id, story.request?.versions?.catalog);
+  if (!coloringBookDef) {
+    return res.status(400).json({ success: false, error: `story pins catalog '${story.request?.versions?.catalog}' which is no longer resolvable — regenerate the story`, failureCode: 'missing_book_definition' });
+  }
+  const coloringKey = coloringActiveJobKey(bookId);
+  if (activeBooks.has(coloringKey)) {
+    return res.status(409).json({ success: false, error: 'a coloring book run is already in progress for this bookId', failureCode: 'in_flight' });
+  }
+  const coloringVersion = catalogEngine.versions.COLORING_VERSION;
+  const qaVersion = catalogEngine.versions.COLORING_QA_VERSION;
+  const plannedPages = Number.isInteger(body.pageCount) ? body.pageCount : (catalogEngine.flags.coloringPages() || PAGES_BY_BAND[coloringBookDef.ageBand] || PAGES_BY_BAND['4-5']);
+  res.status(202).json({
+    success: true, bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', coloringVersion,
+    plan: { band: coloringBookDef.ageBand, pages: plannedPages },
+  });
+
+  const costTracker = new CostTracker();
+  const ctx = createBookContext(bookId, { mapKey: coloringKey, callbackUrl, progressCallbackUrl: progressCallbackUrl || null });
+  const absoluteTimer = setTimeout(() => {
+    console.error(`[coloring:${bookId}] hit the absolute timeout (${catalogEngine.flags.coloringTimeoutMinutes()} min) — aborting`);
+    ctx.abortController.abort();
+  }, catalogEngine.flags.coloringTimeoutMinutes() * 60 * 1000);
+  (async () => {
+    const started = Date.now();
+    const stable = { bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', coloringVersion, qaVersion };
+    let payload;
+    try {
+      const { generateColoringBook } = require('./services/catalogEngine/coloring');
+      const r = await generateColoringBook({
+        bookId,
+        story: story.response,
+        bookDef: coloringBookDef,
+        profile,
+        approvedCoverUrl,
+        childPhotoUrl,
+        characterDescription: typeof body.characterDescription === 'string' ? body.characterDescription : null,
+        pageCount: Number.isInteger(body.pageCount) ? body.pageCount : undefined,
+        pages: Array.isArray(body.pages) ? body.pages : undefined,
+        forceNew: !!body.forceNew,
+        costTracker,
+        onProgress: (fraction, message) => {
+          ctx.touchActivity();
+          if (progressCallbackUrl) {
+            reportProgress(progressCallbackUrl, { bookId, stage: 'coloring', progress: Math.round(Math.max(0, Math.min(1, fraction)) * 100), message, ...(dispatchId ? { dispatchId } : {}) }).catch(() => {});
+          }
+        },
+        touch: () => ctx.touchActivity(),
+        abortSignal: ctx.abortSignal,
+        log: (level, msg) => ctx.log(level, msg),
+      });
+      payload = {
+        success: true, ...stable, planHash: r.planHash, cached: !!r.cached,
+        interiorPdfUrl: r.interiorPdfUrl, coverPdfUrl: r.coverPdfUrl, coverImageUrl: r.coverImageUrl, previewImageUrls: r.previewImageUrls || [],
+        pageCount: r.pageCount, coloringPageCount: r.coloringPageCount, pages: r.pages, plan: r.plan, bookBible: r.bookBible,
+        gates: r.gates, unresolved: r.unresolved || [], preflight: r.preflight || null, ...(r.subset ? { subset: true } : {}),
+        advisories: r.advisories, warnings: r.warnings, costs: costTracker.getSummary(), elapsedMs: Date.now() - started, failureCode: null, error: null,
+      };
+      console.log(`[v13] generate-coloring-book for ${bookId}: ${r.cached ? 'replayed' : 'built'} ${r.coloringPageCount} pages in ${Date.now() - started}ms`);
+    } catch (err) {
+      console.error(`[v13] generate-coloring-book failed for ${bookId}:`, err.message);
+      const d = err.details || {};
+      payload = {
+        success: false, ...stable, planHash: d.planHash || null, cached: false,
+        interiorPdfUrl: null, coverPdfUrl: null, coverImageUrl: null, previewImageUrls: [],
+        pageCount: null, coloringPageCount: null, pages: d.pages || [], plan: d.plan || null, bookBible: d.bookBible || null,
+        gates: d.gates || { contact: null, stroke: null }, unresolved: d.unresolved || [], preflight: d.preflight || null,
+        advisories: d.advisories || [], warnings: d.warnings || [], costs: costTracker.getSummary(), elapsedMs: Date.now() - started,
+        failureCode: err.failureCode || null, error: err.message, cancelled: err.failureCode === 'cancelled' || ctx.abortSignal.aborted,
+      };
+    } finally {
+      clearTimeout(absoluteTimer);
+      removeBookContext(coloringKey);
+    }
+    await postWithRetry(callbackUrl, payload);
+  })();
+});
+
+// POST /v13/pick-coloring-candidate — promote one scored candidate page
+// (from a coloring_unresolved failure payload) to its canonical key with an
+// admin-vouched marker, so the next /v13/generate-coloring-book dispatch (no
+// forceNew) replays it into the PDFs (cb-1, mirrors /v13/pick-candidate).
+app.post('/v13/pick-coloring-candidate', authenticate, async (req, res) => {
+  if (!catalogEngine.flags.coloringBookEnabled()) {
+    return res.status(503).json({ success: false, error: 'the coloring book is disabled on this revision (CATALOG_COLORING_BOOK=0)', failureCode: 'coloring_disabled' });
+  }
+  const body = req.body || {};
+  const { bookId, storageKey } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (typeof storageKey !== 'string' || storageKey.length > 512) {
+    return res.status(400).json({ success: false, error: 'storageKey (a candidate page key of this book) is required' });
+  }
+  try {
+    const { pickColoringCandidate } = require('./services/catalogEngine/coloring/candidates');
+    const r = await pickColoringCandidate({ bookId, candidateKey: storageKey, log: (level, msg) => console.log(`[pickColoringCandidate:${bookId}] ${msg}`) });
+    return res.json({ success: true, bookId, page: r.page, storageKey: r.storageKey, renderHash: r.renderHash });
+  } catch (err) {
+    console.error(`[pickColoringCandidate:${bookId}] failed:`, err.message);
+    return res.status(err.statusCode || 500).json({ success: false, bookId, error: err.message });
+  }
+});
+
+// POST /v13/cancel-coloring-book — abort an in-flight coloring run (cb-1).
+app.post('/v13/cancel-coloring-book', authenticate, (req, res) => {
+  const { bookId } = req.body || {};
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  const ctx = activeBooks.get(coloringActiveJobKey(bookId));
+  if (!ctx) {
+    return res.status(404).json({ success: false, error: 'No active coloring book run found for this bookId' });
+  }
+  console.log(`[v13] cancel-coloring-book: aborting bookId=${bookId}`);
+  ctx.abortController.abort();
+  return res.json({ success: true, bookId, message: 'Cancellation signal sent' });
+});
+
 // POST /v13/generate-cover-image — admin probe-anchor cover for the
 // illustration feedback loop (docs/AI_ILLUSTRATION_FEEDBACK_LOOP_PLAN.md
 // §5.1): render ONLY the front-cover key art from a child photo through the
@@ -1367,330 +1545,18 @@ app.post('/regenerate-illustration', authenticate, (req, res) => {
 
 // /generate-spread removed — V2 pipeline generates sequentially, this endpoint was unused.
 
-// ── POST /generate-coloring-book ──────────────────────────────────────────────
-// Async endpoint: returns 202 immediately, processes in background, reports via callbackUrl.
-// mode=trace  (default): converts existing spread illustrations to coloring pages.
-// mode=generate: creates original coloring scenes from scenePrompts + child photo.
-app.post('/generate-coloring-book', authenticate, async (req, res) => {
-  const {
-    bookId, childName, title, illustrationUrls,
-    mode = 'trace',
-    scenePrompts, childPhotoUrl, characterDescription, characterAnchorUrl,
-    synopsis, age, sceneCount,
-    pagesOnly = false,
-    parentCoverImageUrl,
-    parentCoverMime,
-    storyMoments,
-    questionnaire,
-    callbackUrl,
-    progressCallbackUrl,
-  } = req.body;
-
-  if (!bookId) {
-    return res.status(400).json({ success: false, error: 'bookId is required' });
-  }
-
-  if (mode === 'trace') {
-    if (!Array.isArray(illustrationUrls) || illustrationUrls.length === 0) {
-      return res.status(400).json({ success: false, error: 'illustrationUrls[] is required for trace mode' });
-    }
-  } else if (mode === 'generate') {
-    if (!Array.isArray(scenePrompts) && !title) {
-      return res.status(400).json({ success: false, error: 'generate mode requires scenePrompts[] or at least title for auto-planning' });
-    }
-  } else {
-    return res.status(400).json({ success: false, error: `Invalid mode "${mode}" — use "trace" or "generate"` });
-  }
-
-  console.log(`[server] /generate-coloring-book: bookId=${bookId}, mode=${mode}, callbackUrl=${callbackUrl ? 'yes' : 'none'}`);
-
-  // Reject only if a coloring job is already in flight (not parent /generate-book — different map key)
-  const coloringKey = coloringActiveJobKey(bookId);
-  if (activeBooks.has(coloringKey)) {
-    return res.status(409).json({ success: false, error: 'Coloring book generation already in progress for this bookId' });
-  }
-
-  res.status(202).json({ success: true, bookId, status: 'generating' });
-
-  // Register with activeBooks under a dedicated key so parent book + coloring can overlap safely
-  const bookContext = createBookContext(bookId, {
-    progressCallbackUrl,
-    callbackUrl,
-    mapKey: coloringKey,
-  });
-
-  // Absolute timeout for coloring book generation
-  const absoluteTimer = setTimeout(() => {
-    console.error(`[server] Coloring book ${bookId} hit absolute timeout (${ABSOLUTE_TIMEOUT_MS / 60000} min) — aborting`);
-    bookContext.abortController.abort();
-  }, ABSOLUTE_TIMEOUT_MS);
-
-  // Background generation
-  (async () => {
-    const startMs = Date.now();
-
-    function checkCancelled() {
-      if (bookContext.abortController.signal.aborted) {
-        throw new Error('Coloring book generation cancelled');
-      }
-    }
-
-    async function reportProgress(stage, progress, message) {
-      if (!progressCallbackUrl) return;
-      const payload = { bookId, stage, progress, message };
-      fetch(progressCallbackUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-    }
-
-    try {
-      const { generateColoringPages, generateOriginalColoringPages, planColoringScenes, generateCoverArtFromParent } = require('./services/coloringBookGenerator');
-      const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
-      const { buildColoringBookPdf, buildInteriorPdf, buildCoverWrapPdf, generateCoverThumbnailPng, imageToPreviewPng } = require('./services/coloringBookLayout');
-      const { uploadBuffer } = require('./services/gcsStorage');
-
-      checkCancelled();
-      await reportProgress('planning', 0.05, 'Preparing coloring book generation');
-      bookContext.touchActivity();
-
-      let parentCoverBuffer = null;
-      let parentCoverMimeResolved = parentCoverMime || null;
-      if (parentCoverImageUrl && !pagesOnly) {
-        try {
-          const photo = await downloadPhotoAsBase64(parentCoverImageUrl);
-          parentCoverBuffer = Buffer.from(photo.base64, 'base64');
-          if (!parentCoverMimeResolved) parentCoverMimeResolved = photo.mimeType;
-          console.log(`[server] Downloaded parent cover for coloring derivation (${Math.round(parentCoverBuffer.length / 1024)}KB, ${parentCoverMimeResolved || 'unknown mime'})`);
-        } catch (err) {
-          console.warn(`[server] Could not download parent cover, will generate from scratch: ${err.message}`);
-        }
-      }
-      bookContext.touchActivity();
-
-      // Pre-download the child photo + character anchor once so they can be
-      // shared across cover generation (back cover needs the child face) and
-      // interior page generation.
-      let characterRef = null;
-      if (childPhotoUrl) {
-        try {
-          characterRef = await downloadPhotoAsBase64(childPhotoUrl);
-        } catch (err) {
-          console.warn(`[server] Could not download child photo: ${err.message}`);
-        }
-      }
-      let characterAnchor = null;
-      if (characterAnchorUrl) {
-        try {
-          characterAnchor = await downloadPhotoAsBase64(characterAnchorUrl);
-        } catch (err) {
-          console.warn(`[server] Could not download character anchor: ${err.message}`);
-        }
-      }
-      bookContext.touchActivity();
-      checkCancelled();
-
-      let coverArtPromise = null;
-      if (!pagesOnly) {
-        coverArtPromise = generateCoverArtFromParent({
-          childName, title, age, characterDescription,
-          parentCoverBuffer,
-          parentCoverMime: parentCoverMimeResolved,
-          questionnaire,
-          characterRef,
-          characterAnchor,
-        })
-          .catch(err => {
-            console.warn(`[server] Cover art generation failed, will fall back to programmatic covers: ${err.message}`);
-            return null;
-          });
-      }
-
-      let pages;
-      let totalScenes;
-
-      if (mode === 'trace') {
-        totalScenes = illustrationUrls.length;
-        await reportProgress('illustration', 0.10, `Converting ${totalScenes} illustrations to coloring pages`);
-        pages = await generateColoringPages(illustrationUrls);
-      } else {
-        let resolvedScenePrompts = scenePrompts;
-        if (!Array.isArray(resolvedScenePrompts) || resolvedScenePrompts.length === 0) {
-          await reportProgress('planning', 0.08, 'Planning coloring scenes from book story');
-          checkCancelled();
-          resolvedScenePrompts = await planColoringScenes({
-            title, synopsis, characterDescription, childName, age,
-            count: sceneCount || 12,
-            storyMoments: Array.isArray(storyMoments) ? storyMoments : undefined,
-          });
-          console.log(`[server] Planned ${resolvedScenePrompts.length} coloring scenes${Array.isArray(storyMoments) && storyMoments.length ? ` (grounded in ${storyMoments.length} parent story moments)` : ''}`);
-        }
-        totalScenes = resolvedScenePrompts.length;
-        await reportProgress('illustration', 0.10, `Generating ${totalScenes} coloring pages`);
-        bookContext.touchActivity();
-        checkCancelled();
-
-        pages = await generateOriginalColoringPages(resolvedScenePrompts, characterRef, {
-          characterDescription,
-          characterAnchor,
-          abortSignal: bookContext.abortController.signal,
-          onPageComplete: (doneCount) => {
-            bookContext.touchActivity();
-            const pct = 0.10 + (doneCount / totalScenes) * 0.65;
-            reportProgress('illustration', pct, `Coloring page ${doneCount}/${totalScenes} done`);
-          },
-        });
-      }
-
-      bookContext.touchActivity();
-      checkCancelled();
-
-      const totalPages = pages.length;
-      const successCount = pages.filter(p => p.success).length;
-      console.log(`[server] Coloring page ${mode}: ${successCount}/${totalPages} succeeded`);
-
-      await reportProgress('cover', 0.78, 'Generating cover art');
-      const coverArt = coverArtPromise ? await coverArtPromise : null;
-      const frontCoverBuffer = coverArt?.frontCoverBuffer;
-      const backCoverBuffer = coverArt?.backCoverBuffer;
-      if (coverArt) {
-        console.log(`[server] AI cover art generated — front: ${Math.round(frontCoverBuffer.length / 1024)}KB, back: ${Math.round(backCoverBuffer.length / 1024)}KB`);
-      }
-
-      bookContext.touchActivity();
-      checkCancelled();
-
-      const firstSuccessPage = pages.find(p => p.success && p.buffer);
-      const coverImageBuffer = firstSuccessPage ? firstSuccessPage.buffer : undefined;
-
-      await reportProgress('assembly', 0.82, 'Building PDFs');
-      const [legacyPdfBuffer, interiorPdfBuffer, coverPdfBuffer] = await Promise.all([
-        buildColoringBookPdf(pages, { title, childName, pagesOnly, coverImageBuffer, frontCoverBuffer }),
-        pagesOnly ? null : buildInteriorPdf(pages, { title, childName }),
-        pagesOnly ? null : buildCoverWrapPdf({ title, childName, frontCoverBuffer, backCoverBuffer, coverImageBuffer }),
-      ]);
-      console.log(`[server] Coloring book PDFs built — legacy: ${Math.round(legacyPdfBuffer.length / 1024)}KB` +
-        (interiorPdfBuffer ? `, interior: ${Math.round(interiorPdfBuffer.length / 1024)}KB` : '') +
-        (coverPdfBuffer ? `, cover: ${Math.round(coverPdfBuffer.length / 1024)}KB` : ''));
-
-      bookContext.touchActivity();
-      checkCancelled();
-
-      await reportProgress('upload', 0.88, 'Uploading files');
-      const gcsBase = `children-jobs/${bookId}/coloring`;
-      const uploadPromises = [
-        uploadBuffer(legacyPdfBuffer, `${gcsBase}/legacy.pdf`, 'application/pdf'),
-      ];
-      if (interiorPdfBuffer) {
-        uploadPromises.push(uploadBuffer(interiorPdfBuffer, `${gcsBase}/interior.pdf`, 'application/pdf'));
-      }
-      if (coverPdfBuffer) {
-        uploadPromises.push(uploadBuffer(coverPdfBuffer, `${gcsBase}/cover.pdf`, 'application/pdf'));
-      }
-
-      const pngPromises = [];
-      if (!pagesOnly && (frontCoverBuffer || coverImageBuffer)) {
-        pngPromises.push(
-          generateCoverThumbnailPng({ title, childName, frontCoverBuffer, coverImageBuffer })
-            .then(buf => uploadBuffer(buf, `${gcsBase}/cover-thumbnail.png`, 'image/png'))
-        );
-      }
-
-      const previewPages = pages.filter(p => p.success && p.buffer).slice(0, 3);
-      for (let i = 0; i < previewPages.length; i++) {
-        pngPromises.push(
-          imageToPreviewPng(previewPages[i].buffer, 800)
-            .then(buf => uploadBuffer(buf, `${gcsBase}/preview-${i + 1}.png`, 'image/png'))
-        );
-      }
-
-      const [legacyUrl, ...restUrls] = await Promise.all(uploadPromises);
-      const interiorPdfUrl = interiorPdfBuffer ? restUrls[0] : undefined;
-      const coverPdfUrl = coverPdfBuffer ? restUrls[interiorPdfBuffer ? 1 : 0] : undefined;
-
-      const pngUrls = await Promise.all(pngPromises);
-      const coverImageUrl = (!pagesOnly && (frontCoverBuffer || coverImageBuffer)) ? pngUrls[0] : undefined;
-      const previewImageUrls = pngUrls.slice(coverImageUrl ? 1 : 0);
-
-      console.log(`[server] Coloring book uploaded — legacy: ${legacyUrl.slice(0, 80)}`);
-      if (interiorPdfUrl) console.log(`[server] Interior PDF: ${interiorPdfUrl.slice(0, 80)}`);
-      if (coverPdfUrl) console.log(`[server] Cover PDF: ${coverPdfUrl.slice(0, 80)}`);
-
-      const failedErrors = pages.filter(p => !p.success).map(p => p.error).filter(Boolean);
-      const result = {
-        success: true,
-        bookId,
-        coloringBookPdfUrl: legacyUrl,
-        interiorPdfUrl,
-        coverPdfUrl,
-        coverImageUrl,
-        previewImageUrls,
-        successCount,
-        totalPages,
-        failedErrors,
-        mode,
-        elapsedMs: Date.now() - startMs,
-      };
-
-      if (callbackUrl) {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            await fetch(callbackUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify(result),
-            });
-            console.log(`[server] Coloring book callback sent to ${callbackUrl}`);
-            break;
-          } catch (cbErr) {
-            console.error(`[server] Coloring callback attempt ${attempt + 1}/3 failed: ${cbErr.message}`);
-            if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-          }
-        }
-      }
-    } catch (err) {
-      console.error(`[server] /generate-coloring-book background failed (${mode}): ${err.message}`);
-      if (callbackUrl) {
-        const isCancelled = err.message.includes('cancelled') || bookContext.abortController.signal.aborted;
-        const errorResult = { success: false, bookId, error: err.message, mode, cancelled: isCancelled, elapsedMs: Date.now() - startMs };
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            await fetch(callbackUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify(errorResult),
-            });
-            break;
-          } catch (cbErr) {
-            if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-          }
-        }
-      }
-    } finally {
-      clearTimeout(absoluteTimer);
-      removeBookContext(coloringKey);
-    }
-  })();
+// ── /generate-coloring-book, /cancel-coloring-book — DELETED (cb-1) ──────────
+// The pre-cb-1 coloring book (free-text scene invention, raw-photo identity,
+// a hard threshold as the line-art mechanism, no QA, a model-lettered pencil
+// cover) was deleted outright — docs/COLORING_BOOK_V2_PLAN.md §5.3. The
+// replacement is POST /v13/generate-coloring-book (+ /v13/pick-coloring-
+// candidate, /v13/cancel-coloring-book). 410 so a stale caller fails loudly.
+app.post('/generate-coloring-book', authenticate, (req, res) => {
+  console.warn(`[server] /generate-coloring-book rejected (deleted, cb-1) — book=${req.body?.bookId}`);
+  return res.status(410).json({ success: false, error: 'The legacy coloring book generator was deleted (cb-1). Use POST /v13/generate-coloring-book with the V1.3 inputs (story pair, profile, approvedCoverUrl).', failureCode: 'gone' });
 });
-
-// ── POST /cancel-coloring-book ──────────────────────────────────────────────
-// Cancel an in-progress coloring book generation by aborting its AbortController.
-app.post('/cancel-coloring-book', authenticate, async (req, res) => {
-  const { bookId } = req.body;
-  if (!bookId) {
-    return res.status(400).json({ success: false, error: 'bookId is required' });
-  }
-
-  const ctx = activeBooks.get(coloringActiveJobKey(bookId));
-  if (!ctx) {
-    return res.status(404).json({ success: false, error: 'No active generation found for this bookId' });
-  }
-
-  console.log(`[server] /cancel-coloring-book: aborting bookId=${bookId}`);
-  ctx.abortController.abort();
-
-  res.json({ success: true, bookId, message: 'Cancellation signal sent' });
+app.post('/cancel-coloring-book', authenticate, (req, res) => {
+  return res.status(410).json({ success: false, error: 'Deleted (cb-1). Use POST /v13/cancel-coloring-book.', failureCode: 'gone' });
 });
 
 // ── POST /finalize-book ──
@@ -2020,79 +1886,13 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
   }
 });
 
-// ── POST /rebuild-coloring-cover-pdf — Regenerate cover art + wrap PDF for a coloring book ──
-app.post('/rebuild-coloring-cover-pdf', authenticate, async (req, res) => {
-  const { bookId, title, childName, age, characterDescription, parentCoverImageUrl, parentCoverMime, questionnaire, childPhotoUrl, characterAnchorUrl } = req.body;
-  if (!bookId) {
-    return res.status(400).json({ error: 'bookId is required' });
-  }
-  try {
-    console.log(`[rebuild-coloring-cover-pdf] Starting for book ${bookId}`);
-    const { generateCoverArtFromParent } = require('./services/coloringBookGenerator');
-    const { buildCoverWrapPdf, generateCoverThumbnailPng } = require('./services/coloringBookLayout');
-
-    let parentCoverBuffer = null;
-    let parentCoverMimeResolved = parentCoverMime || null;
-    if (parentCoverImageUrl) {
-      try {
-        const photo = await downloadPhotoAsBase64(parentCoverImageUrl);
-        parentCoverBuffer = Buffer.from(photo.base64, 'base64');
-        if (!parentCoverMimeResolved) parentCoverMimeResolved = photo.mimeType;
-        console.log(`[rebuild-coloring-cover-pdf] Downloaded parent cover (${Math.round(parentCoverBuffer.length / 1024)}KB, ${parentCoverMimeResolved || 'unknown mime'})`);
-      } catch (err) {
-        console.warn(`[rebuild-coloring-cover-pdf] Could not download parent cover, generating from scratch: ${err.message}`);
-      }
-    }
-
-    // Pull the child photo + optional character anchor so the back cover's
-    // pencil sketch can feature the same child face as the chosen front cover.
-    let characterRef = null;
-    if (childPhotoUrl) {
-      try { characterRef = await downloadPhotoAsBase64(childPhotoUrl); }
-      catch (err) { console.warn(`[rebuild-coloring-cover-pdf] child photo fetch failed: ${err.message}`); }
-    }
-    let characterAnchor = null;
-    if (characterAnchorUrl) {
-      try { characterAnchor = await downloadPhotoAsBase64(characterAnchorUrl); }
-      catch (err) { console.warn(`[rebuild-coloring-cover-pdf] character anchor fetch failed: ${err.message}`); }
-    }
-
-    const coverArt = await generateCoverArtFromParent({
-      childName, title, age, characterDescription,
-      parentCoverBuffer,
-      parentCoverMime: parentCoverMimeResolved,
-      questionnaire,
-      characterRef,
-      characterAnchor,
-    });
-    const frontCoverBuffer = coverArt?.frontCoverBuffer;
-    const backCoverBuffer = coverArt?.backCoverBuffer;
-    if (frontCoverBuffer) {
-      console.log(`[rebuild-coloring-cover-pdf] Cover art generated — front: ${Math.round(frontCoverBuffer.length / 1024)}KB, back: ${Math.round((backCoverBuffer?.length || 0) / 1024)}KB`);
-    }
-
-    const coverPdfBuffer = await buildCoverWrapPdf({ title: title || 'My Coloring Book', childName: childName || '', frontCoverBuffer, backCoverBuffer });
-    if (!coverPdfBuffer) throw new Error('buildCoverWrapPdf returned no buffer');
-
-    const gcsBase = `children-jobs/${bookId}/coloring`;
-    await uploadBuffer(coverPdfBuffer, `${gcsBase}/cover.pdf`, 'application/pdf');
-    const coverPdfUrl = await getSignedUrl(`${gcsBase}/cover.pdf`, 30 * 24 * 60 * 60 * 1000);
-
-    let coverImageUrl;
-    try {
-      const thumbnailPng = await generateCoverThumbnailPng({ title: title || 'My Coloring Book', childName: childName || '', frontCoverBuffer });
-      await uploadBuffer(thumbnailPng, `${gcsBase}/cover-thumbnail.png`, 'image/png');
-      coverImageUrl = await getSignedUrl(`${gcsBase}/cover-thumbnail.png`, 30 * 24 * 60 * 60 * 1000);
-    } catch (err) {
-      console.warn(`[rebuild-coloring-cover-pdf] Thumbnail generation failed (non-fatal): ${err.message}`);
-    }
-
-    console.log(`[rebuild-coloring-cover-pdf] Done for book ${bookId}`);
-    return res.json({ success: true, coverPdfUrl, coverImageUrl });
-  } catch (err) {
-    console.error(`[rebuild-coloring-cover-pdf] Error:`, err.message);
-    return res.status(500).json({ error: err.message });
-  }
+// ── POST /rebuild-coloring-cover-pdf — DELETED (cb-1) ─────────────────────────
+// The coloring cover is no longer a model output: it is built from the
+// approved cover's OWN pixels by /v13/generate-coloring-book, and a re-dispatch
+// (no forceNew) replays every page and rebuilds both PDFs for free.
+app.post('/rebuild-coloring-cover-pdf', authenticate, (req, res) => {
+  console.warn(`[server] /rebuild-coloring-cover-pdf rejected (deleted, cb-1) — book=${req.body?.bookId}`);
+  return res.status(410).json({ success: false, error: 'Deleted (cb-1). Re-dispatch POST /v13/generate-coloring-book (without forceNew) to rebuild the PDFs from the cached pages.', failureCode: 'gone' });
 });
 
 // ── POST /manage-checkpoint — Read or reset a book checkpoint ──

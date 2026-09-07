@@ -21,6 +21,10 @@ const RATES = {
   // Requested 4K output: 2,520 image tokens at $60/M (Google pricing,
   // 2026-09-06). Image-output estimate only; excludes input/thinking tokens.
   'gemini-3.1-flash-image:4K': { perImage: 0.1512 },
+  // Requested 2K output (cb-1 coloring pages default): ~1,120 image tokens
+  // at $60/M — verify against Google's published 2K token count before
+  // invoicing (the 4K entry above is the measured reference).
+  'gemini-3.1-flash-image:2K': { perImage: 0.0672 },
   'gemini-2.5-flash-image': { perImage: 0.02 },
   // The v3 illustrator's default renderer (sheet + spread renders). Placeholder
   // rate pending published pro-tier image pricing — confirm before invoicing
