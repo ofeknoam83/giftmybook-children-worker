@@ -183,7 +183,19 @@ const PROMPT_TEMPLATE_VERSION = '1.4.0'; // 1.4.0: repair prompt fixes a missing
 // pages replay and only the pages the qa-12 checker rejects re-render.
 // Bumping this constant would re-render every caption/half/embedded book
 // in flight for a prompt change that touches embedded text only.
-const STYLE_VERSION = 'ce-19';
+// ce-20 (2026-09-07): THE WHOLE BODY. A savanna book's kneeling child shipped
+// with her body ending at the hem of her shorts — no lower legs, no feet,
+// the ground plane swallowing them — and every prompt line and QA field was
+// satisfied: the rules only ever COUNTED limbs. The ANATOMY rule now states
+// the body is COMPLETE for its pose and GROUNDED (a kneeling/crouching/
+// sitting child shows the lower legs and feet on the ground beside or behind
+// them; never ending at a hem, never sunk into the ground, never floating;
+// only the image edge or a real object may hide part of it) and jointed like
+// a real child's (no twisted, reversed or rubbery limbs), the checklist's
+// LEG COUNT became LEGS AND FEET, and every shot-plan directive carries a
+// fixed BODY line beside FACE. Prompt assembly changed on every spread —
+// ce-19 renders must never replay as ce-20.
+const STYLE_VERSION = 'ce-20';
 
 // Prompt-only revision, logged on fresh spread requests. Keep the render cache
 // namespace stable so deploying this direction never regenerates saved artwork.
@@ -286,7 +298,19 @@ const SCENE_INTEGRATION_VERSION = 'si-1';
  * ink" the set gate elected was the night forest). Markers written under
  * qa-12 never measured either — replays re-check.
  */
-const QA_VERSION = 'qa-13';
+/**
+ * qa-14 (ce-20, 2026-09-07): the whole body is judged, not counted. The
+ * v2 verdict gains two STRICT blocking-class fields — `body_truncated`
+ * (the body ends INSIDE the image where the pose needs more of it: a
+ * kneeling or sitting child with no lower legs or feet, the body stopping
+ * at a hem/waist, sunk into or merged with the ground, floating; a body
+ * cut by the image EDGE is framing, not truncation) and
+ * `limb_pose_impossible` (a limb bent, twisted, reversed or proportioned
+ * past what a child's joints allow) — each its own fixed BLOCKING defect
+ * with its own repair note (BODY REPAIR / LIMB REPAIR). qa-13 markers never
+ * asked either question — replays re-check.
+ */
+const QA_VERSION = 'qa-14';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

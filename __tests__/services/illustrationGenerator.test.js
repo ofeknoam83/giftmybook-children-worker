@@ -465,3 +465,21 @@ test('character likeness permits scene lighting and shares the environment rende
   expect(prompt).not.toContain('studio key-fill-rim setup');
   expect(prompt).toContain('FACE must have the same bone structure');
 });
+
+describe('the whole body is a rule, not a count (ce-20)', () => {
+  test('every spread prompt states the body is complete for its pose, grounded, and jointed naturally — legacy and bible mode alike', () => {
+    const legacy = buildCharacterPrompt('A savanna path.', 'pixar_premium', 'Ziv', 'Ziv set the marker there.', 'purple t-shirt, denim shorts', null, null, null, { isSpread: true, spreadIndex: 4, totalSpreads: 12 });
+    const bible = buildCharacterPrompt('A savanna path.', 'pixar_premium', 'Ziv', 'Ziv set the marker there.', null, null, null, null, {
+      isSpread: true, spreadIndex: 4, totalSpreads: 12,
+      bible: { characterSheetRef: 1, coverRef: 2, outfitSpecText: 'Top: purple t-shirt. Bottom: denim shorts. Footwear: brown sandals.' },
+    });
+    for (const prompt of [legacy, bible]) {
+      expect(prompt).toContain('WHOLE BODY, GROUNDED: every part of the body this pose and framing would show is drawn.');
+      expect(prompt).toContain('A kneeling, crouching, sitting or bending child shows the knees AND the lower legs and feet on the ground beside or behind them');
+      expect(prompt).toContain('NEVER sinks into or merges with the ground');
+      expect(prompt).toContain('NATURAL JOINTS: every arm and leg bends only the way a real child\'s joints allow');
+      expect(prompt).toContain('4. LEGS AND FEET: exactly 2 legs, drawn down to the feet');
+      expect(prompt).not.toContain('LEG COUNT');
+    }
+  });
+});
