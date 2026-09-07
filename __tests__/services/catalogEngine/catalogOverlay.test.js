@@ -186,16 +186,33 @@ describe('plot retirement (soft delete — gone from selection, kept for stored 
     expect(overlaySummary(overlay).retired).toBe(1);
   });
 
-  it('retirement may never drop a band below one full selection slate', () => {
+  it.each([0, 1, 2])('allows a band with %i active books while preserving retired definitions', (activeCount) => {
     const band = base.themes.enchanted_forest.age_bands['1-3'].map(b => b.id);
     const overlay = {
       base_version: base.version,
-      patches: { books: Object.fromEntries(band.slice(0, 2).map(id => [id, { retired: true }])) },
+      patches: { books: Object.fromEntries(band.slice(activeCount).map(id => [id, { retired: true }])) },
     };
-    // 4 books minus 2 = 2 active < 3 → the merged-catalog gate refuses.
-    expect(() => catalog.applyCatalogOverlay(overlay, 'deadbee1'))
-      .toThrow(/only 2 active book\(s\)/);
-    expect(catalog.eligibleBooks('enchanted_forest', '1-3').length).toBe(4); // untouched
+    catalog.applyCatalogOverlay(overlay, overlayHash(overlay).slice(0, 8));
+    expect(catalog.validateCatalog(catalog.loadCatalog())).toEqual([]);
+    expect(catalog.eligibleBooks('enchanted_forest', '1-3').map(b => b.id)).toEqual(band.slice(0, activeCount));
+    expect(catalog.listThemes().find(t => t.themeId === 'enchanted_forest').bandCounts['1-3']).toBe(activeCount);
+    for (const id of band) expect(catalog.getBook(id)).not.toBeNull();
+
+    const { selectBooks } = require('../../../services/catalogEngine/selection');
+    const { normalizeProfile } = require('../../../services/catalogEngine/profile');
+    const params = {
+      profile: normalizeProfile({ name: 'Emma', age: 2, pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' } }),
+      themeId: 'enchanted_forest', ageBand: '1-3', sessionId: 'small_band',
+    };
+    if (activeCount === 0) {
+      expect(() => selectBooks(params)).toThrow(/No active stories/);
+      try { selectBooks(params); } catch (err) { expect(err.statusCode).toBe(422); }
+    } else {
+      const selection = selectBooks(params);
+      expect(selection.candidates).toHaveLength(activeCount);
+      expect(new Set(selection.candidates.map(c => c.bookId))).toEqual(new Set(band.slice(0, activeCount)));
+      expect(selectBooks(params)).toEqual(selection);
+    }
   });
 
   it('a retired book refuses FRESH generation even when addressed by id', () => {

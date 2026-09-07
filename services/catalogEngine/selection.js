@@ -135,7 +135,8 @@ function scoreBook(profile, book) {
 }
 
 /**
- * Select `count` distinct candidate books for a child.
+ * Select up to `count` distinct candidate books for a child.
+ * A fully retired band is unavailable for new selection.
  *
  * Ordering: score desc, then stable book id asc; ties within a score group
  * are shuffled with the seeded PRNG. Diversity: prefer distinct archetypes
@@ -151,6 +152,11 @@ function scoreBook(profile, book) {
  */
 function selectBooks({ profile, themeId, ageBand, sessionId, count = 3 }) {
   const books = eligibleBooks(themeId, ageBand);
+  if (books.length === 0) {
+    const err = new Error('No active stories are available for this theme and age group. Please choose another theme.');
+    err.statusCode = 422;
+    throw err;
+  }
   const fitRanking = flags.fitRankingEnabled();
   const seed = fnv1a(`${sessionId}|${catalogVersion()}|${SELECTOR_VERSION}`);
   const rand = mulberry32(seed);

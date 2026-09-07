@@ -19,10 +19,8 @@ const AGE_ENGINES_PATH = path.join(__dirname, 'data', 'ageEngines.json');
 const EXPECTED_BANDS = ['1-3', '4-5', '6-7', '8-10'];
 const EXPECTED_THEMES = 12;
 const EXPECTED_BOOKS = 228;
-// Selection offers a slate of 3 candidates, so retirement (Catalog Studio's
-// soft delete — definition kept, removed from selection) may never leave a
-// theme/band with fewer active books than one full slate.
-const MIN_ACTIVE_PER_BAND = 3;
+// Retirement may leave any number of active books, including zero.
+// Selection offers up to 3; definitions remain for stored stories.
 
 /** Internal caches (populated on first load). */
 let _catalog = null;
@@ -59,10 +57,6 @@ function validateCatalog(catalog) {
       errors.push(`${themeId}: wrong age bands [${bandKeys.join(',')}]`);
     }
     for (const [bandKey, books] of Object.entries(bands)) {
-      const active = books.filter(b => !b.retired).length;
-      if (active < MIN_ACTIVE_PER_BAND) {
-        errors.push(`${themeId}/${bandKey}: only ${active} active book(s) — retirement may not drop a band below ${MIN_ACTIVE_PER_BAND} (one full selection slate)`);
-      }
       for (const book of books) {
         count += 1;
         if (!book.id || seen.has(book.id)) errors.push(`duplicate or missing book id: ${book.id}`);

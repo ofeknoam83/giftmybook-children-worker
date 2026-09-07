@@ -245,6 +245,30 @@ describe('POST /v13/select-books', () => {
     expect(res.status).toBe(400);
   });
 
+  test.each([0, 1, 2])('handles selection from a band with %i active books', async (activeCount) => {
+    const catalog = require('../services/catalogEngine/catalog');
+    const base = catalog.baseCatalog();
+    const ids = base.themes.space.age_bands['4-5'].map(b => b.id);
+    const overlay = { base_version: base.version, patches: {
+      books: Object.fromEntries(ids.slice(activeCount).map(id => [id, { retired: true }])),
+    } };
+    try {
+      catalog.applyCatalogOverlay(overlay, 'small123');
+      const res = await request(app).post('/v13/select-books').set('x-api-key', 'test-api-key')
+        .send({ themeId: 'space', sessionId: 'sess_small_band', profile });
+      expect(res.status).toBe(activeCount === 0 ? 422 : 200);
+      if (activeCount === 0) {
+        expect(res.body.success).toBe(false);
+        expect(res.body.error).toMatch(/No active stories/);
+      } else {
+        expect(res.body.selection.candidates).toHaveLength(activeCount);
+        expect(new Set(res.body.selection.candidates.map(c => c.bookId))).toEqual(new Set(ids.slice(0, activeCount)));
+      }
+    } finally {
+      catalog.resetCatalogOverlay();
+    }
+  });
+
   test('rejects invalid profile age', async () => {
     const res = await request(app)
       .post('/v13/select-books')
