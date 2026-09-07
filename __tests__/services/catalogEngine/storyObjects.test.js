@@ -133,6 +133,80 @@ function bellsFixture() {
   return { p, complete, incomplete };
 }
 
+test.each([false, true])('recovers an empty occurrence from the sole defined group without changing visibility (%s)', async required => {
+  const { p, complete } = bellsFixture();
+  complete.objects[0].occurrences[0].required = required;
+  const invalid = JSON.parse(JSON.stringify(complete));
+  invalid.objects[0].occurrences[0].instanceIds = [];
+  fetchWithTimeout.mockResolvedValue(response(invalid));
+  const result = await resolveStoryObjects(p);
+  expect(result.objects).toEqual(complete.objects);
+  expect(invalid.objects[0].occurrences[0].instanceIds).toEqual([]);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+  expect((await resolveStoryObjects(p)).hash).toBe(result.hash);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+});
+
+test('recovers a sole individual instance without inventing another identity', async () => {
+  const p = plan();
+  p.objects[0].instances = p.objects[0].instances.slice(0, 1);
+  p.objects[0].occurrences.forEach(o => { o.instanceIds = []; o.multiplicity = 'single'; });
+  fetchWithTimeout.mockResolvedValue(response(p));
+  const result = await resolveStoryObjects(params());
+  expect(result.objects[0].occurrences.every(o => o.instanceIds.length === 1 && o.instanceIds[0] === 'third')).toBe(true);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+});
+
+test('empty instance lists remain invalid in elected manifests', async () => {
+  const { p, complete } = bellsFixture();
+  complete.objects[0].occurrences[0].instanceIds = [];
+  expect(() => validatePlan(complete, inputsFor(p))).toThrow('Missing object instance on spread 1: forest_bells');
+  const inputHash = hash(inputsFor(p));
+  storage.set(`catalog-assets/story-objects/so-1/${inputHash}.json`, Buffer.from(JSON.stringify({ inputHash, plan: complete })));
+  await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+  expect(fetchWithTimeout).not.toHaveBeenCalled();
+  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+});
+
+test('ambiguous empty assignments and evidence are repaired together with all valid state preserved', async () => {
+  const invalid = plan();
+  invalid.objects[0].occurrences[3].instanceIds = [];
+  invalid.objects[0].occurrences[3].evidence = 'Invented quotation';
+  invalid.objects[0].occurrences[4].instanceIds = [];
+  fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(plan()));
+  const result = await resolveStoryObjects(params());
+  expect(result.objects).toEqual(plan().objects);
+  const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
+  expect(prompt).toContain('Missing object instance on spread 4: route_marker');
+  expect(prompt).toContain('Missing object instance on spread 5: route_marker');
+  expect(prompt).toContain('"allowedInstanceIds":["third","others"]');
+  expect(prompt).toContain('Ungrounded object occurrence on spread 4');
+  expect(uploadBufferIfAbsent).toHaveBeenCalledTimes(1);
+});
+
+test.each(['empty', 'unknown', 'invented', 'state', 'required', 'multiplicity', 'design', 'other occurrence', 'drop'])('instance repair rejects %s changes', async kind => {
+  const invalid = plan();
+  invalid.objects[0].occurrences[3].instanceIds = [];
+  const retry = plan();
+  const o = retry.objects[0].occurrences[3];
+  if (kind === 'empty') o.instanceIds = [];
+  if (kind === 'unknown') o.instanceIds = ['unknown'];
+  if (kind === 'invented') {
+    retry.objects[0].instances.push({ id: 'new_marker', description: 'Invented replacement' });
+    o.instanceIds = ['new_marker'];
+  }
+  if (kind === 'state') o.state = 'A different physical state';
+  if (kind === 'required') o.required = false;
+  if (kind === 'multiplicity') o.multiplicity = 'group';
+  if (kind === 'design') retry.objects[0].design.colors = 'Blue';
+  if (kind === 'other occurrence') retry.objects[0].occurrences[2].instanceIds = ['others'];
+  if (kind === 'drop') retry.objects = [];
+  fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(retry));
+  await expect(resolveStoryObjects(params())).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+});
+
 test('forest_bells spread 9 is repaired with error feedback and can remain off-screen', async () => {
   const { p, complete, incomplete } = bellsFixture();
   expect(() => validatePlan(incomplete, inputsFor(p))).toThrow('Object occurrence omitted on spread 9: forest_bells');
