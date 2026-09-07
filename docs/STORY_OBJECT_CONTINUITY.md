@@ -20,6 +20,8 @@ The planner supports up to six object families, twelve instances per family and 
 
 ## Retries, review and rollout
 
+- Story-object references get up to three image candidates: a two-view reference, one corrective retry, then a fresh unlabelled single-view portrait. The portrait retains the same fixed design and must pass content/design QA, with exactly one complete object. Design-specified parts and contents count as parts of that object; separate family instances still count separately. A plural family name never requests the entire group. A transient unavailable QA verdict gets one retry on the same image before failing closed. Personal props and companions retain their existing two-candidate policy.
+- Failed references are not elected. Existing verified sheets and object plans retain their cache identities, so a checkpoint retry can recover a missing reference without changing the story or replacing successful references. Generation errors include the underlying reference rejection when available in the sheet log.
 - The object-plan hash enters the Book Bible/render namespace and each spread's QA record. A changed plan cannot reuse older approval. Current QA records retain the per-object verdicts; unchanged retries reuse the existing pixels.
 - Older or unverified object QA is checked again. Reviewed artwork whose pixels change during lettering repair is rechecked for object state as well.
 - The admin Book Bible exposes story-object sheets through the existing Props list; its JSON also contains the full plan, occurrence evidence and storage identity. Probe callbacks report critical failures through existing advisories/unresolved fields.

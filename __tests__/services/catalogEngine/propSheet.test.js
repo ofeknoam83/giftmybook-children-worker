@@ -738,6 +738,50 @@ describe('getBibleProps', () => {
 
 describe('fixed story-object reference designs', () => {
   const definition = () => ({ id: 'marker', name: 'route marker', design: { shape: 'narrow post', material: 'wood', colors: 'brown and orange', scale: 'knee high', features: 'one stripe on the front only' } });
+  const nests = () => ({ id: 'nests', name: 'hidden nests', design: { shape: 'shallow round bowl', material: 'woven straw', colors: 'golden brown', scale: 'hen-sized', features: 'a hollow center with pale eggs' } });
+  test('text and extra subjects recover through a verified single-view reference', async () => {
+    const { mod, fetch, gcs } = fresh();
+    const verdicts = [
+      { ...CLEAN_QA, design_matches: true, readable_text: true },
+      { ...CLEAN_QA, design_matches: true, readable_text: true, subject_count: 6 },
+      { ...CLEAN_QA, design_matches: true, subject_count: 1 },
+    ];
+    fetch.mockImplementation(transport({ qa: () => verdicts.shift() }));
+    const costTracker = { addImageGeneration: jest.fn() };
+    const sheet = await mod.getPropSheet({ kind: 'prop', value: 'Story object: hidden nests', definition: nests(), theme: FARM, costTracker, log: quiet });
+    expect(sheet).not.toBeNull();
+    expect(sheet.specText).toContain('woven straw');
+    expect(imageCalls(fetch)).toHaveLength(3);
+    expect(costTracker.addImageGeneration).toHaveBeenCalledTimes(3);
+    const fallback = promptOf(imageCalls(fetch)[2]);
+    expect(fallback).toContain('exactly ONE representative object, ONCE');
+    expect(fallback).not.toContain('twice side by side');
+    expect(fallback).toContain(JSON.stringify(nests().design));
+    expect(promptOf(qaCalls(fetch)[2])).toContain('not their constituent parts');
+    expect(gcs.uploadBufferIfAbsent.mock.calls.filter(c => c[1].endsWith('.png'))).toHaveLength(1);
+  });
+  test.each([
+    { readable_text: true }, { subject_count: 2 }, { design_matches: false }, { people_present: true },
+  ])('a defective portrait is never elected and retries stay bounded: %p', async defect => {
+    const { mod, fetch, gcs } = fresh();
+    let call = 0;
+    fetch.mockImplementation(transport({ qa: () => ++call < 3
+      ? { ...CLEAN_QA, design_matches: true, readable_text: true }
+      : { ...CLEAN_QA, subject_count: 1, design_matches: true, ...defect } }));
+    const params = { kind: 'prop', value: 'Story object: hidden nests', definition: nests(), theme: FARM, log: quiet };
+    expect(await mod.getPropSheet(params)).toBeNull();
+    expect(await mod.getPropSheet(params)).toBeNull(); // cooldown avoids more paid attempts
+    expect(imageCalls(fetch)).toHaveLength(3);
+    expect(gcs.uploadBufferIfAbsent).not.toHaveBeenCalled();
+  });
+  test('a transient malformed QA response retries the same image before spending on another', async () => {
+    const { mod, fetch } = fresh();
+    let call = 0;
+    fetch.mockImplementation(transport({ qa: () => ++call === 1 ? {} : { ...CLEAN_QA, design_matches: true } }));
+    expect(await mod.getPropSheet({ kind: 'prop', value: 'Story object: hidden nests', definition: nests(), theme: FARM, log: quiet })).not.toBeNull();
+    expect(imageCalls(fetch)).toHaveLength(1);
+    expect(qaCalls(fetch)).toHaveLength(2);
+  });
   test('design rides generation and verification; changing it rekeys the sheet', async () => {
     const { mod, fetch } = fresh();
     fetch.mockImplementation(transport({ qa: { ...CLEAN_QA, design_matches: true } }));
