@@ -1,4 +1,5 @@
 const fs = require('fs');
+jest.mock('../../../../services/catalogEngine/audio/geminiAudio', () => ({ judgeAudio: jest.fn() }));
 jest.mock('../../../../services/gcsStorage', () => ({ uploadBuffer: jest.fn(async (_b, k) => `https://stored/${k}`), downloadBuffer: jest.fn(async () => null), loadJson: jest.fn(async () => null), saveJson: jest.fn(async () => {}), objectExists: jest.fn(async () => false), getSignedUrl: jest.fn(async k => `https://signed/${k}`) }));
 jest.mock('../../../../services/illustrationGenerator', () => ({ downloadPhotoAsBase64: jest.fn(async () => ({ base64: 'cmVm', mimeType: 'image/png' })), getNextApiKey: jest.fn() }));
 jest.mock('../../../../services/catalogEngine/illustrator', () => ({ renderStorySpreads: jest.fn() }));
@@ -48,6 +49,20 @@ test('missing spoken words stop the film before any animation is purchased', asy
     message: expect.stringContaining('at word 1: manuscript "hello"; transcript "goodbye"'),
   });
   expect(generateCandidates).not.toHaveBeenCalled();
+});
+
+test('the film accepts a homophone only with verification bound to that exact recording and manuscript', async () => {
+  const { judgeAudio } = require('../../../../services/catalogEngine/audio/geminiAudio');
+  const { verifySpellingAmbiguity } = require('../../../../services/catalogEngine/audio/exactSpeech');
+  const direction = await directScript();
+  direction.script.turns[0].text = 'Follow route markers.';
+  const buffer = encodeWav(new Float32Array(24000).fill(0.1), 24000);
+  judgeAudio.mockResolvedValue({ json: { complete_recording: true, decisions: [{ index: 1, same_pronunciation: true }] } });
+  const textVerification = await verifySpellingAmbiguity({ expectedText: 'Follow route markers.', transcript: 'Follow root markers.', wav: buffer, language: 'en' });
+  renderChunk.mockResolvedValueOnce({ buffer, measure: { trim: { start: 0, end: 1 }, lufs: -20 },
+    transcript: 'Follow root markers.', textVerification, qa: { blocking: [] }, takeHash: 'take', storageKey: 'take.wav' });
+  expect((await generateFullStoryFilm(input())).video.durationSeconds).toBe(36);
+  expect(generateCandidates).toHaveBeenCalledTimes(12);
 });
 
 test.each([

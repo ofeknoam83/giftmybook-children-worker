@@ -100,3 +100,16 @@ over 30 seconds preserves its last audio segment and expected total duration:
 FFMPEG_PATH=/path/to/ffmpeg npm test -- --runInBand --no-coverage \
   __tests__/services/catalogEngine/video/filmMedia.integration.test.js
 ```
+## Spoken spelling ambiguity
+
+The complete-text gate compares every word in order. A bounded, same-recording
+audio check can resolve up to four spelling substitutions when the word counts
+match and the sequence was not reordered. The checker must confirm that each
+substitution has the same pronunciation in context and that the complete passage
+is audible. Missing/extra words, other audio defects, uncertainty, and failed
+checks remain blocked. There is no edit-distance allowance or transcript rewrite.
+
+The saved spelling verdict includes hashes of the manuscript, raw transcript,
+recording bytes, language, and the checker version. Resume can verify an existing
+text-only failure before requesting new synthesis, and reuse a valid saved
+verdict. Fresh regeneration still requests new takes.

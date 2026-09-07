@@ -15,6 +15,7 @@ const { normalizePropValue } = require('../illustrator/bible/propSheet');
 const { resolveNarratorProvider, providerCredentials } = require('../audio/providers');
 const { renderChunk } = require('../audio/narrate');
 const { normalizeSpoken } = require('../audio/script');
+const { hasVerifiedExactSpeech } = require('../audio/exactSpeech');
 const { castFileHash } = require('../audio/cast');
 const { buildMixCommand } = require('../audio/mix');
 const { resolveProvider } = require('./providers');
@@ -33,17 +34,18 @@ const SCORE_MOODS = { joy: 'playful', wonder: 'light', curiosity: 'curious', det
 
 /** Preserve the actual take verdict in the callback instead of reporting every
  * audio failure (including outages or clipping) as missing manuscript words. */
-function requireVerifiedSpeech(take, turn, speaker) {
+function requireVerifiedSpeech(take, turn, speaker, language) {
   const unavailable = !take.qa || take.qa.qaUnavailable;
   const defects = [...(take.qa?.blocking || [])];
   const expected = normalizeSpoken(turn.text);
   const heard = normalizeSpoken(take.transcript);
-  if (!unavailable && expected !== heard && !defects.some(d => d.startsWith('narration text mismatch'))) defects.push('narration text mismatch');
+  const exactSpeech = hasVerifiedExactSpeech({ expectedText: turn.text, transcript: take.transcript, wav: take.buffer, language, textVerification: take.textVerification });
+  if (!unavailable && !exactSpeech && !defects.some(d => d.startsWith('narration text mismatch'))) defects.push('narration text mismatch');
   if (!unavailable && !take.unresolved && !defects.length) return;
   if (unavailable) defects.push('audio verification unavailable');
   if (!defects.length) defects.push('unresolved audio take');
   let reason = unavailable ? 'audio verification was unavailable; the recording was not approved' : defects.join('; ');
-  if (!unavailable && expected !== heard) {
+  if (!unavailable && !exactSpeech) {
     const sourceWords = expected ? expected.split(' ') : [];
     const heardWords = heard ? heard.split(' ') : [];
     let offset = 0;
@@ -149,7 +151,7 @@ async function generateFullStoryFilm(p) {
         voice: script.cast[turn.speaker].voice, adapter: voice.adapter, provider: voice.provider, credentials,
         language, band: bookDef.ageBand, name: profile.name, costTracker, log, touch, signal: p.abortSignal, forceRetake: !!p.forceNew, opts: { requireExactText: true } });
       // The audiobook allows a small STT tolerance; the full film requires every spoken word.
-      requireVerifiedSpeech(take, turn, script.cast[turn.speaker].name);
+      requireVerifiedSpeech(take, turn, script.cast[turn.speaker].name, language);
       for (const part of speechShots(take.buffer, take.measure.trim)) {
         shots.push({ ...turn, ...part, audio: part.buffer, buffer: undefined, index: shots.length, takeHash: take.takeHash, lufs: take.measure.lufs, takeKey: take.storageKey });
       }
