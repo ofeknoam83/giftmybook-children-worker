@@ -31,6 +31,28 @@ const TTL = 30 * 24 * 60 * 60 * 1000;
 const CAMERAS = ['push-in', 'pan-right', 'pull-out', 'rise'];
 const SCORE_MOODS = { joy: 'playful', wonder: 'light', curiosity: 'curious', determination: 'triumph', worry: 'suspense', calm: 'calm', surprise: 'light', pride: 'triumph', tenderness: 'tender', silly: 'playful' };
 
+/** Preserve the actual take verdict in the callback instead of reporting every
+ * audio failure (including outages or clipping) as missing manuscript words. */
+function requireVerifiedSpeech(take, turn, speaker) {
+  const unavailable = !take.qa || take.qa.qaUnavailable;
+  const defects = [...(take.qa?.blocking || [])];
+  const expected = normalizeSpoken(turn.text);
+  const heard = normalizeSpoken(take.transcript);
+  if (!unavailable && expected !== heard && !defects.some(d => d.startsWith('narration text mismatch'))) defects.push('narration text mismatch');
+  if (!unavailable && !take.unresolved && !defects.length) return;
+  if (unavailable) defects.push('audio verification unavailable');
+  if (!defects.length) defects.push('unresolved audio take');
+  const reason = unavailable ? 'audio verification was unavailable; the recording was not approved' : defects.join('; ');
+  const err = filmError(`Spread ${turn.spread}, passage ${turn.index + 1} (${speaker}): ${reason}. Retry video to resume; approved passages are kept.`, unavailable ? 'film_audio_verification_unavailable' : 'film_audio_unresolved');
+  err.details = { unresolved: [{
+    spread: turn.spread, passage: turn.index + 1, speaker, defects,
+    expectedText: turn.text, transcript: take.transcript || null,
+    qaUnavailable: take.qa?.qaUnavailable || (unavailable ? 'missing take verdict' : null),
+    measure: take.measure || null, storageKey: take.storageKey || null, candidates: take.candidateFiles || [],
+  }] };
+  throw err;
+}
+
 /** Reject incomplete inputs and missing audio credentials before accepting a job. */
 function validateFullStoryInput(p) {
   if (p.model && p.model !== 'kwaivgi/kling-v3-omni-video') throw filmError('Full-story films use Kling Omni for character reference continuity.', 'film_model_unsupported');
@@ -117,9 +139,7 @@ async function generateFullStoryFilm(p) {
         voice: script.cast[turn.speaker].voice, adapter: voice.adapter, provider: voice.provider, credentials,
         language, band: bookDef.ageBand, name: profile.name, costTracker, log, touch, signal: p.abortSignal, forceRetake: !!p.forceNew, opts: { requireExactText: true } });
       // The audiobook allows a small STT tolerance; the full film requires every spoken word.
-      if (take.unresolved || take.qa?.qaUnavailable || normalizeSpoken(take.transcript) !== normalizeSpoken(turn.text)) {
-        throw filmError(`Spread ${turn.spread}: the recorded ${script.cast[turn.speaker].name} passage did not pass the complete-text check. Retry to record it again.`, 'film_audio_unresolved');
-      }
+      requireVerifiedSpeech(take, turn, script.cast[turn.speaker].name);
       for (const part of speechShots(take.buffer, take.measure.trim)) {
         shots.push({ ...turn, ...part, audio: part.buffer, buffer: undefined, index: shots.length, takeHash: take.takeHash, lufs: take.measure.lufs, takeKey: take.storageKey });
       }

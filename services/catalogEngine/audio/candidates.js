@@ -15,7 +15,7 @@ const { AUDIO_VERSION, AUDIO_QA_VERSION } = require('../versions');
 const { measureTake } = require('./metrics');
 const { contentHash } = require('./narrate');
 
-const CANDIDATE_KEY_RE = /^children-jobs\/([A-Za-z0-9_-]{1,128})\/audiobook\/([A-Za-z0-9_.+-]{1,64})\/takes\/([0-9a-f]{16})\/chunk(\d{1,2})\.(?:r(\d{1,2}))?c(\d)\.wav$/;
+const CANDIDATE_KEY_RE = /^children-jobs\/([A-Za-z0-9_-]{1,128})\/audiobook\/([A-Za-z0-9_.+-]{1,64})\/takes\/([0-9a-f]{16})\/chunk(\d{1,2})\.(?:retry-[0-9a-f]{16}\.)?(?:r(\d{1,2}))?c(\d)\.wav$/;
 
 /**
  * Parse a candidate take key of THIS book.
@@ -27,7 +27,7 @@ function parseTakeCandidateKey(bookId, key) {
   if (typeof key !== 'string' || key.includes('..')) return null;
   const m = CANDIDATE_KEY_RE.exec(key);
   if (!m || m[1] !== bookId) return null;
-  return { takeHash: m[3], chunk: Number(m[4]), canonicalKey: key.replace(/\.(?:r\d{1,2})?c\d\.wav$/, '.wav'), candidate: Number(m[6]), pass: m[5] ? Number(m[5]) : 0 };
+  return { takeHash: m[3], chunk: Number(m[4]), canonicalKey: key.replace(/\.(?:retry-[0-9a-f]{16}\.)?(?:r\d{1,2})?c\d\.wav$/, '.wav'), candidate: Number(m[6]), pass: m[5] ? Number(m[5]) : 0 };
 }
 
 /**
