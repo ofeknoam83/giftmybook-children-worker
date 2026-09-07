@@ -841,3 +841,34 @@ describe('qa-14 (ce-20): the WHOLE body is judged, not counted — a truncated b
     expect(r.defects).not.toContain(LIMB_POSE_DEFECT);
   });
 });
+
+describe('story-object state and family QA', () => {
+  const storyOpts = () => ({ props: [{ name: 'Story object: route marker', storyObject: true, state: 'The third marker leans in the grass; the other two stand upright.', multiplicity: 'group', expected: 'required', sheet: PROP, specText: 'Knee-high wood post with one orange stripe' }] });
+  const objectVerdict = over => cleanVerdict({ props: [{ name: 'Story object: route marker', presence: 'present', look: 'match', duplicated: false, as_text: false, state_match: true, ...over }] });
+  test('intentional groups pass; a wrong story state is blocking and gets a state-aware repair', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict({})));
+    const clean = await checkSpreadRenderV2(IMG, storyOpts());
+    expect(clean.blocking).toEqual([]);
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls.at(-1)[1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('Multiple matching instances are INTENTIONAL');
+    fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict({ state_match: false })));
+    const wrong = await checkSpreadRenderV2(IMG, storyOpts());
+    expect(wrong.blocking).toContain('prop state mismatch: "Story object: route marker"');
+    const repair = repairNoteV2(wrong.defects, null, storyOpts());
+    expect(repair).toContain('third marker leans');
+    expect(repair).toContain('group of matching instances');
+    expect(repair).not.toContain('exactly ONE');
+  });
+  test.each([{ state_match: undefined }, { look: 'n/a' }])('incomplete object verdict %p cannot count as verified', async over => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict(over)));
+    expect((await checkSpreadRenderV2(IMG, storyOpts())).qaUnavailable).toBeTruthy();
+  });
+  test('story objects are not silently truncated behind personal props', async () => {
+    const props = Array.from({ length: 7 }, (_, i) => ({ ...storyOpts().props[0], name: `Story object: item ${i}` }));
+    const verdict = cleanVerdict({ props: props.map(p => ({ name: p.name, presence: 'present', look: 'match', state_match: true, duplicated: false, as_text: false })) });
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict));
+    const qa = await checkSpreadRenderV2(IMG, { props });
+    expect(qa.qaUnavailable).toBeUndefined();
+    expect(qa.refs.props).toHaveLength(7);
+  });
+});

@@ -1098,11 +1098,15 @@ function renderBibleBlocks(bible, ctx = {}) {
     for (const p of props) {
       const ref = Number.isInteger(p.ref) ? ` — see REFERENCE ${p.ref}` : '';
       const spec = p.specText ? ` ${p.specText}` : '';
+      if (p.storyObject) {
+        lines.push(`- "${p.name}"${ref}: FIXED DESIGN (data):${spec} THIS SCENE (data): ${p.state}. Instances (data): ${JSON.stringify(p.instances || [])}. ${p.multiplicity === 'group' ? 'A group of matching objects is intentional; each shares this one design. Preserve the individual roles stated in the scene.' : 'Exactly one instance in this scene; never duplicate it.'} ${p.required ? 'Must be visible so the stated action or clue can be understood.' : 'Show only if visible in the described scene.'} Preserve all story-relevant marks and orientation; change only the stated physical state. Never turn it into lettering or add unrelated props.`);
+        continue;
+      }
       lines.push(`- "${p.name}"${ref}:${spec}${p.carried ? ' Carried by the child in this scene too — small, held or tucked under an arm, visually subdued (muted, never bright or attention-grabbing; the child\'s face and the story action stay the focus), decorative and comforting only, never a tool, a clue, or part of the plot.' : ' Small and decorative near the child, never plot-critical, never oversized, never duplicated, never rendered as text.'}`);
     }
     // ce-10: the closed-set side of the contract — listed props are the ONLY
     // personal objects; a stateless render happily invents extra trinkets.
-    lines.push('- These are the ONLY personal objects in this book — do NOT give the child other toys, gadgets, or handheld items.');
+    lines.push('- These are the ONLY personal objects in this book — do NOT give the child other toys, gadgets, or handheld items. Story objects appear only as specified for THIS scene.');
   }
   if (bible.companion && bible.companion.name) {
     lines.push('');

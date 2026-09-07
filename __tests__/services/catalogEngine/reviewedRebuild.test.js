@@ -1,3 +1,7 @@
+jest.mock('../../../services/catalogEngine/illustrator/storyObjects', () => ({
+  ...jest.requireActual('../../../services/catalogEngine/illustrator/storyObjects'),
+  resolveStoryObjects: jest.fn().mockResolvedValue({ objects: [], hash: 'empty', version: 'so-1' }),
+}));
 process.env.CATALOG_CHARACTER_SHEET = '0';
 process.env.CATALOG_PROP_SHEETS = '0';
 process.env.CATALOG_EMOTION_PLAN = '0';

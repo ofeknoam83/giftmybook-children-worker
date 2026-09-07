@@ -1,3 +1,7 @@
+jest.mock('../../../services/catalogEngine/illustrator/storyObjects', () => ({
+  ...jest.requireActual('../../../services/catalogEngine/illustrator/storyObjects'),
+  resolveStoryObjects: jest.fn().mockResolvedValue({ objects: [], hash: 'empty', version: 'so-1' }),
+}));
 /**
  * renderStorySpreads probe mechanics: per-spread failure isolation
  * (allSettled — one thrown render costs only that spread), the identity-

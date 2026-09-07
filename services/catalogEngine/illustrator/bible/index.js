@@ -20,7 +20,9 @@
  */
 
 const { getCharacterSheet } = require('./characterSheet');
-const { getBibleProps, normalizePropValue } = require('./propSheet');
+const { getBibleProps, getPropSheet, normalizePropValue } = require('./propSheet');
+const pLimit = require('p-limit');
+const { resolveStoryObjects, objectsForSpread, propName, designText } = require('../storyObjects');
 const { getOutfitLock } = require('../outfitLock');
 const { getEmotionPlan, renderEmotionLine } = require('../emotionPlan');
 const { getWorldPlate } = require('../worldPlate');
@@ -166,6 +168,15 @@ async function buildBookBible(p) {
     }
   }
 
+  // A legacy PDF-only rebuild must preserve the old namespace and paid-for
+  // artwork. Explicit illustration regeneration upgrades it to object locks.
+  const storyObjects = p.legacyReviewed ? { objects: [], hash: 'legacy', version: null }
+    : await resolveStoryObjects({ book: p.book, story: p.story, theme: p.theme, costTracker: p.costTracker });
+  if (!flags.propSheetsEnabled() && storyObjects.objects.some(d => d.critical)) {
+    const err = new Error('Critical story objects require reference sheets; prop sheets are disabled');
+    err.failureCode = 'identity_kit_failed';
+    throw err;
+  }
   // The remaining families are independent of each other, fail-open by
   // contract, and build concurrently. Each branch collects its own
   // advisories; they are appended in the fixed outfit → props order below
@@ -201,10 +212,29 @@ async function buildBookBible(p) {
     if (flags.propSheetsEnabled()) {
       try {
         const r = await getBibleProps({ evidence: p.story?.personalization_evidence || [], theme: p.theme, costTracker: p.costTracker, log });
-        props = (r && r.props) || [];
+        props = [...((r && r.props) || [])];
         companion = (r && r.companion) || null;
         for (const a of (r && r.advisories) || []) notes.push(a);
+        const limit = pLimit(2);
+        const storyProps = await Promise.all(storyObjects.objects.map(definition => limit(async () => {
+          const value = propName(definition);
+          const sheet = await getPropSheet({ kind: 'prop', value, definition, theme: p.theme, costTracker: p.costTracker, log });
+          if (!sheet && definition.critical) {
+            const err = new Error(`Critical story object has no verified reference sheet: ${definition.name}`);
+            err.failureCode = 'identity_kit_failed';
+            err.advisories = [{ stage: 'storyObjects', note: err.message }];
+            throw err;
+          }
+          if (!sheet) notes.push({ stage: 'storyObjects', note: `Reference sheet unavailable for ${definition.name}` });
+          return { value, sheet, storyObjectId: definition.id };
+        })));
+        props.push(...storyProps);
       } catch (err) {
+        if (err.failureCode) throw err;
+        if (storyObjects.objects.some(d => d.critical)) {
+          err.failureCode = 'identity_kit_failed';
+          throw err;
+        }
         log('warn', `prop sheets unavailable (${err.message}) — props ride as nouns`);
         notes.push({ stage: 'propSheet', note: `prop sheets unavailable (${err.message}); props ride as nouns only` });
       }
@@ -247,6 +277,7 @@ async function buildBookBible(p) {
     companion: companion ? { name: companion.key, key: companion.storageKey, hash: companion.hash, specHash: companion.specHash || null, specText: companion.specText || null, human: !!companion.human } : null,
     worldPlate: worldPlate ? { hash: worldPlate.hash } : null,
     emotionPlanHash: emotion ? emotion.hash : null,
+    storyObjects,
   };
   manifest.bibleHash = fnv1a(JSON.stringify({
     s: manifest.styleVersion, a: manifest.anchorHash,
@@ -254,6 +285,7 @@ async function buildBookBible(p) {
     o: manifest.outfitSpec && manifest.outfitSpec.hash,
     p: manifest.props.map(x => [x.hash, x.specHash]), k: manifest.companion && [manifest.companion.hash, manifest.companion.specHash],
     w: manifest.worldPlate && manifest.worldPlate.hash, e: manifest.emotionPlanHash,
+    ...(storyObjects.objects.length ? { storyObjects: storyObjects.hash } : {}),
   })).toString(36);
 
   // Persist the manifest beside the book's job files (best-effort — a
@@ -264,7 +296,7 @@ async function buildBookBible(p) {
     log('warn', `bible manifest write failed (${err.message})`);
   }
 
-  return { manifest, hash: manifest.bibleHash, sheet, outfit, props, companion, worldPlate, emotion, advisories };
+  return { manifest, hash: manifest.bibleHash, sheet, outfit, props, companion, worldPlate, emotion, storyObjects, advisories };
 }
 
 /**
@@ -344,6 +376,13 @@ function buildPromptBible(bible, refs, ctx) {
     if (props.some(x => x.name === v)) continue;
     props.push({ name: v, specText: specByValue.get(normalizePropValue(v)) || null, ref: refs.props[v] || null, carried: true });
   }
+  for (const def of objectsForSpread(bible.storyObjects, ctx.spread)) {
+    props.push({ name: def.value, specText: designText(def), ref: refs.props[def.value] || null,
+      storyObject: true, critical: def.critical, state: def.occurrence.state,
+      multiplicity: def.occurrence.multiplicity, required: def.occurrence.required,
+      instances: def.instances.filter(i => def.occurrence.instanceIds.includes(i.id)),
+    });
+  }
   const emotionEntry = bible.emotion && bible.emotion.plan ? bible.emotion.plan[ctx.spread] : null;
   return {
     characterSheetRef: refs.characterSheetRef,
@@ -380,9 +419,10 @@ async function summarizeBible(bible) {
     anchorHash: m.anchorHash,
     characterSheet: m.characterSheet ? { url: await url(m.characterSheet.key), hash: m.characterSheet.hash, likeness: m.characterSheet.likeness } : null,
     outfitSpec: m.outfitSpec ? { text: m.outfitSpec.text, hash: m.outfitSpec.hash, source: m.outfitSpec.source } : null,
-    props: await Promise.all(m.props.map(async x => ({ value: x.value, url: await url(x.key), hash: x.hash, specText: x.specText }))),
+    props: await Promise.all(m.props.map(async x => ({ value: x.value, storageKey: x.key, url: await url(x.key), hash: x.hash, specText: x.specText }))),
     companion: m.companion ? { name: m.companion.name, url: await url(m.companion.key), hash: m.companion.hash, specText: m.companion.specText || null, human: !!m.companion.human } : null,
     emotionPlanHash: m.emotionPlanHash,
+    storyObjects: m.storyObjects || null,
     bibleHash: m.bibleHash,
   };
 }

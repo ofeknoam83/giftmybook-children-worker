@@ -337,7 +337,7 @@ function propPrompt(o) {
     : '';
   return `You are checking PROP CONSISTENCY across ONE children's picture book. The attached image is a CONTACT SHEET: a grid of labelled tiles, ${o.columns} per row, read left-to-right then top-to-bottom. The FIRST tile, labelled "${REFERENCE_LABEL}", is the book's prop reference sheet for ONE recurring prop${named}. Every other tile, labelled "SPREAD n" (spreads ${o.spreads.join(', ')}), shows that same prop as drawn on that spread.
 
-Every tile shows the SAME prop from the SAME book. Compare EACH spread tile's prop to the ${REFERENCE_LABEL} tile on: the same kind of object and shape, the same colours, the same material and finish, the same distinguishing marks or pattern, and the same size relative to the child.${spec}${full}
+Every tile shows the SAME prop from the SAME book. Compare EACH spread tile's prop to the ${REFERENCE_LABEL} tile on: the same kind of object and shape, the same colours, the same material and finish, the same distinguishing marks or pattern, and the same size relative to the child.${spec}${full}${o.states ? `\nINTENDED STORY STATES by spread (data): ${o.states}. A family can have several matching instances. Allow ONLY the explicitly stated changes (e.g. a broken or repaired part); do not confuse them with a redesign. Every visible member of a group must share the reference design except for the explicitly stated changes.` : ''}
 
 DO NOT flag differences in the prop's position, angle, lighting, how it is held, or how much of it the crop shows — those are supposed to differ. Flag a tile ONLY when its prop CLEARLY differs from the REFERENCE: a different object, clearly different colours, a different material, or missing/changed distinguishing marks. A tile where the prop is not visible is NOT flagged. The ${REFERENCE_LABEL} tile itself is never flagged.
 
@@ -520,7 +520,7 @@ async function checkCharacterContactSheet(o = {}) {
 async function checkPropContactSheet(o = {}) {
   const label = o.label || 'contactQa:prop';
   const name = inertText(own(o.propSheet, 'name'), PROP_NAME_MAX_CHARS);
-  const specText = inertText(own(o.propSheet, 'specText'), SPEC_TEXT_MAX_CHARS);
+  const specText = inertText(own(o.propSheet, 'specText'), o.states ? 1100 : SPEC_TEXT_MAX_CHARS);
   return runContactCheck({
     label,
     tiles: o.tiles,
@@ -533,6 +533,7 @@ async function checkPropContactSheet(o = {}) {
       columns: DEFAULT_COLUMNS,
       name,
       specText,
+      states: o.states ? inertText(JSON.stringify(o.states), 7000) : null,
     }),
   });
 }

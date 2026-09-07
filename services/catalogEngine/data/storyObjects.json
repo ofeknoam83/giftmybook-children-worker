@@ -1,0 +1,17 @@
+{
+  "safari_6_7_watering_hole_map": {
+    "objects": [{
+      "id": "route_marker",
+      "name": "route marker",
+      "aliases": ["marker", "markers", "route markers", "third marker"],
+      "critical": true,
+      "design": {
+        "shape": "Straight narrow rectangular post with a rounded top; no attached signboard or animal silhouette",
+        "material": "Light brown wood",
+        "colors": "Natural light brown with one bright orange stripe",
+        "scale": "Knee high to the child, light enough for the child to lift",
+        "features": "One orange diagonal stripe on the front face only; the stripe face indicates route direction"
+      }
+    }]
+  }
+}

@@ -735,3 +735,26 @@ describe('getBibleProps', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe('fixed story-object reference designs', () => {
+  const definition = () => ({ id: 'marker', name: 'route marker', design: { shape: 'narrow post', material: 'wood', colors: 'brown and orange', scale: 'knee high', features: 'one stripe on the front only' } });
+  test('design rides generation and verification; changing it rekeys the sheet', async () => {
+    const { mod, fetch } = fresh();
+    fetch.mockImplementation(transport({ qa: { ...CLEAN_QA, design_matches: true } }));
+    const a = await mod.getPropSheet({ kind: 'prop', value: 'Story object: route marker', definition: definition(), theme: FARM, log: quiet });
+    expect(a).not.toBeNull();
+    expect(a.specText).toContain('one stripe on the front only');
+    expect(promptOf(imageCalls(fetch)[0])).toContain('FIXED STORY OBJECT DESIGN');
+    expect(promptOf(qaCalls(fetch)[0])).toContain('design_matches');
+    const changed = definition(); changed.design.colors = 'brown and blue';
+    const b = await mod.getPropSheet({ kind: 'prop', value: 'Story object: route marker', definition: changed, theme: FARM, log: quiet });
+    expect(b.storageKey).not.toEqual(a.storageKey);
+  });
+  test.each([false, undefined])('a wrong or unverified design (%p) is never elected', async design_matches => {
+    const { mod, fetch, gcs } = fresh();
+    fetch.mockImplementation(transport({ qa: { ...CLEAN_QA, design_matches } }));
+    const sheet = await mod.getPropSheet({ kind: 'prop', value: 'Story object: route marker', definition: definition(), theme: FARM, log: quiet });
+    expect(sheet).toBeNull();
+    expect(gcs.uploadBufferIfAbsent).not.toHaveBeenCalled();
+  });
+});
