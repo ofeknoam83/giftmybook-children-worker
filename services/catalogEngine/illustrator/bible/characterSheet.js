@@ -16,11 +16,22 @@
  * Best-of-N, judged, elected: N candidates (CATALOG_SHEET_CANDIDATES,
  * default 3) each get one structured vision check (no text, exactly three
  * full-body figures of ONE child, feet visible, outfit identical across the
- * views, anatomy) plus a likeness score against the approved character; the
- * passing candidate with the highest likeness wins. No model free-text ever
- * reaches a prompt: the verdict is a closed schema, every field is
- * type-checked, and every string the caller supplies is sanitized before it
- * is pinned.
+ * views, anatomy) plus a likeness score against the approved character AND
+ * — when the request carries the child's photo — a `photo_likeness` score
+ * against the child's actual face; the passing candidate with the highest
+ * PHOTO likeness wins (cover likeness is the tie-break and the photo-less
+ * fallback). Before 2026-09-07 the judge never saw the photo: every hop
+ * after the cover was verified against the previous hop, so a cover that
+ * had already drifted from the child was faithfully reproduced book-wide.
+ * The photo also rides the render as the UPRIGHT frame plus a tight FACE
+ * CROP (`faceCrop.js`), the face at a size the image model can read.
+ * `CATALOG_SHEET_PHOTO_LIKENESS_MIN` (0-1, default 0 = off) is a floor:
+ * a candidate below it is REJECTED like any other defect, so a set with no
+ * recognizable candidate fails `identity_kit_failed` instead of pinning a
+ * stranger; below `PHOTO_LIKENESS_ADVISORY` the elected sheet carries an
+ * advisory either way. No model free-text ever reaches a prompt: the
+ * verdict is a closed schema, every field is type-checked, and every
+ * string the caller supplies is sanitized before it is pinned.
  *
  * Failure contract — deliberately NOT the world plate's fail-open: a book
  * that cannot build its sheet must never silently render on the cover
@@ -39,6 +50,7 @@ const { downloadBuffer, uploadBuffer, uploadBufferIfAbsent } = require('../../..
 const { STYLE_VERSION } = require('../../versions');
 const { fnv1a } = require('../../selection');
 const { anchorHash } = require('../outfitLock');
+const { prepareLikenessReferences } = require('./faceCrop');
 const flags = require('../../flags');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -53,6 +65,8 @@ const STAGE = 'characterSheet';
 const CANDIDATES_DEFAULT = 3;
 const CANDIDATES_MIN = 1;
 const CANDIDATES_MAX = 4;
+/** An elected sheet whose photo likeness sits below this carries an advisory (the floor is a separate, opt-in env). */
+const PHOTO_LIKENESS_ADVISORY = 0.5;
 
 /** Sanitization caps for caller-supplied strings that get pinned into the prompt. */
 const DESCRIPTION_MAX_CHARS = 300;
@@ -126,9 +140,9 @@ function characterSheetPath(hash) {
 }
 
 /**
- * The sheet's JSON sidecar beside the PNG: `{hash, likeness, candidates,
- * derivedAt}` — the judge's numbers for the elected bytes, written by the
- * election winner AFTER the PNG is elected.
+ * The sheet's JSON sidecar beside the PNG: `{hash, likeness, photoLikeness,
+ * candidates, derivedAt}` — the judge's numbers for the elected bytes,
+ * written by the election winner AFTER the PNG is elected.
  * @param {string} hash anchorHash of the identity anchor URL
  * @returns {string}
  */
@@ -193,17 +207,22 @@ function renderChildLine(profile) {
  * @param {object} params
  * @param {{name?: string, age?: number|string}|null} [params.profile]
  * @param {string|null} [params.characterDescription]
- * @param {boolean} [params.hasChildPhoto] whether REFERENCE 2 rides the call
+ * @param {boolean} [params.hasChildPhoto] whether REFERENCE 2 (the child's photo) rides the call
+ * @param {boolean} [params.hasFaceCrop] whether REFERENCE 3 (the face close-up) rides the call
  * @returns {string}
  */
-function buildSheetPrompt({ profile = null, characterDescription = null, hasChildPhoto = false } = {}) {
+function buildSheetPrompt({ profile = null, characterDescription = null, hasChildPhoto = false, hasFaceCrop = false } = {}) {
   const childLine = renderChildLine(profile);
   const description = cleanDescription(characterDescription);
   const lines = [
     renderStyleBlock(PIXAR_STYLE),
-    'CHARACTER MODEL SHEET of this exact child — the parent-approved character in REFERENCE 1. Its face, hair, skin tone, and the colours and materials of its outfit are GROUND TRUTH: reproduce them, never reinterpret them.',
+    hasChildPhoto
+      ? 'CHARACTER MODEL SHEET of this exact child — the parent-approved character in REFERENCE 1. The colours and materials of its outfit and its rendering style are GROUND TRUTH: reproduce them, never reinterpret them.'
+      : 'CHARACTER MODEL SHEET of this exact child — the parent-approved character in REFERENCE 1. Its face, hair, skin tone, and the colours and materials of its outfit are GROUND TRUTH: reproduce them, never reinterpret them.',
   ];
-  if (hasChildPhoto) lines.push('REFERENCE 2 is the child\'s photo for LIKENESS ONLY (facial features); the outfit and rendering style come from REFERENCE 1.');
+  if (hasChildPhoto) {
+    lines.push(`LIKENESS (ground truth for the face): REFERENCE 2 is the child's own photo${hasFaceCrop ? ' and REFERENCE 3 is a close-up of the same child\'s face' : ''}. Every figure and both head insets must be recognizably THIS child — the same face shape, eye shape and spacing, eyebrows, nose, mouth, hairline, hair colour, texture, length and parting, skin tone, and any distinctive marks (freckles, glasses, dimples, a gap tooth) — drawn in REFERENCE 1's stylized 3D animated-film medium: stylize the RENDERING, never the identity; eyes open and expressive. Where REFERENCE 1 and the photo disagree about the face or hair, the PHOTO wins. Never copy the photo's pose, expression, clothing, background, or camera.`);
+  }
   if (childLine) lines.push(childLine);
   if (description) lines.push(`Character description: ${description}.`);
   lines.push(
@@ -243,20 +262,29 @@ function advisory(note) {
  * carry.
  * @param {string} prompt
  * @param {{base64: string, mimeType?: string}} refPhoto the approved anchor bytes
- * @param {{base64: string, mimeType?: string}|null} childPhoto
+ * @param {{base64: string, mimeType?: string}|null} childPhoto the upright child photo
+ * @param {{base64: string, mimeType?: string}|null} [faceCrop] the tight face crop of the same photo
  * @returns {Promise<Buffer>}
  */
-async function renderSheetCandidate(prompt, refPhoto, childPhoto) {
+async function renderSheetCandidate(prompt, refPhoto, childPhoto, faceCrop = null) {
   const parts = [
     { text: prompt },
-    { text: 'REFERENCE 1 — APPROVED CHARACTER (the parent-approved rendering of the child: face, hair, skin tone, and the outfit\'s colours/materials are ground truth)' },
+    { text: childPhoto?.base64
+      ? 'REFERENCE 1 — APPROVED CHARACTER (the parent-approved rendering of the child: the outfit\'s colours/materials and the rendering style are ground truth; the face follows the photo references)'
+      : 'REFERENCE 1 — APPROVED CHARACTER (the parent-approved rendering of the child: face, hair, skin tone, and the outfit\'s colours/materials are ground truth)' },
     { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
   ];
   if (childPhoto?.base64) {
     parts.push(
-      { text: 'REFERENCE 2 — CHILD PHOTO (likeness only: facial features)' },
+      { text: 'REFERENCE 2 — CHILD PHOTO (likeness ground truth: this child\'s real face shape, eyes, eyebrows, nose, mouth, hairline, hair and skin tone — identity only, never its pose, clothing or background)' },
       { inline_data: { mimeType: childPhoto.mimeType || 'image/jpeg', data: childPhoto.base64 } },
     );
+    if (faceCrop?.base64) {
+      parts.push(
+        { text: 'REFERENCE 3 — FACE CLOSE-UP (the same child\'s face, enlarged: match these features exactly, stylized in the sheet\'s 3D medium)' },
+        { inline_data: { mimeType: faceCrop.mimeType || 'image/jpeg', data: faceCrop.base64 } },
+      );
+    }
   }
   const apiKey = getNextApiKey();
   const resp = await fetchWithTimeout(
@@ -279,7 +307,15 @@ async function renderSheetCandidate(prompt, refPhoto, childPhoto) {
   return Buffer.from(imagePart.inlineData.data, 'base64');
 }
 
-const SHEET_QA_PROMPT = `You are checking a CHARACTER MODEL SHEET for a children's picture book. Image 1 is the sheet. Image 2 is the APPROVED CHARACTER reference the sheet must reproduce.
+/**
+ * The judge prompt: a FIXED template; with the child's photo attached as
+ * image 3 it gains the `photo_likeness` field (the likeness that matters —
+ * the approved character in image 2 is itself one hop from the child).
+ * @param {boolean} hasPhoto
+ * @returns {string}
+ */
+function buildSheetQaPrompt(hasPhoto) {
+  return `You are checking a CHARACTER MODEL SHEET for a children's picture book. Image 1 is the sheet. Image 2 is the APPROVED CHARACTER reference the sheet must reproduce.${hasPhoto ? ' Image 3 is a PHOTO of the real child the character portrays.' : ''}
 
 A correct sheet shows exactly THREE full-body (head to toe) figures of the SAME single child standing side by side — front view, three-quarter view, back view — wearing the SAME complete outfit in all three, with feet and shoes fully visible, plus two small head insets in a corner (the insets are NOT full-body figures — do not count them), on a flat plain background, with NO text of any kind.
 
@@ -291,9 +327,11 @@ Answer STRICT JSON only:
   "feet_visible": true|false,    // every full-body figure shows its feet/shoes fully inside the frame
   "outfit_consistent_across_views": true|false, // the same complete outfit (garments, colours, patterns, lengths) in every view
   "anatomy_ok": true|false,      // every figure has exactly two arms, two hands with five separated fingers, two legs; no extra, fused, or duplicated limbs
-  "likeness": <number 0.0-1.0>   // how well the figures match the approved character in image 2: face, hair, skin tone, and outfit colours (1.0 = the same character)
+  "likeness": <number 0.0-1.0>${hasPhoto ? ',' : ''}   // how well the figures match the approved character in image 2: face, hair, skin tone, and outfit colours (1.0 = the same character)${hasPhoto ? `
+  "photo_likeness": <number 0.0-1.0> // how recognizably the figures and head insets depict the CHILD IN THE PHOTO (image 3): compare face shape, eye shape and colour, eyebrows, nose, mouth, hair colour, texture, length and style, skin tone, glasses and distinctive marks; ignore the art style, outfit, pose, expression and lighting (1.0 = unmistakably this child to someone who knows them, 0.5 = could be them, 0.0 = a different child)` : ''}
 }
 Only report what you can clearly see; do not guess.`;
+}
 
 const VERDICT_BOOLEANS = ['readable_text', 'one_child', 'feet_visible', 'outfit_consistent_across_views', 'anatomy_ok'];
 
@@ -304,7 +342,10 @@ const VERDICT_BOOLEANS = ['readable_text', 'one_child', 'feet_visible', 'outfit_
  * unverifiable, never as passed. Only own properties are read; hostile keys
  * (`__proto__`, `constructor`) are ignored data, never prototype writes.
  * @param {*} json
- * @returns {{pass: boolean, defects: string[], likeness: number}|null}
+ * `photo_likeness` is optional (only asked for when the photo rides): a
+ * finite number is clamped, anything else is null (election then falls
+ * back to the cover likeness) — never a malformed verdict.
+ * @returns {{pass: boolean, defects: string[], likeness: number, photoLikeness: number|null}|null}
  */
 function parseSheetVerdict(json) {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
@@ -315,6 +356,8 @@ function parseSheetVerdict(json) {
   const likenessRaw = own('likeness');
   if (typeof likenessRaw !== 'number' || !Number.isFinite(likenessRaw)) return null;
   const likeness = Math.min(1, Math.max(0, likenessRaw));
+  const photoRaw = own('photo_likeness');
+  const photoLikeness = typeof photoRaw === 'number' && Number.isFinite(photoRaw) ? Math.min(1, Math.max(0, photoRaw)) : null;
   const defects = [
     own('readable_text') && 'readable text on the sheet',
     figureCount !== 3 && `${figureCount} full-body figures (expected 3)`,
@@ -323,7 +366,7 @@ function parseSheetVerdict(json) {
     !own('outfit_consistent_across_views') && 'outfit differs between views',
     !own('anatomy_ok') && 'anatomy error (limbs/hands/fingers)',
   ].filter(Boolean);
-  return { pass: defects.length === 0, defects, likeness };
+  return { pass: defects.length === 0, defects, likeness, photoLikeness };
 }
 
 /**
@@ -333,11 +376,19 @@ function parseSheetVerdict(json) {
  * silently.
  * @param {Buffer} sheetBuffer the candidate bytes
  * @param {{base64: string, mimeType?: string}} refPhoto the approved anchor bytes
- * @returns {Promise<{pass: boolean, defects: string[], likeness: number}|{unverifiable: string}>}
+ * @param {{base64: string, mimeType?: string}|null} [childPhoto] the child's photo — the likeness ground truth
+ * @returns {Promise<{pass: boolean, defects: string[], likeness: number, photoLikeness: number|null}|{unverifiable: string}>}
  */
-async function judgeSheetCandidate(sheetBuffer, refPhoto) {
+async function judgeSheetCandidate(sheetBuffer, refPhoto, childPhoto = null) {
   try {
     const apiKey = getNextApiKey();
+    const hasPhoto = Boolean(childPhoto?.base64);
+    const parts = [
+      { text: buildSheetQaPrompt(hasPhoto) },
+      { inline_data: { mimeType: 'image/png', data: sheetBuffer.toString('base64') } },
+      { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
+    ];
+    if (hasPhoto) parts.push({ inline_data: { mimeType: childPhoto.mimeType || 'image/jpeg', data: childPhoto.base64 } });
     const resp = await fetchWithTimeout(
       `${GEMINI_API}/${QA_MODEL()}:generateContent?key=${apiKey}`,
       {
@@ -346,11 +397,7 @@ async function judgeSheetCandidate(sheetBuffer, refPhoto) {
         body: JSON.stringify({
           contents: [{
             role: 'user',
-            parts: [
-              { text: SHEET_QA_PROMPT },
-              { inline_data: { mimeType: 'image/png', data: sheetBuffer.toString('base64') } },
-              { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
-            ],
+            parts,
           }],
           // Thinking OFF + a ≥2048-token ceiling (shared/llm/geminiJson):
           // the 2.5 flash judge counts its reasoning against
@@ -385,41 +432,68 @@ async function judgeSheetCandidate(sheetBuffer, refPhoto) {
  * @param {number} index 0-based candidate index
  * @param {string} prompt
  * @param {{base64: string, mimeType?: string}} refPhoto
- * @param {{base64: string, mimeType?: string}|null} childPhoto
+ * @param {{base64: string, mimeType?: string}|null} childPhoto the upright child photo
+ * @param {{base64: string, mimeType?: string}|null} faceCrop the face crop of the same photo
  * @param {object|undefined} costTracker
  * @returns {Promise<{index: number, buffer?: Buffer, verdict?: object, unverifiable?: string, error?: string}>}
  */
-async function produceCandidate(index, prompt, refPhoto, childPhoto, costTracker) {
+async function produceCandidate(index, prompt, refPhoto, childPhoto, faceCrop, costTracker) {
   let buffer;
   try {
-    buffer = await renderSheetCandidate(prompt, refPhoto, childPhoto);
+    buffer = await renderSheetCandidate(prompt, refPhoto, childPhoto, faceCrop);
   } catch (err) {
     return { index, error: err.message };
   }
   if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
-  const judged = await judgeSheetCandidate(buffer, refPhoto);
+  const judged = await judgeSheetCandidate(buffer, refPhoto, childPhoto);
   if (judged.unverifiable) return { index, buffer, unverifiable: judged.unverifiable };
   return { index, buffer, verdict: judged };
 }
 
 /**
+ * The number a candidate is elected on: its PHOTO likeness when the judge
+ * scored one, else its likeness to the approved character.
+ * @param {{likeness: number, photoLikeness?: number|null}} verdict
+ * @returns {number}
+ */
+function electionScore(verdict) {
+  return typeof verdict.photoLikeness === 'number' ? verdict.photoLikeness : verdict.likeness;
+}
+
+/** @param {{likeness: number, photoLikeness?: number|null}} verdict @returns {string} log fragment */
+function describeLikeness(verdict) {
+  return typeof verdict.photoLikeness === 'number'
+    ? `photo likeness ${verdict.photoLikeness.toFixed(2)}, cover likeness ${verdict.likeness.toFixed(2)}`
+    : `likeness ${verdict.likeness.toFixed(2)}`;
+}
+
+/**
  * Elect the winning candidate from the judged set: the PASSING candidate
- * with the highest likeness (ties ⇒ lowest index, deterministic). When no
- * candidate passes the set is a total failure and the returned `error`
- * carries every candidate's verdict — INCLUDING the case where the judge
- * was unavailable for every candidate: an elected sheet is pinned per
- * anchor for good (this book and every later book on the anchor), so a
- * sheet nothing verified is never elected blind (unlike the fail-open
- * world plate, which is not an identity ground truth).
+ * with the highest PHOTO likeness — cover likeness when the judge saw no
+ * photo (ties ⇒ lowest index, deterministic). A photo likeness below the
+ * opt-in floor (`CATALOG_SHEET_PHOTO_LIKENESS_MIN`) is a REJECTION like any
+ * other defect. When no candidate passes the set is a total failure and
+ * the returned `error` carries every candidate's verdict — INCLUDING the
+ * case where the judge was unavailable for every candidate: an elected
+ * sheet is pinned per anchor for good (this book and every later book on
+ * the anchor), so a sheet nothing verified is never elected blind (unlike
+ * the fail-open world plate, which is not an identity ground truth).
  * `CATALOG_SHEET_REQUIRED=0` turns that failure into a sheet-less render
- * with an advisory — never into a pinned guess.
+ * with an advisory — never into a pinned guess. An elected sheet whose
+ * photo likeness sits below PHOTO_LIKENESS_ADVISORY carries an advisory.
  * @param {Array<object>} results from produceCandidate, in index order
  * @param {(level: string, msg: string) => void} log
- * @returns {{winner: object|null, likeness: number|null, advisories: Array<{stage: string, note: string}>, error?: Error}}
+ * @param {{photoLikenessMin?: number}} [opts]
+ * @returns {{winner: object|null, likeness: number|null, photoLikeness: number|null, advisories: Array<{stage: string, note: string}>, error?: Error}}
  */
-function electCandidate(results, log) {
+function electCandidate(results, log, { photoLikenessMin = 0 } = {}) {
   const advisories = [];
-  for (const r of results) {
+  const judged = results.map((r) => {
+    if (!r.verdict || !r.verdict.pass || !(photoLikenessMin > 0)) return r;
+    if (typeof r.verdict.photoLikeness !== 'number' || r.verdict.photoLikeness >= photoLikenessMin) return r;
+    return { ...r, verdict: { ...r.verdict, pass: false, defects: [...r.verdict.defects, `photo likeness ${r.verdict.photoLikeness.toFixed(2)} below the ${photoLikenessMin} floor`] } };
+  });
+  for (const r of judged) {
     const n = r.index + 1;
     if (r.error) {
       log('warn', `character sheet candidate ${n}: generation failed (${r.error})`);
@@ -428,16 +502,20 @@ function electCandidate(results, log) {
       log('warn', `character sheet candidate ${n}: UNVERIFIABLE (${r.unverifiable})`);
       advisories.push(advisory(`candidate ${n} unverifiable: ${r.unverifiable}`));
     } else if (!r.verdict.pass) {
-      log('info', `character sheet candidate ${n}: REJECTED (${r.verdict.defects.join('; ')}; likeness ${r.verdict.likeness.toFixed(2)})`);
+      log('info', `character sheet candidate ${n}: REJECTED (${r.verdict.defects.join('; ')}; ${describeLikeness(r.verdict)})`);
       advisories.push(advisory(`candidate ${n} rejected: ${r.verdict.defects.join('; ')}`));
     } else {
-      log('info', `character sheet candidate ${n}: PASS (likeness ${r.verdict.likeness.toFixed(2)})`);
+      log('info', `character sheet candidate ${n}: PASS (${describeLikeness(r.verdict)})`);
     }
   }
-  const passing = results.filter(r => r.verdict?.pass);
+  const passing = judged.filter(r => r.verdict?.pass);
   if (passing.length > 0) {
-    const winner = passing.reduce((best, r) => (r.verdict.likeness > best.verdict.likeness ? r : best), passing[0]);
-    return { winner, likeness: winner.verdict.likeness, advisories };
+    const winner = passing.reduce((best, r) => (electionScore(r.verdict) > electionScore(best.verdict) ? r : best), passing[0]);
+    const photoLikeness = typeof winner.verdict.photoLikeness === 'number' ? winner.verdict.photoLikeness : null;
+    if (photoLikeness !== null && photoLikeness < PHOTO_LIKENESS_ADVISORY) {
+      advisories.push(advisory(`elected sheet photo likeness ${photoLikeness.toFixed(2)} — the child may not be recognizable in the illustrations; a different approved cover or a clearer photo may help`));
+    }
+    return { winner, likeness: winner.verdict.likeness, photoLikeness, advisories };
   }
   const generated = results.filter(r => r.buffer);
   if (generated.length > 0 && generated.every(r => r.unverifiable)) {
@@ -448,6 +526,7 @@ function electCandidate(results, log) {
   return {
     winner: null,
     likeness: null,
+    photoLikeness: null,
     advisories,
     error: identityKitError(`character sheet failed: no candidate passed QA (${summary})`, advisories),
   };
@@ -455,12 +534,13 @@ function electCandidate(results, log) {
 
 /**
  * Parse a stored sidecar (our own write, still treated as data): likeness
- * as a finite 0-1 number or null, candidates as a positive integer or null.
+ * and photoLikeness as finite 0-1 numbers or null, candidates as a positive
+ * integer or null.
  * @param {Buffer|null|undefined} raw
- * @returns {{likeness: number|null, candidates: number|null}}
+ * @returns {{likeness: number|null, photoLikeness: number|null, candidates: number|null}}
  */
 function parseSidecar(raw) {
-  const out = { likeness: null, candidates: null };
+  const out = { likeness: null, photoLikeness: null, candidates: null };
   if (!raw) return out;
   try {
     const json = JSON.parse(raw.toString('utf8'));
@@ -468,6 +548,8 @@ function parseSidecar(raw) {
     const own = k => (Object.prototype.hasOwnProperty.call(json, k) ? json[k] : undefined);
     const likeness = own('likeness');
     if (typeof likeness === 'number' && Number.isFinite(likeness)) out.likeness = Math.min(1, Math.max(0, likeness));
+    const photoLikeness = own('photoLikeness');
+    if (typeof photoLikeness === 'number' && Number.isFinite(photoLikeness)) out.photoLikeness = Math.min(1, Math.max(0, photoLikeness));
     const candidates = own('candidates');
     if (Number.isInteger(candidates) && candidates > 0) out.candidates = candidates;
   } catch (err) {
@@ -480,20 +562,20 @@ function parseSidecar(raw) {
  * Package elected bytes into the result shape.
  * @param {Buffer} buffer
  * @param {string} storageKey
- * @param {number|null} likeness
- * @param {number|null} candidates
+ * @param {{likeness: number|null, photoLikeness: number|null, candidates: number|null}} meta the judge's numbers
  * @param {Array<{stage: string, note: string}>} advisories
- * @returns {{base64: string, mimeType: string, hash: string, storageKey: string, likeness: number|null, candidates: number, advisories: Array<{stage: string, note: string}>}}
+ * @returns {{base64: string, mimeType: string, hash: string, storageKey: string, likeness: number|null, photoLikeness: number|null, candidates: number, advisories: Array<{stage: string, note: string}>}}
  */
-function toSheet(buffer, storageKey, likeness, candidates, advisories) {
+function toSheet(buffer, storageKey, meta, advisories) {
   const base64 = buffer.toString('base64');
   return {
     base64,
     mimeType: 'image/png',
     hash: fnv1a(base64).toString(36),
     storageKey,
-    likeness,
-    candidates: candidates ?? 0,
+    likeness: meta.likeness ?? null,
+    photoLikeness: meta.photoLikeness ?? null,
+    candidates: meta.candidates ?? 0,
     advisories,
   };
 }
@@ -512,13 +594,15 @@ function copySheet(sheet) {
  * @param {{base64: string, mimeType?: string}} params.refPhoto the anchor
  *   bytes the caller already downloaded for the renders
  * @param {{base64: string, mimeType?: string}|null} [params.childPhoto]
- *   the child's photo as a secondary likeness-only reference
+ *   the child's photo — the likeness ground truth for the face: it rides
+ *   the render upright plus as a face crop, and the judge scores every
+ *   candidate's `photo_likeness` against it
  * @param {{name?: string, age?: number|string}|null} [params.profile]
  * @param {string|null} [params.characterDescription] the app's cover-time
  *   description sentence (sanitized before it is pinned)
  * @param {object} [params.costTracker]
  * @param {(level: string, msg: string) => void} [params.log]
- * @returns {Promise<{base64: string, mimeType: string, hash: string, storageKey: string, likeness: number|null, candidates: number, advisories: Array<{stage: string, note: string}>}|null>}
+ * @returns {Promise<{base64: string, mimeType: string, hash: string, storageKey: string, likeness: number|null, photoLikeness: number|null, candidates: number, advisories: Array<{stage: string, note: string}>}|null>}
  *   null ONLY when the kill-switch is off.
  * @throws {Error} `failureCode = 'identity_kit_failed'` (+ `advisories`) on
  *   any total failure — bad input, no passing candidate, transport or
@@ -544,17 +628,22 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
       const cached = await downloadBuffer(path).catch(() => null);
       if (cached) {
         const meta = parseSidecar(await downloadBuffer(sidecarPath).catch(() => null));
-        const sheet = toSheet(cached, path, meta.likeness, meta.candidates, []);
+        const sheet = toSheet(cached, path, meta, []);
         cacheSet(key, sheet);
         return sheet;
       }
       const count = sheetCandidateCount();
       log('info', `character sheet for anchor ${key} not cached — generating ${count} candidate(s) (${path})`);
-      const prompt = buildSheetPrompt({ profile, characterDescription, hasChildPhoto: Boolean(childPhoto?.base64) });
+      // The likeness references: the photo upright (EXIF applied) and its
+      // face crop — derived ONCE per generation, fail-open to the raw photo.
+      const likenessRefs = childPhoto?.base64 ? await prepareLikenessReferences(childPhoto, { log }) : null;
+      const photoRef = likenessRefs ? likenessRefs.photo : null;
+      const faceRef = likenessRefs ? likenessRefs.face : null;
+      const prompt = buildSheetPrompt({ profile, characterDescription, hasChildPhoto: Boolean(photoRef), hasFaceCrop: Boolean(faceRef) });
       const results = await Promise.all(
-        Array.from({ length: count }, (_, i) => produceCandidate(i, prompt, refPhoto, childPhoto?.base64 ? childPhoto : null, costTracker)),
+        Array.from({ length: count }, (_, i) => produceCandidate(i, prompt, refPhoto, photoRef, faceRef, costTracker)),
       );
-      const election = electCandidate(results, log);
+      const election = electCandidate(results, log, { photoLikenessMin: flags.sheetPhotoLikenessMin() });
       if (!election.winner) {
         recordFailure(key);
         throw election.error;
@@ -563,8 +652,7 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
       // deterministic object and exactly one write wins — every loser ADOPTS
       // the winning bytes, so all instances anchor on ONE sheet.
       let sheetBuffer = election.winner.buffer;
-      let likeness = election.likeness;
-      let candidates = count;
+      let meta = { likeness: election.likeness, photoLikeness: election.photoLikeness, candidates: count };
       const advisories = election.advisories;
       let created;
       try {
@@ -580,8 +668,9 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
         // PNG: a failed write never loses the sheet.
         const body = Buffer.from(JSON.stringify({
           hash: fnv1a(sheetBuffer.toString('base64')).toString(36),
-          likeness,
-          candidates,
+          likeness: meta.likeness,
+          photoLikeness: meta.photoLikeness,
+          candidates: meta.candidates,
           derivedAt: new Date().toISOString(),
         }));
         await uploadBuffer(body, sidecarPath, 'application/json').catch((err) => {
@@ -597,12 +686,10 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
         } catch (winErr) {
           throw identityKitError(`character sheet for anchor ${key}: lost the creation race and could not fetch the winning sheet (${winErr.message})`, [...advisories, advisory(`could not fetch the elected sheet: ${winErr.message}`)]);
         }
-        const meta = parseSidecar(await downloadBuffer(sidecarPath).catch(() => null));
-        likeness = meta.likeness;
-        candidates = meta.candidates;
+        meta = parseSidecar(await downloadBuffer(sidecarPath).catch(() => null));
         advisories.push(advisory('adopted the concurrently elected sheet'));
       }
-      const sheet = toSheet(sheetBuffer, path, likeness, candidates, advisories);
+      const sheet = toSheet(sheetBuffer, path, meta, advisories);
       cacheSet(key, sheet);
       return sheet;
     } catch (err) {
@@ -625,9 +712,12 @@ module.exports = {
   characterSheetPath,
   characterSheetSidecarPath,
   buildSheetPrompt,
+  buildSheetQaPrompt,
   cleanDescription,
   parseSheetVerdict,
+  electCandidate,
   sheetCandidateCount,
   anchorHash,
   FAILURE_CODE,
+  PHOTO_LIKENESS_ADVISORY,
 };

@@ -268,7 +268,7 @@ async function buildBookBible(p) {
   const manifest = {
     styleVersion: STYLE_VERSION,
     anchorHash: aHash,
-    characterSheet: sheet ? { key: sheet.storageKey, hash: sheet.hash, likeness: sheet.likeness ?? null, candidates: sheet.candidates ?? null } : null,
+    characterSheet: sheet ? { key: sheet.storageKey, hash: sheet.hash, likeness: sheet.likeness ?? null, photoLikeness: sheet.photoLikeness ?? null, candidates: sheet.candidates ?? null } : null,
     // The anchor-derived lock never sets `source`; only a sheet-derived one does.
     outfitSpec: outfit ? { text: outfit.outfit, hash: outfit.hash, source: outfit.source || 'anchor' } : null,
     // Each sheet's pixels AND its independently elected spec both shape
@@ -417,7 +417,7 @@ async function summarizeBible(bible) {
   return {
     styleVersion: m.styleVersion,
     anchorHash: m.anchorHash,
-    characterSheet: m.characterSheet ? { url: await url(m.characterSheet.key), hash: m.characterSheet.hash, likeness: m.characterSheet.likeness } : null,
+    characterSheet: m.characterSheet ? { url: await url(m.characterSheet.key), hash: m.characterSheet.hash, likeness: m.characterSheet.likeness, photoLikeness: m.characterSheet.photoLikeness ?? null } : null,
     outfitSpec: m.outfitSpec ? { text: m.outfitSpec.text, hash: m.outfitSpec.hash, source: m.outfitSpec.source } : null,
     props: await Promise.all(m.props.map(async x => ({ value: x.value, storageKey: x.key, url: await url(x.key), hash: x.hash, specText: x.specText }))),
     companion: m.companion ? { name: m.companion.name, url: await url(m.companion.key), hash: m.companion.hash, specText: m.companion.specText || null, human: !!m.companion.human } : null,
@@ -485,7 +485,7 @@ async function prepareIdentity(p) {
   return {
     styleVersion: STYLE_VERSION,
     anchorHash: anchorHash(p.anchorUrl),
-    characterSheet: { url, key: sheet.storageKey, hash: sheet.hash, likeness: sheet.likeness ?? null, candidates: sheet.candidates ?? null },
+    characterSheet: { url, key: sheet.storageKey, hash: sheet.hash, likeness: sheet.likeness ?? null, photoLikeness: sheet.photoLikeness ?? null, candidates: sheet.candidates ?? null },
     outfitSpec: outfit ? { text: outfit.outfit, hash: outfit.hash, source: outfit.source || 'anchor' } : null,
     advisories,
   };

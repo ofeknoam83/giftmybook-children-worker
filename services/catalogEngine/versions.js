@@ -195,7 +195,16 @@ const PROMPT_TEMPLATE_VERSION = '1.4.0'; // 1.4.0: repair prompt fixes a missing
 // LEG COUNT became LEGS AND FEET, and every shot-plan directive carries a
 // fixed BODY line beside FACE. Prompt assembly changed on every spread —
 // ce-19 renders must never replay as ce-20.
-const STYLE_VERSION = 'ce-20';
+// ce-21 (2026-09-07): the character model sheet is drawn FROM THE CHILD'S
+// FACE — the photo rides the sheet render upright plus as a tight face
+// crop (bible/faceCrop.js) under a likeness-first prompt ("where the
+// approved character and the photo disagree about the face, the photo
+// wins"), and the judge elects on `photo_likeness` against the photo
+// instead of likeness to the cover alone. The sheet is the identity every
+// spread renders from, so this changes the child on every page; sheets are
+// elected per anchor under this version — ce-20 sheets and renders must
+// never replay as ce-21.
+const STYLE_VERSION = 'ce-21';
 
 // Prompt-only revision, logged on fresh spread requests. Keep the render cache
 // namespace stable so deploying this direction never regenerates saved artwork.
