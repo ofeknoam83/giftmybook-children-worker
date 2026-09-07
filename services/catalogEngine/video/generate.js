@@ -19,7 +19,7 @@
  * `endFrameDropped` so the run reports it, never silently.
  */
 
-const { downloadBuffer, uploadBuffer } = require('../../gcsStorage');
+const { downloadBuffer, uploadBuffer, loadJson, saveJson } = require('../../gcsStorage');
 const { fnv1a } = require('../selection');
 const { VIDEO_VERSION } = require('../versions');
 const { clipSecondsFor } = require('./providers/models');
@@ -144,10 +144,20 @@ async function generateCandidates(p) {
     const opts = { elements: flags.videoElementsEnabled() };
     let input = provider.profile.input(job, opts);
     let ref;
+    // Full films can outlive a worker process. Resume the saved vendor job;
+    // resubmitting an in-flight clip would bill the same shot twice.
+    const jobKey = `${storageKey}.job.json`;
+    if (p.persistJobs && !p.forceNew) {
+      const saved = await loadJson(jobKey).catch(() => null);
+      if (saved?.jobId) ref = saved;
+    }
     let endFrameDropped = false;
     try {
       try {
-        ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
+        if (!ref) {
+          ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
+          if (p.persistJobs) await saveJson(ref, jobKey);
+        }
       } catch (err) {
         // The end-frame field name is a verify-at-deploy fact: a 422 while
         // an end frame rides the input is retried ONCE without it, flagged.
@@ -196,6 +206,7 @@ async function generateCandidates(p) {
         return { k, pass, storageKey, buffer, status: 'done', error: null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
       }
       if (r.status === 'filtered' || r.status === 'failed') {
+        if (p.persistJobs) await saveJson({ failedJobId: ref.jobId, status: r.status }, jobKey);
         log('warn', `segment ${p.segment.index}: candidate ${k} ${r.status} at the vendor (${r.error})`);
         return { k, pass, storageKey, buffer: null, status: r.status, error: r.error || null, reasons: r.reasons || null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
       }

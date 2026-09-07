@@ -894,11 +894,19 @@ app.post('/v13/pick-candidate', authenticate, async (req, res) => {
 // polls a vendor for minutes. A take whose candidates all fail
 // verification fails the film `video_unresolved` with the scored candidates
 // attached — never a silent degrade to stills.
+// Capability handshake prevents a newer app from dispatching a full story to a
+// legacy worker that would silently ignore `mode` and return a ten-second trailer.
+app.post('/v13/video-capabilities', authenticate, (req, res) => {
+  res.json({ success: true, modes: catalogEngine.flags.giftVideoEnabled() ? ['trailer', 'full-story'] : [], fullStoryVideoVersion: catalogEngine.versions.FULL_STORY_VIDEO_VERSION });
+});
+
 app.post('/v13/generate-video', authenticate, async (req, res) => {
   if (!catalogEngine.flags.giftVideoEnabled()) {
     return res.status(503).json({ success: false, error: 'the gift video is disabled on this revision (CATALOG_GIFT_VIDEO=0)', failureCode: 'gift_video_disabled' });
   }
   const body = req.body || {};
+  const mode = body.mode || 'trailer';
+  if (!['trailer', 'full-story'].includes(mode)) return res.status(400).json({ success: false, error: 'mode must be trailer or full-story' });
   const { bookId, callbackUrl, progressCallbackUrl, dispatchId } = body;
   if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
     return res.status(400).json({ success: false, error: 'invalid bookId' });
@@ -929,7 +937,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: 'story {request, response} is required — the film animates an existing validated story, never a fresh one' });
   }
   const { resolveProvider } = require('./services/catalogEngine/video/providers');
-  const providerPick = resolveProvider({ provider: body.provider || null, model: body.model || null });
+  const providerPick = resolveProvider({ provider: body.provider || null, model: body.model || (mode === 'full-story' ? 'kwaivgi/kling-v3-omni-video' : null) });
   if (!providerPick.ok) {
     return res.status(400).json({ success: false, error: providerPick.error, failureCode: 'video_provider_unavailable' });
   }
@@ -937,7 +945,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
   if (aspect !== '16:9' && aspect !== '9:16') {
     return res.status(400).json({ success: false, error: "aspect must be '16:9' or '9:16'" });
   }
-  const music = body.music === undefined || body.music === null ? catalogEngine.flags.videoMusic() : body.music;
+  const music = body.music === undefined || body.music === null ? (mode === 'full-story' ? 'story-score' : catalogEngine.flags.videoMusic()) : body.music;
   if (typeof music !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(music)) {
     return res.status(400).json({ success: false, error: "music must be 'none' or a bundled track name" });
   }
@@ -968,9 +976,21 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       failureCode: 'missing_book_definition',
     });
   }
-  const videoVersion = catalogEngine.versions.VIDEO_VERSION;
+  if (mode === 'full-story') {
+    try {
+      require('./services/catalogEngine/video/fullStory').validateFullStoryInput({
+        bookId, story: story.response, renders: rendersCheck.entries, model: providerPick.model,
+        language: body.language || 'en', voiceProvider: body.voiceProvider,
+        injectedKeys: body, music,
+      });
+    } catch (err) {
+      return res.status(400).json({ success: false, error: err.message, failureCode: err.failureCode });
+    }
+  }
+  if (activeBooks.has(`video:${bookId}`)) return res.status(409).json({ success: false, error: 'A video run is already active for this book.', failureCode: 'in_flight' });
+  const videoVersion = mode === 'full-story' ? catalogEngine.versions.FULL_STORY_VIDEO_VERSION : catalogEngine.versions.VIDEO_VERSION;
   res.status(202).json({
-    success: true, bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion,
+    success: true, bookId, mode, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion,
     provider: providerPick.provider, model: providerPick.model,
     accepted: { spreads: rendersCheck.entries.map(e => e.spread) },
   });
@@ -980,12 +1000,15 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
   const ctx = createBookContext(bookId, { mapKey, callbackUrl, progressCallbackUrl: progressCallbackUrl || null });
   (async () => {
     const started = Date.now();
-    const stable = { bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion, provider: providerPick.provider, model: providerPick.model };
+    const stable = { bookId, mode, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion, provider: providerPick.provider, model: providerPick.model };
     let payload;
     try {
-      const { generateGiftVideo } = require('./services/catalogEngine/video');
+      const generateGiftVideo = mode === 'full-story' ? require('./services/catalogEngine/video/fullStory').generateFullStoryFilm : require('./services/catalogEngine/video').generateGiftVideo;
       const r = await generateGiftVideo({
         bookId,
+        language: body.language || 'en',
+        voiceProvider: body.voiceProvider || null,
+        injectedKeys: body,
         story: story.response,
         bookDef: videoBookDef,
         profile,
@@ -1019,7 +1042,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       });
       payload = {
         success: true, ...stable, provider: r.provider, model: r.model,
-        video: r.video, plan: r.plan, stills: r.stills || [], textGate: r.textGate, bookBible: r.bookBible,
+        video: r.video, cast: r.cast || [], language: r.language || null, plan: r.plan, stills: r.stills || [], textGate: r.textGate, bookBible: r.bookBible,
         unresolved: r.unresolved || [], advisories: r.advisories, warnings: r.warnings,
         costs: costTracker.getSummary(), failureCode: null, error: null,
       };

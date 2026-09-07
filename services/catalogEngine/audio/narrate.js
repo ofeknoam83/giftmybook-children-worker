@@ -22,7 +22,7 @@ const { fnv1a } = require('../selection');
 const { measureTake } = require('./metrics');
 const { checkTake, repairNote, classifyTakeDefects } = require('./takeQa');
 const { scoreTake, takeCandidateKey, pickBest, compareCandidates, residualBlocking } = require('./select');
-const { directionWords, paceWords, controlWords, expectedTiming } = require('./script');
+const { directionWords, paceWords, controlWords, expectedTiming, normalizeSpoken } = require('./script');
 const flags = require('../flags');
 
 const RUNGS = ['full', 'restate', 'plain'];
@@ -123,7 +123,7 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
   // ── Replay ──────────────────────────────────────────────────────────────
   if (!forceRetake) {
     const marker = await loadJson(`${canonical}.qa.json`).catch(() => null);
-    if (marker && marker.audioQaVersion === AUDIO_QA_VERSION && (marker.adminPicked || !marker.unresolved)) {
+    if (marker && marker.audioQaVersion === AUDIO_QA_VERSION && (marker.adminPicked || !marker.unresolved) && (!opts.requireExactText || normalizeSpoken(marker.transcript) === normalizeSpoken(expectedText))) {
       const buffer = await downloadBuffer(canonical).catch(() => null);
       if (buffer && buffer.length > 44 && contentHash(buffer) === marker.renderHash) {
         log('info', `${label}: replays from ${canonical}${marker.adminPicked ? ' (admin-picked)' : ''}`);
@@ -179,6 +179,7 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
       let measure;
       try { measure = measureTake(r.wav); } catch (err) { all.push({ k: r.k, pass, storageKey: key, error: `unreadable audio (${err.message})`, score: null }); continue; }
       const qa = await checkTake({ wav: r.wav, measure, expectedText, expectedSeconds: timing.expectedSeconds, directionWords: dWords, name: nameInText, alias: useAlias ? alias : null, controlWords: ctrl, expectedEmotion: first.direction.emotion, costTracker, signal, log });
+      if (opts.requireExactText && normalizeSpoken(qa.transcript) !== normalizeSpoken(expectedText) && !qa.blocking.includes('narration text mismatch')) qa.blocking.push('narration text mismatch');
       const cand = {
         k: r.k, pass, storageKey: key, buffer: r.wav, rung, alignment: r.alignment || null, model: r.model,
         measure: { seconds: measure.seconds, trim: measure.trim, trimmedSeconds: measure.trimmedSeconds, lufs: measure.lufs, peakDb: measure.peakDb, truePeakDb: measure.truePeakDb, longestSilenceSeconds: measure.longestSilenceSeconds, sampleRate: measure.sampleRate },

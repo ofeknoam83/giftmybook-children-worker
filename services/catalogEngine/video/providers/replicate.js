@@ -59,10 +59,10 @@ async function fetchJson(url, opts, timeoutMs) {
 async function submit(job) {
   const [owner, name] = String(job.model).split('/');
   if (!owner || !name) throw new Error(`invalid Replicate model id '${job.model}'`);
-  const r = await fetchJson(`${API}/models/${owner}/${name}/predictions`, {
+  const r = await fetchJson(job.version ? `${API}/predictions` : `${API}/models/${owner}/${name}/predictions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${tokenFor(job)}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input: job.input }),
+    body: JSON.stringify({ input: job.input, ...(job.version ? { version: job.version } : {}) }),
   }, 60000);
   if (!r.ok || !r.data || !r.data.id) {
     const detail = (r.data && (r.data.detail || r.data.error)) || r.text.slice(0, 300);

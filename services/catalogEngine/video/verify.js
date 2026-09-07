@@ -123,7 +123,7 @@ async function judgeClip(clipBuffer, opts = {}) {
     if (json.outfit_change) defects.push('outfit break: the outfit changes during the clip');
     if (json.new_character) defects.push('new character enters the clip');
     if (json.text_appears) defects.push('painted text in the illustration');
-    if (json.speech) defects.push('speech: the child appears to talk');
+    if (json.speech && !opts.allowSpeech) defects.push('speech: the child appears to talk');
     if (json.frozen) defects.push('frozen clip: no visible motion');
     if (cuts) defects.push('cut break: the clip contains a cut or transition instead of one continuous shot');
     if (journey && progression === false) defects.push('journey break: the surroundings never change — the child does not advance into the next moment');
@@ -191,7 +191,7 @@ async function verifyClip(p) {
     });
     frameResults.push({ t: f.t, act: act && Number.isInteger(act.index) ? act.index : null, defects: r.defects || [], unavailable: r.qaUnavailable || null });
   }
-  const judge = await judgeClip(p.buffer, { cameraMotion: p.brief.cameraMotion, angles: p.brief.angles || [], label: `${p.label}:judge`, costTracker: p.costTracker });
+  const judge = await judgeClip(p.buffer, { cameraMotion: p.brief.cameraMotion, angles: p.brief.angles || [], allowSpeech: p.allowSpeech === true, label: `${p.label}:judge`, costTracker: p.costTracker });
   const framesChecked = frameResults.filter(f => !f.unavailable).length;
   const defects = [...new Set([...frameResults.flatMap(f => f.defects), ...judge.defects])];
   const { blocking, advisory } = classifyClipDefects(defects);

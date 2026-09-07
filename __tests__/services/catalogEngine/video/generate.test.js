@@ -7,6 +7,8 @@
 
 jest.mock('../../../../services/gcsStorage', () => ({
   downloadBuffer: jest.fn(), uploadBuffer: jest.fn().mockResolvedValue('https://signed/clip.mp4'), uploadBufferIfAbsent: jest.fn(), getSignedUrl: jest.fn(), deletePrefix: jest.fn(), saveJson: jest.fn(), loadJson: jest.fn(), objectExists: jest.fn(),
+  loadJson: jest.fn(async () => null),
+  saveJson: jest.fn(async () => {}),
 }));
 jest.mock('../../../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(), getNextApiKey: jest.fn(() => 'k'), downloadPhotoAsBase64: jest.fn(), isModestBathWaterScene: jest.fn(() => false),
@@ -131,4 +133,15 @@ describe('generateCandidates', () => {
     const r = await generateCandidates(base(a, { n: 1 }));
     expect(r.candidates[0].status).toBe('done');
   });
+});
+
+
+test('full films resume an in-flight prediction instead of buying the same motion again', async () => {
+  const storage = require('../../../../services/gcsStorage');
+  storage.loadJson.mockResolvedValue({ jobId: 'already-paid', pollUrl: 'https://poll/already-paid' });
+  const a = adapter(); a.poll.mockResolvedValue({ status: 'done', videoUrl: 'https://video/done.mp4' });
+  const result = await generateCandidates(base(a, { n: 1, persistJobs: true }));
+  expect(a.submit).not.toHaveBeenCalled();
+  expect(a.poll).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'already-paid' }));
+  expect(result.candidates[0].status).toBe('done');
 });
