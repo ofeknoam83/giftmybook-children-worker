@@ -405,6 +405,7 @@ async function runBookPipeline(params) {
       if (!coverPdfUrl) throw new Error('Cover PDF download link was not produced');
       if (attempt > 0) warnings.push('Cover PDF recovered automatically using saved artwork.');
       if (coverData.coverAnatomyAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverAnatomyAdvisory });
+      if (coverData.coverArtworkAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverArtworkAdvisory });
       if (coverData.backCoverDesignAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverDesignAdvisory });
       if (coverData.backCoverRepairNote) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverRepairNote });
     } catch (coverErr) {

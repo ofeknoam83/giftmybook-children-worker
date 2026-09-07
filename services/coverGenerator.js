@@ -195,6 +195,28 @@ function buildCoverSafeZoneInstruction(isHardcover) {
 }
 
 /**
+ * The flat-artwork rule every generated cover prompt carries (2026-09-07:
+ * a cover option in the app's story picker rendered as a PICTURE OF A BOOK
+ * — the scene sat inside a beige rounded-corner mat with a book edge around
+ * it, a product mockup rather than the cover itself — and every cover
+ * render here was open to the same drift, because "book cover" / "cover for
+ * a book titled …" is exactly the phrase an image model answers with a
+ * mockup). One shared constant so the front cover, the upsell covers and
+ * the harmonize re-render never disagree about it, and
+ * {@link qaCoverFlatArtwork} checks the same closed list.
+ */
+const FLAT_COVER_ART_RULE = 'FLAT COVER ART ONLY — NEVER A PICTURE OF A BOOK: this image IS the printed front-cover surface, full-bleed artwork that fills the whole frame edge to edge. Do NOT depict a book or any physical product: no 3D book mockup, no book standing or lying on a table, shelf or surface, no visible pages, page edges, spine, binding, cover thickness, dust jacket or cast shadow of a book. Do NOT frame the artwork: no border, margin, mat, inner panel, rounded-corner card or vignette frame around it, and no wall, room, tabletop or background colour behind it — the scene itself continues to all four edges.';
+
+/**
+ * The hardened retry note when {@link qaCoverFlatArtwork} rejects a render.
+ * @param {string} reason - the QA verdict's reason
+ * @returns {string}
+ */
+function flatCoverArtRepairNote(reason) {
+  return `CRITICAL COVER FORMAT REPAIR: the previous render ${reason}. Paint ONLY the flat cover artwork itself, filling the entire image edge to edge — no book object, no pages, spine, thickness or shadow, no border, mat, card or frame, and nothing behind or around the artwork.`;
+}
+
+/**
  * Re-render a customer-chosen cover (any prior art style) in the same
  * **cinematic 3D Pixar-style CGI** language as the book's interior spreads, while
  * preserving layout, text, and likeness. Used when the PDF is built from
@@ -239,6 +261,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     'PRESERVE: The same overall composition, the child’s placement and pose, the same on-image title and subtitle (character-for-character if visible), the same number of people, and the same story mood. Do not invent a new layout.',
     'TRANSFORM: If the input is 2D, watercolor, painterly, or flat illustrated, restyle it toward true 3D CGI in the same family as the interiors: believable 3D geometry, soft-feature-film character shading, PBR materials, clean volumetric lighting, modeled environment — do NOT increase skin/hair “photorealism” beyond a family-friendly 3D animated film look, and do NOT re-light faces to look like a real photograph.',
     'FORBID: a different book title, extra characters, missing characters, or a new scene. No poster typography that ignores the input text.',
+    `${FLAT_COVER_ART_RULE} If the INPUT shows its cover as a book object or inside a frame, mat or card, re-create ONLY the cover artwork itself, expanded to fill the whole image.`,
     'WARDROBE SCRUB (2026-07-19 audit: a flag patch on the approved cover propagated onto every interior spread): while re-creating, REMOVE any national flag, real-world brand logo, or lettering from the child\'s clothing — replace with plain fabric or a generic letter-free emblem (a star patch, a simple rocket motif). Everything else about the outfit stays identical.',
     '',
     'STYLE LOCK (match book interiors):',
@@ -634,6 +657,65 @@ A normal child has exactly two hands and two arms. Only report what you can clea
 }
 
 /**
+ * Flat-artwork QA for a FRONT cover (2026-09-07: a cover option in the app
+ * rendered as a picture of a book — the art inside a rounded-corner mat
+ * with a book edge around it — and the back-cover mockup gate from the
+ * 2026-07-18 audit never covered the front). The same mockup / frame
+ * detector as {@link qaBackCoverArtwork} without its text checks: a title
+ * belongs on a front cover. Closed check list — this is a mockup detector,
+ * not an art critic. Best-effort: infrastructure failures PASS — a QA
+ * outage must never block cover delivery.
+ *
+ * @param {Buffer} imageBuffer
+ * @returns {Promise<{pass: boolean, reason: string|null}>}
+ */
+async function qaCoverFlatArtwork(imageBuffer) {
+  const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey) return { pass: true, reason: null };
+  const prompt = `You are checking the FRONT COVER artwork of a children's book. The image must be FLAT, full-bleed cover artwork — the printed surface itself, with the scene (and any title) filling the whole image edge to edge. Ignore the art style, the child, the outfit, and the title typography.
+
+Answer STRICT JSON only:
+{
+  "book_mockup": true|false,    // does the image DEPICT a physical book or product — a 3D book mockup, a book standing or lying on a surface, visible pages, page edges, spine, binding thickness, or the cast shadow of a book?
+  "framed_artwork": true|false, // is the artwork shown INSIDE a border, margin, mat, inner panel, rounded-corner card or vignette frame, or placed ON a background (wall, room, tabletop, plain colour) instead of filling the whole image edge to edge?
+  "photo_surface": true|false   // photographic real-world surfaces (a real table, real paper texture, a photographed room) around or behind the artwork?
+}`;
+  try {
+    const resp = await fetchWithTimeout(
+      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
+            ],
+          }],
+          generationConfig: jsonQaGenerationConfig(256, 'gemini-2.5-flash'),
+        }),
+      },
+      30000,
+    );
+    if (!resp.ok) return { pass: true, reason: null };
+    const data = await resp.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    const failures = [
+      json.book_mockup === true && 'depicts a physical book / product mockup',
+      json.framed_artwork === true && 'shows the artwork inside a frame, mat or card instead of filling the image',
+      json.photo_surface === true && 'has a photographic real-world surface around the artwork',
+    ].filter(Boolean);
+    return failures.length > 0 ? { pass: false, reason: failures.join(' + ') } : { pass: true, reason: null };
+  } catch (err) {
+    console.warn(`[CoverGenerator] flat-artwork QA failed to run (passing without QA): ${err.message}`);
+    return { pass: true, reason: null };
+  }
+}
+
+/**
  * Generate back cover illustration using Gemini, matching the front cover style.
  * Picture books opt into an integrated Gemini design; other formats keep
  * text-free artwork with a separate deterministic text layer.
@@ -817,7 +899,7 @@ ${layoutBlock}`;
  * @param {string} [opts.childPhotoUrl] - the reference actually sent to Gemini
  * @param {string} [opts._cachedPhotoBase64]
  * @param {string} [opts._cachedPhotoMime]
- * @returns {Promise<{frontCoverImageUrl: string|null, frontCoverBuffer: Buffer|null, coverAnatomyAdvisory: string|null}>}
+ * @returns {Promise<{frontCoverImageUrl: string|null, frontCoverBuffer: Buffer|null, coverAnatomyAdvisory: string|null, coverArtworkAdvisory: string|null}>}
  */
 async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {}) {
   const isGraphicNovel = opts.isGraphicNovel === true;
@@ -826,6 +908,7 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
   let frontCoverImageUrl = null;
   let frontCoverBuffer = null;
   let coverAnatomyAdvisory = null;
+  let coverArtworkAdvisory = null;
 
   const artStyle = canonicalBookArtStyle(opts.artStyle);
   const aspectHint = isSquareTrim
@@ -848,7 +931,8 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
       + `The child should be prominently featured in a heroic or dramatic pose. `
       + `Background should be thematic with bold, graphic elements and dramatic lighting. `
       + `Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide. `
-      + `Style: graphic novel / comic book cover aesthetic with strong composition.\n\n`
+      + `Style: graphic novel / comic book cover aesthetic with strong composition. `
+      + FLAT_COVER_ART_RULE + '\n\n'
       + safeZoneInstruction
     : `A cinematic 3D Pixar feature-film key art cover — a single high-resolution frame that could be the opening poster of a modern Pixar movie. `
       + `The main character is a ${childAge}-year-old child named ${childName}, rendered as a believable 3D CGI character (real three-dimensional geometry, photoreal subsurface skin scattering, strand-by-strand hair, physically based materials — NOT a flat painting, NOT a watercolor, NOT a soft storybook illustration). `
@@ -860,27 +944,66 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
       // shipped on the front cover). The cover anchors every spread, so a
       // limb-count defect here is the worst place to have one.
       + `ANATOMY RULE: the child has EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no extra, duplicated, or floating limbs, no third arm or third hand, no stray hand without an arm. `
+      + FLAT_COVER_ART_RULE + ' '
       + aspectHint + '\n\n'
       + safeZoneInstruction;
 
+  // Every render of this cover — the first pass and each hardened QA retry —
+  // goes through the same call with the same identity inputs; only the scene
+  // text differs.
+  const renderCover = (scene) => generateIllustration(
+    scene, characterRefUrl, artStyle, {
+      costTracker: opts.costTracker,
+      bookId: opts.bookId,
+      childAppearance: childDetails.appearance || childDetails.childAppearance,
+      childName: childDetails.name || childDetails.childName,
+      childPhotoUrl: opts.childPhotoUrl,
+      _cachedPhotoBase64: opts._cachedPhotoBase64,
+      _cachedPhotoMime: opts._cachedPhotoMime,
+    },
+  );
+
   try {
-    const imageUrl = await generateIllustration(
-      coverScene, characterRefUrl, artStyle, {
-        costTracker: opts.costTracker,
-        bookId: opts.bookId,
-        childAppearance: childDetails.appearance || childDetails.childAppearance,
-        childName: childDetails.name || childDetails.childName,
-        childPhotoUrl: opts.childPhotoUrl,
-        _cachedPhotoBase64: opts._cachedPhotoBase64,
-        _cachedPhotoMime: opts._cachedPhotoMime,
-      },
-    );
+    const imageUrl = await renderCover(coverScene);
     frontCoverImageUrl = imageUrl;
     if (imageUrl) {
       frontCoverBuffer = await downloadBuffer(imageUrl);
     }
   } catch (err) {
     console.error('[CoverGenerator] Failed to generate cover illustration:', err.message);
+  }
+
+  // Flat-artwork QA (2026-09-07: a cover rendered as a PICTURE OF A BOOK —
+  // the scene inside a rounded-corner mat with a book edge around it). It
+  // runs FIRST: a mockup makes the wardrobe and anatomy reads below
+  // meaningless, and its retry re-renders the whole cover anyway. One vision
+  // check + one hardened retry; if the retry still fails, keep the first
+  // cover and record the residual advisory (ship-and-flag, never block).
+  if (frontCoverBuffer) {
+    const fq = await qaCoverFlatArtwork(frontCoverBuffer);
+    if (!fq.pass) {
+      console.warn(`[CoverGenerator] front cover flat-artwork QA failed (${fq.reason}) — one hardened retry`);
+      try {
+        const retryUrl = await renderCover(`${coverScene}\n\n${flatCoverArtRepairNote(fq.reason)}`);
+        if (retryUrl) {
+          const retryBuffer = await downloadBuffer(retryUrl);
+          const fq2 = await qaCoverFlatArtwork(retryBuffer);
+          if (fq2.pass) {
+            frontCoverImageUrl = retryUrl;
+            frontCoverBuffer = retryBuffer;
+            console.log('[CoverGenerator] flat-artwork retry cover accepted');
+          } else {
+            coverArtworkAdvisory = `cover artwork: ${fq2.reason} (shipped after 1 retry)`;
+            console.warn(`[CoverGenerator] flat-artwork retry still fails (${fq2.reason}) — shipping first cover and flagging`);
+          }
+        } else {
+          coverArtworkAdvisory = `cover artwork: ${fq.reason} (retry produced no image)`;
+        }
+      } catch (retryErr) {
+        coverArtworkAdvisory = `cover artwork: ${fq.reason} (retry errored)`;
+        console.warn(`[CoverGenerator] flat-artwork retry failed (keeping first cover): ${retryErr.message}`);
+      }
+    }
   }
 
   // Wardrobe QA (2026-07-19 audit: a US-flag patch survived the prompt
@@ -893,17 +1016,7 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
       console.warn(`[CoverGenerator] front cover wardrobe QA failed (${wq.reason}) — one hardened retry`);
       try {
         const retryScene = `${coverScene}\n\nCRITICAL WARDROBE REPAIR: the previous render put ${wq.reason} on the child's clothing. The outfit must carry NO flags, NO logos, NO letters — plain fabric or a generic star/rocket emblem only.`;
-        const retryUrl = await generateIllustration(
-          retryScene, characterRefUrl, artStyle, {
-            costTracker: opts.costTracker,
-            bookId: opts.bookId,
-            childAppearance: childDetails.appearance || childDetails.childAppearance,
-            childName: childDetails.name || childDetails.childName,
-            childPhotoUrl: opts.childPhotoUrl,
-            _cachedPhotoBase64: opts._cachedPhotoBase64,
-            _cachedPhotoMime: opts._cachedPhotoMime,
-          },
-        );
+        const retryUrl = await renderCover(retryScene);
         if (retryUrl) {
           const retryBuffer = await downloadBuffer(retryUrl);
           const wq2 = await qaCoverWardrobe(retryBuffer);
@@ -931,17 +1044,7 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
       console.warn(`[CoverGenerator] front cover anatomy QA failed (${aq.reason}) — one hardened retry`);
       try {
         const retryScene = `${coverScene}\n\nCRITICAL ANATOMY REPAIR: the previous render gave the child ${aq.reason}. The child must have EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no third arm, no extra or duplicated hand, no stray hand, no fused fingers.`;
-        const retryUrl = await generateIllustration(
-          retryScene, characterRefUrl, artStyle, {
-            costTracker: opts.costTracker,
-            bookId: opts.bookId,
-            childAppearance: childDetails.appearance || childDetails.childAppearance,
-            childName: childDetails.name || childDetails.childName,
-            childPhotoUrl: opts.childPhotoUrl,
-            _cachedPhotoBase64: opts._cachedPhotoBase64,
-            _cachedPhotoMime: opts._cachedPhotoMime,
-          },
-        );
+        const retryUrl = await renderCover(retryScene);
         if (retryUrl) {
           const retryBuffer = await downloadBuffer(retryUrl);
           const aq2 = await qaCoverAnatomy(retryBuffer);
@@ -963,7 +1066,7 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
     }
   }
 
-  return { frontCoverImageUrl, frontCoverBuffer, coverAnatomyAdvisory };
+  return { frontCoverImageUrl, frontCoverBuffer, coverAnatomyAdvisory, coverArtworkAdvisory };
 }
 
 /**
@@ -1068,6 +1171,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // with the BOOK_PASS_SHIP_ON_EXHAUSTION ship-and-flag policy). Covers never
   // hard-block on delivery.
   let coverAnatomyAdvisory = null;
+  // Same channel for a cover that depicts a BOOK instead of being the cover
+  // artwork (2026-09-07) — a residual after the front-cover QA + retry, or a
+  // pre-generated cover flagged as-is.
+  let coverArtworkAdvisory = null;
 
   if (opts.preGeneratedCoverBuffer) {
     if (opts.reuseApprovedArtworkOnly) {
@@ -1098,6 +1205,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     frontCoverImageUrl = front.frontCoverImageUrl;
     frontCoverBuffer = front.frontCoverBuffer;
     coverAnatomyAdvisory = front.coverAnatomyAdvisory;
+    coverArtworkAdvisory = front.coverArtworkAdvisory;
   }
 
   // P0 anatomy QA for a pre-generated / parent-chosen cover (no regeneration —
@@ -1107,6 +1215,13 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     if (!aq.pass) {
       coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (pre-generated cover — flagged, not regenerated)`;
       console.warn(`[CoverGenerator] pre-generated cover anatomy QA failed (${aq.reason}) — flagging`);
+    }
+    // A pre-generated cover that is a picture of a book prints as one —
+    // flag it the same way (the app's cover options carry their own gate).
+    const fq = await qaCoverFlatArtwork(frontCoverBuffer);
+    if (!fq.pass) {
+      coverArtworkAdvisory = `cover artwork: ${fq.reason} (pre-generated cover — flagged, not regenerated)`;
+      console.warn(`[CoverGenerator] pre-generated cover flat-artwork QA failed (${fq.reason}) — flagging`);
     }
   }
 
@@ -1370,6 +1485,9 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     // human-readable string when a residual limb-count defect shipped and the
     // book should be flagged for review.
     coverAnatomyAdvisory,
+    // Null when the cover is flat full-bleed artwork (or QA was unavailable);
+    // a string when it depicts a book / sits in a frame and shipped anyway.
+    coverArtworkAdvisory,
   };
 }
 
@@ -1488,7 +1606,7 @@ function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyl
     parts.push(`OUTFIT (locked for the whole book, identical to every interior illustration — every garment, colour and length; nothing added, nothing removed): ${String(identity.characterOutfit).replace(/[\u0000-\u001F\u007F]+/g, ' ').slice(0, 700)}`);
   }
 
-  parts.push(`Book cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom.\n\nWARDROBE RULE: ${childName}'s clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos, no national flags. Plain fabric or generic letter-free emblems only.\n\nART STYLE: ${styleBlock}`);
+  parts.push(`Front-cover ARTWORK (the flat printed cover surface itself, never a picture of a book) for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom.\n\nWARDROBE RULE: ${childName}'s clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos, no national flags. Plain fabric or generic letter-free emblems only.\n\n${FLAT_COVER_ART_RULE}\n\nART STYLE: ${styleBlock}`);
 
   return parts.join('\n\n');
 }
@@ -1683,5 +1801,11 @@ module.exports = {
   qaBackCoverArtwork,
   qaCoverWardrobe,
   qaCoverAnatomy,
+  // Flat-artwork gate (2026-09-07): a cover is the printed surface, never a
+  // picture of a book. The rule rides every cover prompt; the QA rejects a
+  // render that depicts a book / frames the art (one hardened retry).
+  qaCoverFlatArtwork,
+  FLAT_COVER_ART_RULE,
+  flatCoverArtRepairNote,
   extendWithSoftWrap,
 };

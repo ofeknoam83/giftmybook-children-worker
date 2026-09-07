@@ -687,6 +687,19 @@ describe('POST /v13/generate-cover-image (probe-anchor cover)', () => {
     expect(res.status).toBe(200);
     expect(res.body.coverAnatomyAdvisory).toMatch(/three hands/);
   });
+
+  test('a residual flat-artwork advisory (the cover depicts a BOOK) ships on the response too', async () => {
+    generateFrontCoverImage.mockResolvedValue({
+      frontCoverImageUrl: 'https://example.com/front.png',
+      frontCoverBuffer: Buffer.from('fake-front-cover'),
+      coverAnatomyAdvisory: null,
+      coverArtworkAdvisory: 'cover artwork: depicts a physical book / product mockup (shipped after 1 retry)',
+    });
+    const res = await post(validBody());
+    expect(res.status).toBe(200);
+    expect(res.body.coverAnatomyAdvisory).toBeNull();
+    expect(res.body.coverArtworkAdvisory).toMatch(/depicts a physical book/);
+  });
 });
 
 describe('POST /generate-book render_failed diagnostics on the failure callback', () => {

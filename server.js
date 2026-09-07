@@ -1130,6 +1130,9 @@ app.post('/v13/generate-cover-image', authenticate, async (req, res) => {
       gcsPath,
       title,
       coverAnatomyAdvisory: front.coverAnatomyAdvisory,
+      // 2026-09-07: non-null when the render depicted a BOOK (mockup / framed
+      // art) and shipped after the one hardened retry — the bench sees it.
+      coverArtworkAdvisory: front.coverArtworkAdvisory,
       costs: costTracker.getSummary(),
     });
   } catch (err) {
