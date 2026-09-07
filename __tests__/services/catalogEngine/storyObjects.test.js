@@ -111,6 +111,79 @@ test('generic objects work without a catalog definition; no-object stories are e
   expect(validatePlan(generic, inputs).objects[0].id).toBe('key');
 });
 
+// Reproduce the reported forest_bells omission with synthetic manuscript text.
+// Heard/off-screen objects need a grounded occurrence, not forced visibility.
+function bellsFixture() {
+  const p = params();
+  p.book = { id: 'enchanted_6_7_echo_bells', beats: [] };
+  p.story = { book_id: p.book.id, spreads: [
+    { spread: 1, text: 'Forest bells rang somewhere beyond the clearing.' },
+    { spread: 9, text: 'The bells sounded farther away as the child followed the new clue.' },
+    { spread: 10, text: 'They found the forest bells hanging beneath the arch.' },
+  ], personalization_evidence: [] };
+  const complete = { objects: [{ id: 'forest_bells', name: 'forest bells', aliases: ['bells'], critical: true,
+    design: { shape: 'Small rounded bells', material: 'Brass', colors: 'Gold', scale: 'Palm sized', features: 'Round loops' },
+    instances: [{ id: 'bell_group', description: 'The uncounted group of bells beneath the arch' }],
+    occurrences: p.story.spreads.map(s => ({ spread: s.spread, instanceIds: ['bell_group'], multiplicity: 'group',
+      evidence: s.text, required: s.spread === 10,
+      state: s.spread === 10 ? 'The bells hang visibly beneath the arch.' : 'The bells are heard off-screen; do not show them.' })),
+  }], conflicts: [] };
+  const incomplete = JSON.parse(JSON.stringify(complete));
+  incomplete.objects[0].occurrences = incomplete.objects[0].occurrences.filter(o => o.spread !== 9);
+  return { p, complete, incomplete };
+}
+
+test('forest_bells spread 9 is repaired with error feedback and can remain off-screen', async () => {
+  const { p, complete, incomplete } = bellsFixture();
+  expect(() => validatePlan(incomplete, inputsFor(p))).toThrow('Object occurrence omitted on spread 9: forest_bells');
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response(complete));
+  const result = await resolveStoryObjects(p);
+  const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
+  expect(prompt).toContain('Object occurrence omitted on spread 9: forest_bells');
+  expect(prompt).toContain('"previousPlan"');
+  expect(prompt).toContain('"objectId":"forest_bells","spread":9');
+  expect(objectsForSpread(result, 9)[0].occurrence.required).toBe(false);
+  expect(uploadBufferIfAbsent).toHaveBeenCalledTimes(1);
+});
+
+test('reports all omitted occurrences together, including beat-only mentions', async () => {
+  const { p, complete, incomplete } = bellsFixture();
+  p.book.beats = [{ spread: 10, beat: p.story.spreads[2].text }];
+  p.story.spreads[2].text = 'They finally found the arch.';
+  incomplete.objects[0].occurrences = incomplete.objects[0].occurrences.filter(o => o.spread !== 10);
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response(complete));
+  await resolveStoryObjects(p);
+  const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
+  expect(prompt).toContain('Object occurrence omitted on spread 9: forest_bells');
+  expect(prompt).toContain('Object occurrence omitted on spread 10: forest_bells');
+});
+
+test.each(['still omitted', 'dropped object', 'changed alias', 'changed design', 'changed state'])('an invalid repair (%s) never ships', async kind => {
+  const { p, complete, incomplete } = bellsFixture();
+  let retry = JSON.parse(JSON.stringify(complete));
+  if (kind === 'still omitted') retry = incomplete;
+  if (kind === 'dropped object') retry.objects = [];
+  if (kind === 'changed alias') retry.objects[0].aliases = [];
+  if (kind === 'changed design') retry.objects[0].design.colors = 'Silver';
+  if (kind === 'changed state') retry.objects[0].occurrences[0].required = true;
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response(retry));
+  await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+});
+
+test('an elected so-1 manifest remains frozen across planner prompt revisions', async () => {
+  const p = params();
+  const inputHash = hash(inputsFor(p));
+  const key = `catalog-assets/story-objects/so-1/${inputHash}.json`;
+  storage.set(key, Buffer.from(JSON.stringify({ inputHash, plan: plan() })));
+  const result = await resolveStoryObjects(p);
+  expect(result.storageKey).toBe(key);
+  expect(result.hash).toBe(hash(plan()));
+  expect(fetchWithTimeout).not.toHaveBeenCalled();
+  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+});
+
 test.each([
   ['different shape', { look: 'wrong_look' }],
   ['wrong orientation', { state_match: false }],
