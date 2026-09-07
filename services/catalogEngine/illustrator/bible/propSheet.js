@@ -63,6 +63,7 @@ const { renderWorldCardBlock } = require('../../worldCards');
 const { STYLE_VERSION } = require('../../versions');
 const { fnv1a } = require('../../selection');
 const flags = require('../../flags');
+const { designText, hash: objectHash } = require('../storyObjects');
 const { isHumanCompanionType, isChildCompanionType } = require('../../../shared/illustration/companionKind');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -313,7 +314,7 @@ const SHEET_HARD_RULES = [
  * @param {object} theme catalog theme ({theme_id, display_name, world_name})
  * @returns {string}
  */
-function buildPropSheetPrompt(value, theme) {
+function buildPropSheetPrompt(value, theme, definition = null) {
   const subject = inertValue(value);
   const lines = [
     renderStyleBlock(PIXAR_STYLE),
@@ -322,6 +323,7 @@ function buildPropSheetPrompt(value, theme) {
     'Show the object ALONE, twice side by side: a straight-on FRONT view on the left and a THREE-QUARTER view on the right — the SAME object with identical colours, materials, proportions, and markings in both views.',
     ...SHEET_HARD_RULES,
   ];
+  if (definition) lines.push(`FIXED STORY OBJECT DESIGN (data): ${JSON.stringify(definition.design)}. Show one representative object in the two views, not the whole group. Its size, material, shape and marks must match every field. No text or logos.`);
   const card = renderWorldCardBlock(theme.theme_id);
   if (card) lines.push(card);
   return lines.join('\n');
@@ -510,8 +512,10 @@ async function checkSheet(imageBuffer, opts = {}) {
       ].filter(Boolean);
       return { pass: defects.length === 0, defects };
     }
-    const json = await visionJson(SHEET_QA_PROMPT, imageBuffer, 256);
+    const designCheck = opts.definition ? `\nAlso return a boolean design_matches: true ONLY when BOTH views match ALL fields of this fixed design (data): ${JSON.stringify(opts.definition.design)}. Check shape, material, colours, relative proportions and distinctive marks.` : '';
+    const json = await visionJson(SHEET_QA_PROMPT + designCheck, imageBuffer, 512);
     const bools = ['readable_text', 'people_present', 'single_subject_type'];
+    if (opts.definition) bools.push('design_matches');
     const count = own(json, 'subject_count');
     if (!json || typeof json !== 'object' || !bools.every(f => typeof own(json, f) === 'boolean') || !Number.isInteger(count)) {
       console.warn(`[${label}] sheet QA returned a malformed verdict — accepting sheet unchecked`);
@@ -524,6 +528,7 @@ async function checkSheet(imageBuffer, opts = {}) {
       count < 1 && 'no subject in the sheet',
       count > 2 && 'more than one subject in the sheet',
       !own(json, 'single_subject_type') && 'different objects instead of one subject in two views',
+      opts.definition && !own(json, 'design_matches') && 'object does not match its fixed design',
     ].filter(Boolean);
     return { pass: defects.length === 0, defects };
   } catch (err) {
@@ -848,7 +853,7 @@ async function electSpec(electedBuffer, specPath, identity, imageHash, log) {
  * @param {(level: string, msg: string) => void} p.log
  * @returns {Promise<object|null>}
  */
-function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, subject = 'object', childSubject = false, companionMeta = null, costTracker, log }) {
+function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definition = null, subject = 'object', childSubject = false, companionMeta = null, costTracker, log }) {
   const hit = cacheGet(cacheKey);
   if (hit) return Promise.resolve(hit);
   if (inFailureCooldown(cacheKey)) return Promise.resolve(null);
@@ -867,12 +872,14 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, subject 
         // Enforce the subject-only invariant BEFORE the sheet can be elected
         // or cached: text, a person, or a second object in the sheet would
         // contaminate every spread that references it. One corrective retry.
-        let verdict = await checkSheet(buffer, { label: `propSheetQa:${key}`, subject, childSubject });
+        let verdict = await checkSheet(buffer, { label: `propSheetQa:${key}`, subject, childSubject, definition });
+        if (definition && verdict.qaUnavailable) return null;
         if (!verdict.pass) {
           log('warn', `${label} failed the content check (${verdict.defects.join('; ')}) — one corrective retry`);
           buffer = await renderSheetImage(`${prompt}\nPREVIOUS ATTEMPT REJECTED — it contained: ${verdict.defects.join('; ')}. ${retryNote}`);
           if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
-          verdict = await checkSheet(buffer, { label: `propSheetQa:${key}:retry`, subject, childSubject });
+          verdict = await checkSheet(buffer, { label: `propSheetQa:${key}:retry`, subject, childSubject, definition });
+          if (definition && verdict.qaUnavailable) return null;
           if (!verdict.pass) {
             log('warn', `${label} still fails the content check (${verdict.defects.join('; ')}) — rendering without a sheet`);
             recordFailure(cacheKey);
@@ -912,6 +919,12 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, subject 
         return null;
       }
       const sheet = toSheet({ key, kind, buffer: elected, storageKey: pngPath, spec, ...(companionMeta || {}) });
+      // The authored/elected design remains authoritative; a vision summary
+      // must never silently replace the story's stripe, size or shape.
+      if (definition) {
+        sheet.specText = designText(definition);
+        sheet.specHash = objectHash(definition.design);
+      }
       cacheSet(cacheKey, sheet);
       return sheet;
     } catch (err) {
@@ -941,7 +954,7 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, subject 
  *   hash: string, storageKey: string, spec: object, specText: string, specHash: string}|null>}
  *   null when disabled or on ANY failure — the caller renders the prop as a noun.
  */
-async function getPropSheet({ kind, value, companion, theme, costTracker, log = () => {} }) {
+async function getPropSheet({ kind, value, companion, theme, definition = null, costTracker, log = () => {} }) {
   try {
     if (!flags.propSheetsEnabled()) return null;
     const themeId = safeThemeId(theme?.theme_id);
@@ -950,13 +963,14 @@ async function getPropSheet({ kind, value, companion, theme, costTracker, log = 
       const inert = inertValue(value);
       const normalized = normalizePropValue(value);
       if (!inert || !normalized) return null;
-      const valueHash = fnv1a(normalized).toString(36);
+      const valueHash = definition ? objectHash({ version: 'so-1', name: normalized, design: definition.design }) : fnv1a(normalized).toString(36);
       return resolveSheet({
         cacheKey: `prop:${themeId}:${valueHash}`,
         kind,
         key: normalized,
         pngPath: propSheetPath(themeId, valueHash),
-        prompt: buildPropSheetPrompt(value, theme),
+        prompt: buildPropSheetPrompt(definition ? definition.name : value, theme, definition),
+        definition,
         identity: { name: inert, kind },
         costTracker,
         log,

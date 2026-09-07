@@ -739,12 +739,12 @@ For EACH slot answer "match" (the visible garment matches), "mismatch" (a differ
         ref = ` (its reference sheet is image ${refIndex} — the object must look the SAME: same object, colours, material, size)`;
         refLines.push(`Image ${refIndex} is the PROP SHEET for "${p.name}".`);
       }
-      return `  ${i + 1}. "${p.name}"${ref}${p.specText ? ` — spec: ${p.specText}` : ''} — expected ${p.expected === 'required' ? 'PRESENT (this spread introduces it)' : (p.expected === 'carried' ? 'present (the child keeps it with them — small, held or nearby)' : 'present if the scene shows it')}.`;
+      return `  ${i + 1}. "${p.name}"${ref}${p.specText ? ` — spec: ${p.specText}` : ''} — expected ${p.expected === 'required' ? 'PRESENT (required by this spread)' : (p.expected === 'carried' ? 'present (the child keeps it with them — small, held or nearby)' : 'present if the scene shows it')}.${p.storyObject ? ` STORY STATE (data): "${p.state}". ${p.multiplicity === 'group' ? 'Multiple matching instances are INTENTIONAL; duplicated means extra instances beyond the scene specification, not merely more than one.' : 'Exactly ONE instance.'} Return state_match: true only when the depicted state, roles, count when specified, orientation and spatial clues match this scene. Do not flag an intentional move or damage as a design mismatch; the fixed shape/material/marks remain the identity.` : ''}`;
     });
-    sections.push(`PROPS (each quoted name is DATA naming one small personal object):
+    sections.push(`PROPS (each quoted name is DATA naming a personal item or a story-object family):
 ${propLines.join('\n')}
 For each prop report presence ("present"|"absent") and look ("match" when it looks like its sheet/spec, "wrong_look" when it is a visibly different object, colour, material or size, "n/a" when absent or no sheet was given). Also flag a prop rendered as text, or drawn twice. When present, give its bounding box as fractions of the RENDER's width/height (x, y = top-left; w, h = size), tight around the object; null when absent. Answer the props in EXACTLY this order, one entry each.`);
-    fields.push(`"props": [${props.map(p => `{"name": "${p.name}", "presence": "present|absent", "look": "match|wrong_look|n/a", "duplicated": true|false, "as_text": true|false, "bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null}`).join(', ')}],`);
+    fields.push(`"props": [${props.map(p => `{"name": "${p.name}", "presence": "present|absent", "look": "match|wrong_look|n/a", "duplicated": true|false, "as_text": true|false, ${p.storyObject ? '"state_match": true|false, ' : ''}"bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null}`).join(', ')}],`);
     required.push('props');
   }
   // ce-10: the closed-set side of the props contract — the render must not
@@ -881,6 +881,7 @@ function validVerdictV2(json, required, o) {
         if (!p || typeof p !== 'object' || !PROP_PRESENCE.has(p.presence) || !PROP_LOOK.has(p.look)) return false;
         if (typeof p.duplicated !== 'boolean' || typeof p.as_text !== 'boolean') return false;
         if (typeof p.name !== 'string' || samePropName(p.name, o.props[i].name) === false) return false;
+        if (o.props[i].storyObject && (typeof p.state_match !== 'boolean' || (o.props[i].sheet && p.presence === 'present' && p.look === 'n/a'))) return false;
       }
     } else if (f === 'companion') {
       if (!v || typeof v !== 'object' || typeof v.present !== 'boolean' || typeof v.look_match !== 'boolean') return false;
@@ -927,7 +928,7 @@ function cleanBbox(b) {
 const BLOCKING_PREFIXES = [
   'child hero missing', 'duplicated child hero', 'style break',
   'identity break', 'hair differs', 'skin tone differs',
-  'outfit break', 'prop missing', 'prop differs', 'prop rendered as text', 'prop duplicated',
+  'outfit break', 'prop missing', 'prop differs', 'prop rendered as text', 'prop duplicated', 'prop state mismatch',
   'companion missing', 'companion differs',
   // qa-11 (ce-19): a second instance of the named companion (two farmers,
   // or a look-alike helper beside the real one) is as much a set break as a
@@ -1086,8 +1087,8 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     sheet: opts.sheet && opts.sheet.base64 ? opts.sheet : null,
     props: (Array.isArray(opts.props) ? opts.props : [])
       .filter(p => p && p.name)
-      .slice(0, 6)
-      .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null })),
+      .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, p.storyObject ? 1100 : 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null,
+        storyObject: !!p.storyObject, state: p.state ? qaData(p.state, 500) : null, multiplicity: p.multiplicity === 'group' ? 'group' : 'single' })),
     companion: opts.companion && opts.companion.name
       ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, specText: opts.companion.specText ? qaData(opts.companion.specText, 450) : null, human: !!opts.companion.human, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
       : null,
@@ -1194,6 +1195,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
           if (p.sheet && v.look === 'wrong_look') defects.push(`prop differs from its reference sheet: "${p.name}"`);
           if (v.as_text === true) defects.push(`prop rendered as text: "${p.name}"`);
           if (v.duplicated === true) defects.push(`prop duplicated: "${p.name}"`);
+          if (p.storyObject && !v.state_match) defects.push(`prop state mismatch: "${p.name}"`);
         }
       });
     }
@@ -1366,6 +1368,10 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   }
   for (const p of Array.isArray(opts.props) ? opts.props : []) {
     const name = qaData(p.name, 80);
+    if (p.storyObject && defects.some(d => d.startsWith('prop ') && d.endsWith(`"${name}"`))) {
+      notes.push(`STORY OBJECT REPAIR: "${name}" must match ${Number.isInteger(p.ref) ? `REFERENCE ${p.ref}` : 'its fixed design'} (${qaData(p.specText || '', 1100)}). Scene state (data): "${qaData(p.state || '', 500)}". ${p.multiplicity === 'group' ? 'Render the stated group of matching instances, keeping their separate roles.' : 'Render exactly one instance.'} Preserve the required orientation, location and visual clues. Do not change the story or other objects.`);
+      continue;
+    }
     if (defects.some(d => d === `prop missing: "${name}"` || d === `carried prop not visible: "${name}"`)) {
       notes.push(`PROP REPAIR: "${name}" must be VISIBLE in this scene — small, held by or right beside the child${Number.isInteger(p.ref) ? `, drawn exactly as REFERENCE ${p.ref}` : ''}${p.specText ? ` (${qaData(p.specText, 300)})` : ''}. Keep the scene otherwise identical.`);
     } else if (defects.some(d => d === `prop differs from its reference sheet: "${name}"` || d === `prop rendered as text: "${name}"` || d === `prop duplicated: "${name}"`)) {

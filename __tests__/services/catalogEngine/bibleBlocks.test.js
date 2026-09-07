@@ -179,3 +179,11 @@ test('ce-19: the COMPANION block cites a PERSON companion\'s sheet in a person\'
   expect(bare).toContain('COMPANION: Farmer Bea, a friendly adult farm guide; friendly and warm, secondary to the child — a fictional adult guide who IS allowed in this scene (draw them fully, face included, the same design on every spread); the no-other-humans rule applies to everyone else.');
   expect(bare).not.toContain('Exactly ONE Farmer Bea');
 });
+
+test('plot objects keep their story state and family count instead of decorative-only rules', () => {
+  const rendered = renderBibleBlocks({ props: [{ name: 'Story object: route marker', storyObject: true, required: true, critical: true, ref: 3, specText: 'wood post, orange stripe', state: 'Third marker lies in grass.', multiplicity: 'group', instances: [{ id: 'third', description: 'displaced marker' }] }] }).join('\n');
+  expect(rendered).toContain('Third marker lies in grass.');
+  expect(rendered).toContain('group of matching objects is intentional');
+  expect(rendered).not.toContain('never plot-critical');
+  expect(rendered).not.toContain('Small and decorative');
+});

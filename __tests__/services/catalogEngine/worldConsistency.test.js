@@ -1,3 +1,7 @@
+jest.mock('../../../services/catalogEngine/illustrator/storyObjects', () => ({
+  ...jest.requireActual('../../../services/catalogEngine/illustrator/storyObjects'),
+  resolveStoryObjects: jest.fn().mockResolvedValue({ objects: [], hash: 'empty', version: 'so-1' }),
+}));
 /**
  * World-consistency layers (docs: cross-spread world design):
  *  1. world-law cards — per-theme fixed invariants on every scene prompt;

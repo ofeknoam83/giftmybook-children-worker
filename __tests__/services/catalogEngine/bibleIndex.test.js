@@ -1,3 +1,7 @@
+jest.mock('../../../services/catalogEngine/illustrator/storyObjects', () => ({
+  ...jest.requireActual('../../../services/catalogEngine/illustrator/storyObjects'),
+  resolveStoryObjects: jest.fn().mockResolvedValue({ objects: [], hash: 'empty', version: 'so-1' }),
+}));
 /**
  * The Book Bible render path (ce-9) end to end, with the bible modules
  * mocked: the reference pack and prompt blocks reach every render, N
@@ -26,6 +30,7 @@ jest.mock('../../../services/gcsStorage', () => ({
 jest.mock('../../../services/catalogEngine/illustrator/bible/characterSheet', () => ({ getCharacterSheet: jest.fn() }));
 jest.mock('../../../services/catalogEngine/illustrator/bible/propSheet', () => ({
   getBibleProps: jest.fn(),
+  getPropSheet: jest.fn(),
   normalizePropValue: (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim(),
 }));
 jest.mock('../../../services/catalogEngine/illustrator/outfitLock', () => ({ getOutfitLock: jest.fn() }));
@@ -107,6 +112,7 @@ const baseParams = (over = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  require('../../../services/catalogEngine/illustrator/storyObjects').resolveStoryObjects.mockResolvedValue({ objects: [], hash: 'empty', version: 'so-1' });
   verifyImageText.mockImplementation((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text));
   delete process.env.CATALOG_RENDER_CANDIDATES;
   process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
@@ -612,4 +618,88 @@ test('ce-19: the bible hash re-keys every render when the companion sheet or its
   getBibleProps.mockResolvedValueOnce({ props: [], companion: { ...BEA_SHEET, specHash: 'otherspec' }, advisories: [] });
   const respec = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
   expect(new Set([none.storyHash, bea.storyHash, respec.storyHash]).size).toBe(3);
+});
+
+describe('recurring story objects across the production render path', () => {
+  const { resolveStoryObjects } = require('../../../services/catalogEngine/illustrator/storyObjects');
+  const { getPropSheet } = require('../../../services/catalogEngine/illustrator/bible/propSheet');
+  const markerPlan = () => ({ version: 'so-1', hash: 'marker-plan-a', objects: [{
+    id: 'route_marker', name: 'route marker', critical: true, aliases: ['marker', 'third marker'],
+    design: { shape: 'narrow post', material: 'wood', colors: 'brown and orange', scale: 'knee high', features: 'one stripe' },
+    instances: [{ id: 'third', description: 'The displaced third marker' }],
+    occurrences: [1, 3].map(spread => ({ spread, instanceIds: ['third'], multiplicity: 'single', state: spread === 1 ? 'The third marker stands upright.' : 'The same third marker lies on the ground.', required: true })),
+  }] });
+  const markerQa = over => cleanQa({ verdict: { props: [{ name: 'Story object: route marker', presence: 'present', look: 'match', state_match: true, duplicated: false, as_text: false, ...over }] } });
+  beforeEach(() => {
+    resolveStoryObjects.mockResolvedValue(markerPlan());
+    getPropSheet.mockResolvedValue({ ...PROP_SHEET, key: 'story object: route marker', specText: 'narrow wood post, orange stripe' });
+    checkSpreadRenderV2.mockResolvedValue(markerQa());
+  });
+  test('plot objects absent from personalization get a sheet, state-aware prompts, QA and both contact checks', async () => {
+    const result = await renderStorySpreads(baseParams());
+    expect(getPropSheet).toHaveBeenCalledWith(expect.objectContaining({ definition: expect.objectContaining({ id: 'route_marker' }) }));
+    const opts = generateIllustration.mock.calls[0][3];
+    expect(opts.bible.props).toContainEqual(expect.objectContaining({ name: 'Story object: route marker', storyObject: true, state: 'The third marker stands upright.' }));
+    expect(checkSpreadRenderV2.mock.calls[1][1].props[0]).toMatchObject({ storyObject: true, state: 'The same third marker lies on the ground.' });
+    expect(checkPropContactSheet.mock.calls).toHaveLength(2);
+    expect(checkPropContactSheet.mock.calls[0][0].tiles.map(t => t.spread)).toEqual([1, 3]);
+    expect(result.objectFailures).toEqual([]);
+    expect(result.bookBible.storyObjects.hash).toBe('marker-plan-a');
+    const markers = uploadBuffer.mock.calls.filter(c => c[1].endsWith('.qa.json')).map(c => JSON.parse(c[0].toString()));
+    expect(markers.every(m => m.storyObjectHash === 'marker-plan-a' && m.qa.verdict.props[0].state_match)).toBe(true);
+  });
+  test('a missing critical sheet stops before any spreads render', async () => {
+    getPropSheet.mockResolvedValue(null);
+    await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+    expect(generateIllustration).not.toHaveBeenCalled();
+  });
+  test('plan changes rekey rendered artwork', async () => {
+    const a = await renderStorySpreads(baseParams());
+    resolveStoryObjects.mockResolvedValue({ ...markerPlan(), hash: 'marker-plan-b' });
+    const b = await renderStorySpreads(baseParams());
+    expect(a.results[0].storageKey).not.toBe(b.results[0].storageKey);
+  });
+  test('ship-on-exhaustion cannot bypass critical object failures', async () => {
+    process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ state_match: false }));
+    await expect(illustrateStory(baseParams())).rejects.toMatchObject({ failureCode: 'consistency_unresolved', unresolved: expect.arrayContaining([expect.objectContaining({ spread: 1 })]) });
+  });
+  test('the final cross-spread gate rejects an unavailable check', async () => {
+    checkPropContactSheet.mockResolvedValue({ pass: true, flagged: [], checked: 2, qaUnavailable: 'timeout' });
+    const result = await renderStorySpreads(baseParams());
+    expect(result.objectFailures).toEqual(expect.arrayContaining([expect.objectContaining({ defects: ['Critical object set unverified: route marker'] })]));
+    checkPropContactSheet.mockResolvedValue({ pass: true, flagged: [], checked: 2 });
+  });
+});
+
+test('object QA is retained on cache replay; an older marker is rechecked on the same pixels', async () => {
+  const { resolveStoryObjects } = require('../../../services/catalogEngine/illustrator/storyObjects');
+  const { getPropSheet } = require('../../../services/catalogEngine/illustrator/bible/propSheet');
+  resolveStoryObjects.mockResolvedValue({ hash: 'cache-object-plan', objects: [{
+    id: 'key', name: 'key', critical: true, design: { shape: 'round bow', material: 'brass', colors: 'gold', scale: 'handheld', features: 'two teeth' },
+    instances: [{ id: 'key_one', description: 'The single key' }],
+    occurrences: [1, 3].map(spread => ({ spread, instanceIds: ['key_one'], multiplicity: 'single', state: 'Held by the child.', required: true })),
+  }] });
+  getPropSheet.mockResolvedValue(PROP_SHEET);
+  checkSpreadRenderV2.mockResolvedValue(cleanQa({ verdict: { props: [{ name: 'Story object: key', presence: 'present', look: 'match', state_match: true, duplicated: false, as_text: false }] } }));
+  const files = new Map();
+  const keyOf = key => key.replace(/^https:\/\/(?:gcs|signed)\.example\//, '');
+  downloadBuffer.mockImplementation(async key => { const bytes = files.get(keyOf(key)); if (!bytes) throw new Error('not found'); return bytes; });
+  uploadBuffer.mockImplementation(async (bytes, key) => { files.set(key, bytes); });
+  generateIllustration.mockImplementation(async (scene, ref, style, opts) => { files.set(opts.gcsPath, Buffer.from(`png:${opts.gcsPath}`)); return `https://gcs.example/${opts.gcsPath}`; });
+  const first = await renderStorySpreads(baseParams());
+  const calls = checkSpreadRenderV2.mock.calls.length;
+  const renders = generateIllustration.mock.calls.length;
+  const replay = await renderStorySpreads(baseParams());
+  expect(replay.objectFailures).toEqual([]);
+  expect(checkSpreadRenderV2).toHaveBeenCalledTimes(calls);
+  expect(generateIllustration).toHaveBeenCalledTimes(renders);
+  const markerKey = `${first.results[0].storageKey}.qa.json`;
+  const marker = JSON.parse(files.get(markerKey).toString());
+  delete marker.storyObjectHash;
+  files.set(markerKey, Buffer.from(JSON.stringify(marker)));
+  const rechecked = await renderStorySpreads(baseParams());
+  expect(rechecked.objectFailures).toEqual([]);
+  expect(checkSpreadRenderV2).toHaveBeenCalledTimes(calls + 1);
+  expect(generateIllustration).toHaveBeenCalledTimes(renders);
 });
