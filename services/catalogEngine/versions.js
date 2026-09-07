@@ -317,6 +317,25 @@ const COLORING_VERSION = 'cb-1';
  */
 const COLORING_QA_VERSION = 'cq-1';
 
+/**
+ * Audiobook version (ab-1 — docs/AUDIOBOOK_V2_PLAN.md §5.3) — owns the
+ * take + mix cache namespace (`children-jobs/{bookId}/audiobook/{AUDIO_VERSION}/…`)
+ * and the election paths for the per-theme music suites, the sound library
+ * and the pinned name pronunciations under `catalog-assets/`. Bump on ANY
+ * change to the script rules, the direction tables, the cast file, a suite
+ * or sound-cue prompt, the music-plan or placement invariants, the timeline
+ * gaps, or the mix graph: ab-(N-1) takes and mixes must never replay as ab-N.
+ */
+const AUDIO_VERSION = 'ab-1';
+
+/**
+ * Take-QA verdict version — written into every take's `.qa.json` marker
+ * (the transcript comparison thresholds, the duration bounds, the defect
+ * vocabulary, the judged performance fields). A replay whose marker
+ * predates it re-checks the cached take instead of trusting it.
+ */
+const AUDIO_QA_VERSION = 'aq-1';
+
 module.exports = {
   WRITER_ENGINE_VERSION,
   AGE_ENGINE_VERSION,
@@ -330,4 +349,6 @@ module.exports = {
   VIDEO_VERSION,
   COLORING_VERSION,
   COLORING_QA_VERSION,
+  AUDIO_VERSION,
+  AUDIO_QA_VERSION,
 };

@@ -1,0 +1,119 @@
+{
+  "version": "cast-1",
+  "note": "The house cast (ab-1, docs/AUDIOBOOK_V2_PLAN.md §4.2). Every voice is pinned per provider: ElevenLabs premade-library voice ids (verify-at-deploy — /v13/audiobook-audition renders one spread on a voice and the transcript gate proves it speaks), Gemini TTS prebuilt voice names, OpenAI TTS voice names. Editing this file changes the cast hash, which folds into every take key: no old take ever replays on a new cast.",
+  "voices": {
+    "storyteller_warm_f": {
+      "label": "Warm storyteller",
+      "kind": "narrator",
+      "gender": "female",
+      "description": "close, unhurried, smiling — the bedtime reader",
+      "providers": {
+        "elevenlabs": { "voiceId": "EXAVITQu4vr4xnSDxMaL", "model": "eleven_v3", "settings": { "stability": 0.45, "similarity_boost": 0.8, "style": 0.35, "use_speaker_boost": true } },
+        "gemini": { "voice": "Kore", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "nova", "model": "gpt-4o-mini-tts" }
+      }
+    },
+    "storyteller_warm_m": {
+      "label": "Warm narrator",
+      "kind": "narrator",
+      "gender": "male",
+      "description": "deep, gentle, amused — the grandfather voice",
+      "providers": {
+        "elevenlabs": { "voiceId": "pNInz6obpgDQGcFmaJgB", "model": "eleven_v3", "settings": { "stability": 0.5, "similarity_boost": 0.8, "style": 0.3, "use_speaker_boost": true } },
+        "gemini": { "voice": "Charon", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "onyx", "model": "gpt-4o-mini-tts" }
+      }
+    },
+    "storyteller_bright": {
+      "label": "Bright adventurer",
+      "kind": "narrator",
+      "gender": "female",
+      "description": "light, quick, playful — the playground voice",
+      "providers": {
+        "elevenlabs": { "voiceId": "pFZP5JQG7iQjIQuC4Bku", "model": "eleven_v3", "settings": { "stability": 0.4, "similarity_boost": 0.75, "style": 0.45, "use_speaker_boost": true } },
+        "gemini": { "voice": "Zephyr", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "shimmer", "model": "gpt-4o-mini-tts" }
+      }
+    },
+    "creature_small": {
+      "label": "Small creature",
+      "kind": "companion",
+      "gender": "neutral",
+      "description": "small, quick, chirpy — a young animal or a little sprite",
+      "providers": {
+        "elevenlabs": { "voiceId": "MF3mGyEYCl7XYWbV9V6O", "model": "eleven_v3", "settings": { "stability": 0.4, "similarity_boost": 0.7, "style": 0.5, "use_speaker_boost": true } },
+        "gemini": { "voice": "Leda", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "coral", "model": "gpt-4o-mini-tts" }
+      }
+    },
+    "creature_large": {
+      "label": "Large creature",
+      "kind": "companion",
+      "gender": "neutral",
+      "description": "round, slow, kindly — a big gentle animal",
+      "providers": {
+        "elevenlabs": { "voiceId": "VR6AewLTigWG4xSOukaG", "model": "eleven_v3", "settings": { "stability": 0.55, "similarity_boost": 0.75, "style": 0.3, "use_speaker_boost": true } },
+        "gemini": { "voice": "Orus", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "ash", "model": "gpt-4o-mini-tts" }
+      }
+    },
+    "guide_adult_f": {
+      "label": "Adult guide (female)",
+      "kind": "companion",
+      "gender": "female",
+      "description": "practical, warm, encouraging — the farmer, the ranger",
+      "providers": {
+        "elevenlabs": { "voiceId": "21m00Tcm4TlvDq8ikWAM", "model": "eleven_v3", "settings": { "stability": 0.5, "similarity_boost": 0.8, "style": 0.3, "use_speaker_boost": true } },
+        "gemini": { "voice": "Aoede", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "sage", "model": "gpt-4o-mini-tts" }
+      }
+    },
+    "guide_adult_m": {
+      "label": "Adult guide (male)",
+      "kind": "companion",
+      "gender": "male",
+      "description": "hearty, patient, cheerful — the builder, the captain",
+      "providers": {
+        "elevenlabs": { "voiceId": "TxGEqnHWrfWFTfGW9XjX", "model": "eleven_v3", "settings": { "stability": 0.5, "similarity_boost": 0.8, "style": 0.3, "use_speaker_boost": true } },
+        "gemini": { "voice": "Puck", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "echo", "model": "gpt-4o-mini-tts" }
+      }
+    },
+    "magical": {
+      "label": "Magical companion",
+      "kind": "companion",
+      "gender": "neutral",
+      "description": "airy, twinkling, a little mysterious — a sprite, a moon-moth",
+      "providers": {
+        "elevenlabs": { "voiceId": "AZnzlk1XvdvUeBnXmlld", "model": "eleven_v3", "settings": { "stability": 0.4, "similarity_boost": 0.7, "style": 0.55, "use_speaker_boost": true } },
+        "gemini": { "voice": "Callirrhoe", "model": "gemini-2.5-pro-preview-tts" },
+        "openai": { "voice": "fable", "model": "gpt-4o-mini-tts" }
+      }
+    }
+  },
+  "defaults": {
+    "narratorByTheme": {
+      "farm": "storyteller_warm_f",
+      "dinosaur": "storyteller_bright",
+      "space": "storyteller_warm_m",
+      "under_the_sea": "storyteller_warm_f",
+      "jungle": "storyteller_bright",
+      "safari": "storyteller_warm_m",
+      "enchanted_forest": "storyteller_warm_f",
+      "pirate": "storyteller_bright",
+      "construction": "storyteller_warm_m",
+      "dream": "storyteller_warm_f",
+      "christmas": "storyteller_warm_m",
+      "thanksgiving": "storyteller_warm_f"
+    },
+    "narratorByBand": { "1-3": "storyteller_warm_f" },
+    "companionByTheme": {
+      "farm": "guide_adult_f",
+      "construction": "guide_adult_m",
+      "dream": "magical",
+      "enchanted_forest": "magical",
+      "space": "creature_small"
+    },
+    "smallCreaturePattern": "\\b(small|little|tiny|young|baby|bird|parrot|toucan|moth|sprite|squirrel|meerkat|robot|mouse|chick|frog|fish|bee|butterfly|kitten|puppy|crab|seahorse|fairy|turtle|reindeer)\\b"
+  }
+}

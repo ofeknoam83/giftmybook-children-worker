@@ -839,6 +839,97 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   `COLORING_VERSION` (`cb-1`) / `COLORING_QA_VERSION` (`cq-1`) in
   versions.js.
 
+- `audio/` — **the audiobook (`ab-1`, 2026-09-07 —
+  `docs/AUDIOBOOK_V2_PLAN.md`)**: the performed read-aloud of one finished
+  V1.3 story with a per-theme score and sound design, built the way the
+  book itself is — pinned inputs → N candidates → verified → selected →
+  bounded repair → fail-closed, every asset elected once. `script.js`
+  derives the AUDIO SCRIPT from the pinned story + Book Bible (the beats,
+  the refrain, the emotion plan, the companion via the ce-19 whole-word
+  masks): intro / dedication / 12 spread / outro segments of LINES (text,
+  speaker `narrator|companion` — a companion-voiced line is the
+  manuscript's own quoted dialogue, attributed deterministically —
+  direction from a CLOSED vocabulary: emotion × intensity × pace × shape,
+  `isRefrain`, `pauseAfterMs`), per-band pacing (`BAND_WPM`), the music cue
+  per segment (`music/plan.js`: a 9-cue grammar — theme_intro, playful,
+  calm, wonder, tension, tender, triumph, lullaby_outro, motif — from the
+  emotion plan + `data/audio/musicPalettes.json`), the sound placements
+  (`sfx/plan.js`: `data/audio/sfxCues.json` — 75 spot cues keyed by
+  keyword/theme/band with `maxGainDb`, a per-theme ambience bed, the page
+  turn; min spacing, never on a line, startle cues excluded for 1-3) and a
+  schema (`data/audio/schemas/audioScript.schema.json`) + invariant gate;
+  `director.js` is ONE optional strict-JSON pass (`CATALOG_AUDIO_DIRECTOR`)
+  that may only re-pick directions from the closed vocabulary — never a
+  word of text. `cast.js` resolves the CAST from `data/audio/cast.json`
+  (3 narrators, 5 companion voices, each with ElevenLabs / Gemini / OpenAI
+  ids + settings; the default narrator per theme, the 1-3 band's bedtime
+  reader, the companion voice by PERSON/creature kind) — the admin picks a
+  narrator, the worker never invents a voice. `providers/` are the narrator
+  adapters (ElevenLabs `eleven_v3` with audio tags + `with-timestamps`
+  alignment, Gemini TTS, OpenAI `gpt-4o-mini-tts`; `CATALOG_AUDIO_NARRATOR_
+  PROVIDER`), `pronounce.js` pins each verbatim name ONCE per voice
+  (elected under `catalog-assets/pronunciations/{AUDIO_VERSION}/…`: the
+  name is read, transcribed, and an alias spelling elected when the read
+  drifts). `narrate.js` renders every segment as `CATALOG_AUDIO_TAKE_
+  CANDIDATES` takes (`children-jobs/{bookId}/audiobook/{AUDIO_VERSION}/
+  takes/{takeHash}/chunkN.wav` + `.cK` / `.rPcK` candidates + `.qa.json`
+  markers keyed by `AUDIO_QA_VERSION`), each measured (`wav.js` — a pure-JS
+  BS.1770-4 ruler: integrated LUFS, true peak, silence/dead-air profile,
+  trim; `metrics.js`) and judged (`takeQa.js`: the transcript vs the
+  script's text — `compareTexts` word match with the verbatim names
+  masked — a spoken direction tag, duration vs the expected window, dead
+  air, clipping, artifacts BLOCKING; name not heard, level outlier,
+  monotone, too fast/slow, emotion reads differently ADVISORY; Gemini
+  audio through `geminiAudio.js` `judgeAudio` + `jsonQaGenerationConfig`),
+  scored (`select.js`), promoted, and repaired with a fixed note per
+  defect (`CATALOG_AUDIO_MAX_REPAIRS`, one per-segment budget
+  `CATALOG_AUDIO_BUDGET_PER_SEGMENT`) on the safety ladder (full →
+  plain-direction → tag-less); an exhausted take fails the book
+  `audiobook_unresolved` with scored candidates (`CATALOG_AUDIO_SHIP_ON_
+  EXHAUSTION=1` opts in). `music/suites.js` elects ONE suite per theme
+  (Lyria on Vertex — `GOOGLE_CLOUD_PROJECT`, or Eleven Music; `CATALOG_
+  AUDIO_MUSIC_PROVIDER`) under `catalog-assets/music-suites/{AUDIO_VERSION}/
+  {themeId}-{hash8}/{cue}` — fixed prompts from the palette + the world-law
+  card, N candidates judged (vocals / heavy percussion / harsh hits / mood
+  / abrupt ending), create-if-absent single winner — with the CC0 files in
+  `data/audio/fallback/` (+ CREDITS.md) as the ADVISORY fallback per cue;
+  `sfx/library.js` elects every cue the same way (ElevenLabs sound
+  generation, `catalog-assets/sfx/{AUDIO_VERSION}/{cueId}-{hash8}`; a
+  rejected cue is SKIPPED with an advisory, never a wrong sound).
+  `timeline.js` lays the takes on ONE clock (fixed gaps per kind and band,
+  page turns between spreads, the refrain motif before its line, cues
+  after their line with a minimum spacing that widens the gap, music
+  spans with 3 s crossfades) and the read-along `speechWindows` /
+  `spreads[].lines[].start/end` the app's player highlights; `mix.js`
+  drives ffmpeg by argv only (takes trimmed + level-matched → voice stem;
+  music looped/trimmed/faded + SIDECHAIN-ducked under the voice; ambience
+  band-limited; cues placed; a −16 LUFS master with a −1 dBTP limiter into
+  MP3 192k) and `gates.js` measures the result (`measureMaster`: the
+  target ± tolerance, true peak, NO dead air; `speechMusicRatio` ≥ 12 LU
+  per spread from the stems — a failure re-mixes with the music lowered
+  ONCE; `startleCheck` ≤ −8 dBTP on cues/music; `listenThrough`: ONE
+  Gemini listen of the mastered file — ADVISORY). `index.js`
+  `generateAudiobook` runs it (takes + assets concurrently; the mix at
+  `children-jobs/{bookId}/audiobook/{AUDIO_VERSION}/{mixHash}/audiobook.mp3
+  + timeline.json + manifest.json` — a re-dispatch without `forceNew`
+  replays the manifest for free; `forceRetake: [spreads]` re-records
+  those; `segments: [subset]` renders takes only), heartbeats through
+  `onProgress`, and `auditionAudiobook` performs one spread on a cast
+  synchronously (the Audio Bench's voice picker); `candidates.js`
+  `pickTake` is the `audiobook_unresolved` remedy (admin-vouched marker).
+  Failure codes: `audiobook_disabled`, `audiobook_provider_unavailable`,
+  `audiobook_bad_cast`, `audiobook_render_failed`, `audiobook_unresolved`,
+  `audiobook_mix_failed`, `cancelled` + the inherited story codes. The
+  app-owned `audioTuning` overlay (`{versionLabel, hash, text}`, ≤ 8 KB,
+  `CATALOG_AUDIO_TUNING_LAYER=0`) is framed scope-subordinate — binding on
+  delivery, never on a word — and echoed as `audioTuningUsed`.
+  `AUDIO_VERSION` (`ab-1`) / `AUDIO_QA_VERSION` (`aq-1`) in versions.js:
+  bump `AUDIO_VERSION` on any change to the script grammar, the cast
+  file, a prompt, the timeline rules or the mix graph (every elected asset
+  and every take re-keys), `AUDIO_QA_VERSION` when the take judge changes
+  (markers re-check). Cost: `CostTracker.addAudioCharacters` /
+  `addAudioSeconds`.
+
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
 The full V1.3 behavior ships out of the box — fit ranking, deep
@@ -940,6 +1031,26 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_COLORING_TIMEOUT_MINUTES` (30). Bump `COLORING_VERSION`
   (versions.js, `cb-1`) on any change to the grammar, the templates, the
   LINE_RULES, a prompt block, the pack order or the layout geometry.
+- `CATALOG_AUDIOBOOK=0` — (ab-1) 503 the audiobook endpoints. Tuning:
+  `CATALOG_AUDIO_NARRATOR_PROVIDER` (`elevenlabs` | `gemini` | `openai`),
+  `CATALOG_AUDIO_NARRATOR_MODEL`, `CATALOG_AUDIO_TAKE_CANDIDATES` (2, 1-3),
+  `CATALOG_AUDIO_MAX_REPAIRS` (2, 0-4), `CATALOG_AUDIO_BUDGET_PER_SEGMENT`
+  (5, 1-10), `CATALOG_AUDIO_CONCURRENCY` (4, 1-8),
+  `CATALOG_AUDIO_CHARACTER_VOICES=0` (the narrator reads the companion's
+  lines too), `CATALOG_AUDIO_DIRECTOR=0` (the direction table only),
+  `CATALOG_AUDIO_TRANSCRIPT_QA=0` (takes ship on measurement alone, marked
+  unchecked), `CATALOG_AUDIO_STT_MODEL` (`gemini-2.5-flash`),
+  `CATALOG_AUDIO_MUSIC=0` (the CC0 library only) / `CATALOG_AUDIO_MUSIC_
+  PROVIDER` (`lyria` | `elevenlabs`) / `CATALOG_AUDIO_MUSIC_MODEL` /
+  `CATALOG_AUDIO_MUSIC_LOCATION`, `CATALOG_AUDIO_SFX=0` (no sound cues) /
+  `CATALOG_AUDIO_SFX_PROVIDER`, `CATALOG_AUDIO_AMBIENCE=0`,
+  `CATALOG_AUDIO_PAGE_TURN=0`, `CATALOG_AUDIO_LISTEN_QA=0`,
+  `CATALOG_AUDIO_TARGET_LUFS` (−16, −30…−8), `CATALOG_AUDIO_ASSET_
+  CANDIDATES` (2, 1-3), `CATALOG_AUDIO_TIMEOUT_MINUTES` (20, 5-90),
+  `CATALOG_AUDIO_TUNING_LAYER=0`, `CATALOG_AUDIO_SHIP_ON_EXHAUSTION=1`
+  (OPT-IN). Bump `AUDIO_VERSION` (versions.js, `ab-1`) on any change to
+  the script grammar, the cast file, a prompt, the timeline rules or the
+  mix graph; `AUDIO_QA_VERSION` (`aq-1`) when the take judge changes.
 - `CATALOG_GIFT_VIDEO=0` — (gv-1) disable `/v13/generate-video` and
   `/v13/pick-clip` (503). `CATALOG_VIDEO_PROVIDERS` (default `replicate`),
   `CATALOG_VIDEO_MODEL` (default `kwaivgi/kling-v3-video`),
@@ -1183,6 +1294,38 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `coloring_unresolved` payload) → promotes it to the page's canonical key
   with an admin-vouched marker; a re-dispatch (no `forceNew`) replays it
   into the PDFs. `POST /v13/cancel-coloring-book` `{bookId}` aborts a run.
+- `POST /v13/generate-audiobook` — (ab-1, `docs/AUDIOBOOK_V2_PLAN.md`) the
+  **audiobook**: `{bookId, dispatchId?, story:{request,response}, profile,
+  language? (en|es|he), cast?:{narrator?, companion?} (cast.json keys),
+  dedication?:{text, from}, audioTuning?, segments?:[subset],
+  forceRetake?:[spreads], forceNew?, callbackUrl, progressCallbackUrl?,
+  ELEVENLABS_API_KEY?}` → 202 `{engine, audioVersion, cast, language,
+  accepted:{segments}}`; callback `{success, bookId, dispatchId, engine,
+  audioVersion, qaVersion, scriptHash, cached, audiobookUrl, storageKey,
+  timelineUrl, timeline (segments / spreads[].lines[].start,end / chapters
+  / music / motifs / sfx / pageTurns / ambience / speechWindows),
+  durationSeconds, bytes, loudness, cast, script, audioTuningUsed,
+  language, pronunciations, segments:[{index, kind, spread, cached,
+  chunks:[{chunk, speaker, storageKey, url, seconds, lufs, qa:{pass,
+  blocking, advisory, qaUnavailable, wordMatch, transcript}, candidates,
+  repairs, cached, rung, adminPicked?}]}], music, sfx, ambience, gates:
+  {loudness, speechMusicRatio, deadAir, startle, listen}, unresolved:
+  [{segment, spread, chunk, defects, candidates:[{storageKey, url,
+  score}]}], advisories, warnings, costs, elapsedMs, failureCode, error,
+  subset?, cancelled?}` — every key present on failure. Progress events
+  ride `stage: 'audiobook'`. 409 `in_flight` while a run is live.
+- `POST /v13/audiobook-audition` — (ab-1) `{bookId, story, profile,
+  language?, cast?, spread? (1), forceNew?}` → sync `{url, storageKey,
+  spread, seconds, wordMatch, transcript, cast, blocking, advisory,
+  unresolved, costs}`: one spread through the full take path on a cast —
+  the Audio Bench's voice picker. `GET /v13/audiobook-cast?themeId&ageBand`
+  → `{narrators, companions, recommended:{narrator, companion},
+  languages, castHash}` (the vocabulary the app offers; never duplicated
+  there). `POST /v13/pick-take` `{bookId, storageKey}` (a `…/takes/{hash}/
+  chunkN.cK.wav` / `.rPcK.wav` candidate from an `audiobook_unresolved`
+  payload) → promotes it with an admin-vouched marker; a re-dispatch (no
+  `forceNew`) replays it into the mix. `POST /v13/cancel-audiobook`
+  `{bookId}` aborts a run.
 - Kept: `/finalize-book` (legacy layout), `/rebuild-cover-pdf`, `/comics/*`,
   `/manage-checkpoint`, `/upload-*`, `/refresh-url`, health checks.
 - 410 stubs: `/regenerate-illustration`, `/generate-style-variant`,
@@ -1245,6 +1388,12 @@ elected per anchor/theme under `catalog-assets/`.
 - `REPLICATE_API_TOKEN` — the gift video's default provider host (Kling 3.0 on
   Replicate); optional at boot — the app also injects its copy into every
   worker request body, which the adapter accepts as the fallback
+- `ELEVENLABS_API_KEY` — the audiobook's narrator / sound-effects (and
+  Eleven Music) host; optional at boot — the app injects its copy into
+  every children-worker request body, which the adapters accept as the
+  fallback. Lyria (the default score provider) reads the Vertex project
+  from `GOOGLE_CLOUD_PROJECT` / `GCP_PROJECT` / `GCLOUD_PROJECT` with
+  application-default credentials; `FFMPEG_PATH` for the mix.
 - Catalog flags above
 
 ## Conventions
