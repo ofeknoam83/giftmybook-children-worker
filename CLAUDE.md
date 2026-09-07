@@ -616,6 +616,69 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   companions back to nouns; creature sheets unaffected). STYLE_VERSION
   `ce-19`, QA_VERSION `qa-11`.
 
+- `coloring/` — **the coloring book (`cb-1`, 2026-09-07 —
+  `docs/COLORING_BOOK_V2_PLAN.md`)**: companion scenes from the story world,
+  drawn as verified LINE ART, printed as a Lulu saddle-stitched 8.5×11.
+  `plan.js` assigns every page a kind from a CLOSED non-plot grammar
+  (`meet` — the hero's own model sheet page; `hero_portrait`,
+  `companion_portrait`, `world_portrait`, `cast_portrait`, `between` (the
+  quiet transition between beats k and k+1), `before`, `after`,
+  `quiet_parallel` (the emotion plan's peak), `prop_still_life` (the comfort
+  object), `pattern` (8-10 only)) with per-band quotas (16 pages for 1-3,
+  20 otherwise; `CATALOG_COLORING_PAGES` overrides), seeded gap selection
+  (story fingerprint), no adjacent kind repeats, a rotated shot/placement,
+  and ajv + invariant validation. `moments.js` phrases each slot: ONE
+  strict-JSON writer call (`gemini-2.5-flash`, kill-switch
+  `CATALOG_COLORING_MOMENT_WRITER=0`) behind the deterministic
+  **duplication gate** (shared content-word 4-gram, Jaccard > 0.45, or
+  Levenshtein ratio > 0.6 against ANY beat or spread text; invented proper
+  nouns; banned brands; a peril lexicon; quoted strings / digits) with one
+  retry and a per-kind TEMPLATE fallback (every template passes the gate for
+  all 228 books — a test sweeps them). `sheets.js` pins identity AS LINE
+  ART: the elected colour character sheet redrawn as a LINE-ART MODEL SHEET
+  (best-of-N, measured + judged, elected create-if-absent under
+  `catalog-assets/coloring-sheets/{COLORING_VERSION}/`; REQUIRED —
+  `coloring_identity_failed`, `CATALOG_COLORING_SHEET_REQUIRED=0` degrades),
+  the companion sheet likewise (`coloring-companions/`, fail-open) and a
+  per-theme BORDER PLATE (`coloring-borders/`, fail-open). `lineRules.js` is
+  the pinned per-band `LINE_RULES` spec (stroke weight as % of the image
+  width, detail floor, subjects, background, smallest area, inner margin)
+  rendered into fixed prompt blocks; `render.js` assembles the page prompt
+  (structured CHARACTER / COMPANION / PROPS / WORLD blocks with every colour
+  word stripped, then LINE ART RULES / PAGE COMPOSITION / NO TEXT / FINAL
+  CHECK), the fixed reference pack (hero line sheet, colour sheet, cover,
+  companion sheet, prop sheets, world plate / border plate) and N candidates
+  at 3:4 through `illustrationGenerator.callGeminiImageParts` on the safety
+  ladder — this renderer never goes through `buildCharacterPrompt`.
+  `metrics.js` measures the returned pixels at native resolution (grey mass,
+  ink density, largest solid component, 2A/P stroke width vs the band,
+  frame ring, margin breach) and `cleanLineArt` is the ONLY pixel edit
+  (near-white → white, near-black → black, the anti-aliasing band untouched,
+  specks removed — never a threshold); `pageQa.js` is the structured verdict
+  (identity vs the line sheet, outfit slot by slot, companion, props,
+  painted text, shading, fills, extra people, scene match, complexity) with
+  FIXED defect strings split BLOCKING / ADVISORY and fixed repair notes;
+  `select.js` scores (blocking sinks, grey and stroke deviation shade);
+  `index.js` runs candidates → repair loop (`CATALOG_COLORING_MAX_REPAIRS`)
+  → the two set gates (`gates.js`: a contact sheet vs the line sheet, a
+  stroke-weight gate on the book's own median; one corrective re-render
+  each, never adopting a worse result) → ship policy (`coloring_unresolved`
+  fails closed with scored candidates; `CATALOG_COLORING_SHIP_ON_EXHAUSTION=1`
+  opts in) → `layout.js` (pdf-lib: trim + 0.125 in bleed pages, 0.5 in
+  safety, the 7.5×9.75 in art box with a centre crop never a stretch,
+  captions in Kalam as PDF type, the matter pages over the border plate,
+  saddle-stitch page count a multiple of 4, images upscaled to Lulu's 300
+  PPI floor, DeviceGray ink, the one-page 17.25×11.25 in cover wrap from the
+  approved cover's OWN pixels + typeset bands, `preflightLulu` reported on
+  the callback). Pages cache at
+  `children-jobs/{bookId}/coloring/{COLORING_VERSION}/{planHash}/page-N.png`
+  (+ `.cK` / `.rPcK` candidates, `.qa.json` markers, `manifest.json`); the
+  plan hash folds the story fingerprint, the bible hash, every sheet hash,
+  the LINE_RULES hash, the image size and the moments, so a re-dispatch
+  without `forceNew` replays finished pages and rebuilds the PDFs for free.
+  `COLORING_VERSION` (`cb-1`) / `COLORING_QA_VERSION` (`cq-1`) in
+  versions.js.
+
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
 The full V1.3 behavior ships out of the box — fit ranking, deep
@@ -683,6 +746,21 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_IDENTITY_METRICS=1` — (ce-9, OPT-IN) embedding identity score +
   set outliers (`CATALOG_EMBEDDING_BACKEND`, default `vertex`).
 - `CATALOG_UPSELL_OUTFIT_LOCK=0` — (ce-9) upsell covers dress freely again.
+- `CATALOG_COLORING_BOOK=0` — (cb-1) 503 the coloring endpoints. Tuning:
+  `CATALOG_COLORING_CANDIDATES` (2, 1-3), `CATALOG_COLORING_MAX_REPAIRS`
+  (2, 0-4), `CATALOG_COLORING_MOMENT_WRITER=0` (template lines only),
+  `CATALOG_COLORING_SHEET_CANDIDATES` (3, 1-4),
+  `CATALOG_COLORING_SHEET_REQUIRED=0` (a failed hero line sheet degrades to
+  an advisory instead of `coloring_identity_failed`),
+  `CATALOG_COLORING_CONTACT_QA=0` / `CATALOG_COLORING_CONTACT_MAX_RERENDERS`
+  (3), `CATALOG_COLORING_STROKE_GATE=0` /
+  `CATALOG_COLORING_STROKE_MAX_RERENDERS` (2), `CATALOG_COLORING_IMAGE_SIZE`
+  (`2K` default; `1K`|`2K`|`4K`), `CATALOG_COLORING_DESPECKLE=0`,
+  `CATALOG_COLORING_CAPTIONS=0`, `CATALOG_COLORING_PAGES` (page-count
+  override, 8-28), `CATALOG_COLORING_SHIP_ON_EXHAUSTION=1` (OPT-IN),
+  `CATALOG_COLORING_TIMEOUT_MINUTES` (30). Bump `COLORING_VERSION`
+  (versions.js, `cb-1`) on any change to the grammar, the templates, the
+  LINE_RULES, a prompt block, the pack order or the layout geometry.
 - `CATALOG_GIFT_VIDEO=0` — (gv-1) disable `/v13/generate-video` and
   `/v13/pick-clip` (503). `CATALOG_VIDEO_PROVIDERS` (default `replicate`),
   `CATALOG_VIDEO_MODEL` (default `kwaivgi/kling-v3-video`),
@@ -869,16 +947,40 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   are an overflow safety valve only, never per-caption auto-sizing).
 - `/generate-book` also bakes the 4-style upsell spread into the interior
   (non-blocking, 4-min cap; `upsellCovers` on the completion callback)
-- Kept: `/finalize-book` (legacy layout), `/rebuild-cover-pdf`,
-  `/generate-coloring-book` + coloring endpoints (**REDESIGN PLANNED, cb-1** —
-  `docs/COLORING_BOOK_V2_PLAN.md` deletes this implementation outright and
-  replaces it with `/v13/generate-coloring-book`: companion scenes authored
-  from the catalog, identity through the Book Bible as line-art sheets,
-  measured line art, verified pages; app half in the standalone repo's
-  `docs/COLORING_BOOK_V2_APP_WIRING.md`), `/comics/*`,
+- `POST /v13/generate-coloring-book` — (cb-1, `docs/COLORING_BOOK_V2_PLAN.md`)
+  the **coloring book**: `{bookId, dispatchId?, story:{request,response},
+  profile, approvedCoverUrl, childPhotoUrls?, characterDescription?,
+  pageCount?, pages?: [subset], forceNew?, callbackUrl, progressCallbackUrl?}`
+  → 202 `{coloringVersion, plan:{band, pages}}`; callback `{planHash, cached,
+  interiorPdfUrl, coverPdfUrl, coverImageUrl, previewImageUrls, pageCount,
+  coloringPageCount, pages:[{index, kind, anchor, title, moment,
+  momentSource, storageKey, url, qa:{pass, blocking, advisory, metrics},
+  candidates, repairs, cached}], plan:{hash, band, kinds, peakSpread,
+  momentWriter, gateRejections}, bookBible (+ lineSheet, companionLineSheet,
+  borderPlate), gates:{contact, stroke}, unresolved, preflight, advisories,
+  warnings, costs, failureCode, error}` — every key present on failure.
+  Companion scenes from the story world — the moments the picture book does
+  NOT show — as verified line art (see the `coloring/` section). Failure
+  codes: `coloring_disabled` (503), `invalid_story`,
+  `missing_book_definition`, `missing_identity_reference`,
+  `coloring_identity_failed`, `coloring_unresolved` (+ `unresolved:[{page,
+  kind, defects, candidates:[{storageKey,url,score}]}]`),
+  `coloring_pdf_failed` (a Lulu preflight failure included), `cancelled`.
+  `pages` (a subset) renders those pages only, no PDFs — the admin's
+  iteration loop. 409 `in_flight` while a run is live on the book.
+- `POST /v13/pick-coloring-candidate` — `{bookId, storageKey}` (a
+  `…/coloring/{cb}/{planHash}/page-N.cK.png` / `.rPcK.png` candidate from a
+  `coloring_unresolved` payload) → promotes it to the page's canonical key
+  with an admin-vouched marker; a re-dispatch (no `forceNew`) replays it
+  into the PDFs. `POST /v13/cancel-coloring-book` `{bookId}` aborts a run.
+- Kept: `/finalize-book` (legacy layout), `/rebuild-cover-pdf`, `/comics/*`,
   `/manage-checkpoint`, `/upload-*`, `/refresh-url`, health checks.
 - 410 stubs: `/regenerate-illustration`, `/generate-style-variant`,
-  `/get-spread-data`. Game endpoints are deleted (404).
+  `/get-spread-data`, and since cb-1 `/generate-coloring-book`,
+  `/cancel-coloring-book`, `/rebuild-coloring-cover-pdf` (the pre-cb-1
+  coloring book — free-text scene invention, raw-photo identity, a hard
+  threshold as the line-art mechanism, no QA, a model-lettered pencil cover
+  — was deleted outright). Game endpoints are deleted (404).
 
 ## Kept services (untouched by the cutover)
 
@@ -892,7 +994,7 @@ beside `coverAnatomyAdvisory`, and a pre-generated cover is flagged as-is;
 the app's cover OPTIONS carry the same rule and DROP a cover that still
 depicts a book — `coverArtworkGuard.js` there),
 `layoutEngine.js` (pdf-lib layout; entries contract unchanged),
-`coloringBookGenerator/Layout`, `comics/`, `gcsStorage`, `progressReporter`,
+`comics/`, `gcsStorage`, `progressReporter`,
 `costTracker`, `retry`, `workerCommits`, `promptSanitizer`,
 `shared/llm/openaiClient.js`, `shared/text/sanitize.js`,
 `shared/illustration/config.js`. `illustrationGenerator.js` is the shared

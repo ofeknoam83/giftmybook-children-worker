@@ -1,11 +1,27 @@
 # Coloring Book V2 — companion scenes from the story world (plan, cb-1)
 
-> **Status:** PLAN (2026-09-07). Nothing on this branch implements it yet. The old
+> **Status:** WORKER IMPLEMENTED on this branch (2026-09-07): `services/catalogEngine/coloring/`
+> (`plan.js`, `moments.js`, `lineRules.js`, `sheets.js`, `render.js`, `metrics.js`, `pageQa.js`,
+> `select.js`, `gates.js`, `layout.js`, `candidates.js`, `index.js`), the three `/v13` routes +
+> the three 410 stubs in `server.js`, `illustrationGenerator.callGeminiImageParts` (the shared
+> transport `callGeminiImageApi` now delegates to), `COLORING_VERSION` / `COLORING_QA_VERSION`,
+> the cb-1 flags, the 2K cost rate, and the suites under
+> `__tests__/services/catalogEngine/coloring/` + `__tests__/serverColoringBook.test.js`. The old
 > implementation (`services/coloringBookGenerator.js`, `services/coloringBookLayout.js`,
 > `POST /generate-coloring-book`, `POST /cancel-coloring-book`,
 > `POST /rebuild-coloring-cover-pdf`, `__tests__/services/coloringBookGenerator.test.js`) is
-> DELETED by this plan, not refactored — §5.3 lists every line that goes and the 410 stubs
-> that replace the routes, the 2026-08 cutover's pattern.
+> DELETED, not refactored — §5.3 lists every line that went and the 410 stubs that replaced
+> the routes, the 2026-08 cutover's pattern. Three details differ from the text below: (a) the
+> `between` quota is 9 for bands 4-5 / 6-7 and 8 for 8-10 (the table below was one short of
+> 20); (b) the layout encodes Lulu's print rules as `LULU_SPEC` and every run reports a
+> `preflight` (page size = trim + 0.125 in bleed, saddle-stitch count a multiple of 4 within
+> 4–48, 300 PPI with an upscale floor, the one-page 17.25×11.25 in wrap, DeviceGray interior
+> ink) — a preflight failure is `coloring_pdf_failed`, never a soft ship; (c) the `meet` page
+> is the hero line sheet fitted inside the art box under a typeset "Meet {name}" heading, and
+> without a hero line sheet (`CATALOG_COLORING_SHEET_REQUIRED=0`) it becomes a hero portrait.
+> The app half is implemented in the standalone repo (`docs/COLORING_BOOK_V2_APP_WIRING.md`).
+> Not yet done: the Phase 0 bake-off on real books (§9 step 0) that fixes the stroke
+> percentages, the metric thresholds and the image-size default from printed proofs.
 > **Scope:** `giftmybook-children-worker` (this plan) + `giftmybook-standalone`
 > (`docs/COLORING_BOOK_V2_APP_WIRING.md` — the app-side companion, same branch).
 > **Branch:** `claude/coloring-book-redesign-l10xpt` in both repos.
@@ -199,9 +215,9 @@ overrides the total, the planner scales quotas proportionally and keeps `meet`):
 | band | pages | meet | hero | companion | world | cast | between | before/after | quiet | still life | pattern |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 1-3 | 16 | 1 | 2 | 2 | 2 | 3 | 5 | 0/0 | 0 | 1 | 0 |
-| 4-5 | 20 | 1 | 1 | 1 | 2 | 2 | 8 | 1/1 | 1 | 1* | 0 |
-| 6-7 | 20 | 1 | 1 | 1 | 2 | 2 | 8 | 1/1 | 1 | 1* | 0 |
-| 8-10 | 20 | 1 | 1 | 1 | 2 | 2 | 7 | 1/1 | 1 | 1* | 1 |
+| 4-5 | 20 | 1 | 1 | 1 | 2 | 2 | 9 | 1/1 | 1 | 1* | 0 |
+| 6-7 | 20 | 1 | 1 | 1 | 2 | 2 | 9 | 1/1 | 1 | 1* | 0 |
+| 8-10 | 20 | 1 | 1 | 1 | 2 | 2 | 8 | 1/1 | 1 | 1* | 1 |
 
 \* `prop_still_life` only when object evidence exists; otherwise the slot becomes a third
 `world_portrait`. The peak spread is the emotion plan's highest-intensity turn (the same

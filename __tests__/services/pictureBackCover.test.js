@@ -1,4 +1,8 @@
 process.env.GEMINI_API_KEY = 'test-key';
+// Every test here composes real 2550×2550 back-cover artwork with sharp and
+// builds a wrap PDF; under the full suite's parallel load (the sharp-heavy
+// coloring layout suite runs beside it since cb-1) a test can pass 5 s.
+jest.setTimeout(20000);
 jest.mock('../../services/gcsStorage', () => ({
   downloadBuffer: jest.fn(async () => { throw new Error('not found'); }),
   uploadBuffer: jest.fn(async () => {}),

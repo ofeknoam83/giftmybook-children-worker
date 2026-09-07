@@ -1133,19 +1133,34 @@ async function downloadPhotoAsBase64(url) {
 }
 
 /**
- * Call Gemini image generation API.
+ * The ONE Gemini image transport every renderer shares (cb-1): a caller-
+ * built `parts` array (prompt + labeled reference images) is posted to the
+ * image model on the key pool with the per-request safety thresholds, the
+ * optional `imageConfig` (aspect ratio, output size) and the env-gated
+ * seed; a 400 naming the seed or the image size retries ONCE without that
+ * field (the same parts), a safety block throws an `isNsfw` error the
+ * caller's prompt-variant ladder understands, and a response without an
+ * image throws through `noImageError` (finish/block reasons attached).
+ * `callGeminiImageApi` builds its legacy parts and calls this — the picture
+ * book's request body is byte-identical to the pre-cb-1 one — and the
+ * coloring renderer / line sheets call it directly, so there is no second
+ * Gemini client anywhere.
  *
- * @param {string} prompt - Scene prompt
- * @param {string} photoBase64 - Base64-encoded child photo (approved cover)
- * @param {string} photoMime - MIME type of the photo
- * @param {AbortSignal} abortSignal
- * @param {object} opts
- * @returns {Promise<Buffer>} Generated image buffer
+ * @param {Array<object>} parts Gemini `contents[0].parts`
+ * @param {object} [opts]
+ * @param {string|null} [opts.aspectRatio] e.g. '3:4', '16:9', '1:1'
+ * @param {string|null} [opts.imageSize] '1K' | '2K' | '4K' (model support varies)
+ * @param {number|null} [opts.seed] applied only when BOOK_PIPELINE_V3_RENDER_SEED=1
+ * @param {AbortSignal} [opts.abortSignal]
+ * @param {number} [opts.timeoutMs] default 180000
+ * @param {string} [opts.label] log label (default 'with photo')
+ * @returns {Promise<Buffer>} the generated image bytes
  */
-async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, opts = {}) {
+async function callGeminiImageParts(parts, opts = {}) {
   const apiKey = getNextApiKey();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const keyIdx = lastUsedKeyIndex;
+  const label = opts.label || 'with photo';
 
   const generationConfig = { responseModalities: ['TEXT', 'IMAGE'] };
   if (opts.aspectRatio) {
@@ -1165,6 +1180,77 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     generationConfig.seed = opts.seed;
   }
 
+  const body = {
+    contents: [{ role: 'user', parts }],
+    generationConfig,
+    // ce-9: the per-request thresholds config.js has always defined for the
+    // image model (BLOCK_ONLY_HIGH on wholesome child scenes) — previously
+    // never sent, so renders tripped the safety-fallback ladder at Gemini's
+    // default thresholds. Core child-safety policies stay (not disableable).
+    safetySettings: GEMINI_IMAGE_SAFETY_SETTINGS,
+  };
+
+  const epStart = Date.now();
+  console.log(`[illustrationGenerator] Trying public-${keyIdx} ${label}${seedEnabled ? ` (seed=${opts.seed})` : ''}...`);
+  try {
+    const resp = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, opts.timeoutMs || 180000, opts.abortSignal);
+
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => '');
+      if (seedEnabled && resp.status === 400 && /seed/i.test(errBody)) {
+        console.warn(`[illustrationGenerator] model rejected generationConfig.seed — retrying once without it: ${errBody.slice(0, 120)}`);
+        return callGeminiImageParts(parts, { ...opts, seed: null });
+      }
+      if (opts.imageSize && resp.status === 400 && /image_?size/i.test(errBody)) {
+        console.warn(`[illustrationGenerator] model rejected imageConfig.imageSize — retrying once without it: ${errBody.slice(0, 120)}`);
+        return callGeminiImageParts(parts, { ...opts, imageSize: null });
+      }
+      const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
+      if (isNsfw) {
+        const err = new Error(`Gemini image API (public-${keyIdx}) NSFW block: ${errBody.slice(0, 200)}`);
+        err.isNsfw = true;
+        throw err;
+      }
+      throw new Error(`Gemini image API (public-${keyIdx}) error ${resp.status}: ${errBody.slice(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (!imagePart) throw noImageError(`No image in Gemini response (public-${keyIdx})`, data);
+
+    const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
+    const elapsedMs = Date.now() - epStart;
+    console.log(`[illustrationGenerator] ✅ public-${keyIdx} ${label} succeeded (${elapsedMs}ms, ${imgBuf.length} bytes)`);
+    // If this key responded fast, stick with it
+    if (elapsedMs < 60000) {
+      markKeyFast(keyIdx);
+    }
+    return imgBuf;
+  } catch (err) {
+    console.warn(`[illustrationGenerator] ❌ public-${keyIdx} ${label} failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
+    throw err;
+  }
+}
+
+/**
+ * Call Gemini image generation API with the identity reference — the
+ * picture book's legacy entry point. Builds the parts (prompt, the labeled
+ * reference pack OR the anchor + world plate pair OR the bare anchor, the
+ * scene-integration direction on spreads) and hands them to
+ * `callGeminiImageParts`, which owns the transport.
+ *
+ * @param {string} prompt - Scene prompt
+ * @param {string} photoBase64 - Base64-encoded child photo (approved cover)
+ * @param {string} photoMime - MIME type of the photo
+ * @param {AbortSignal} abortSignal
+ * @param {object} opts
+ * @returns {Promise<Buffer>} Generated image buffer
+ */
+async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, opts = {}) {
   // FIXED references only: the identity image the caller passed (cover
   // generation passes the child photo), plus optionally the caller's fixed
   // world plate. Previous-spread chaining was deleted 2026-08-06 — the
@@ -1193,60 +1279,13 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     console.log(`[illustrationGenerator] Scene integration: ${SCENE_INTEGRATION_VERSION}`);
   }
 
-  const body = {
-    contents: [{ role: 'user', parts }],
-    generationConfig,
-    // ce-9: the per-request thresholds config.js has always defined for the
-    // image model (BLOCK_ONLY_HIGH on wholesome child scenes) — previously
-    // never sent, so renders tripped the safety-fallback ladder at Gemini's
-    // default thresholds. Core child-safety policies stay (not disableable).
-    safetySettings: GEMINI_IMAGE_SAFETY_SETTINGS,
-  };
-
-  const epStart = Date.now();
-  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference${seedEnabled ? ` (seed=${opts.seed})` : ''}...`);
-  try {
-    const resp = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }, 180000, abortSignal);
-
-    if (!resp.ok) {
-      const errBody = await resp.text().catch(() => '');
-      if (seedEnabled && resp.status === 400 && /seed/i.test(errBody)) {
-        console.warn(`[illustrationGenerator] model rejected generationConfig.seed — retrying once without it: ${errBody.slice(0, 120)}`);
-        return callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, { ...opts, seed: null });
-      }
-      if (opts.imageSize && resp.status === 400 && /image_?size/i.test(errBody)) {
-        console.warn(`[illustrationGenerator] model rejected imageConfig.imageSize — retrying once without it: ${errBody.slice(0, 120)}`);
-        return callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, { ...opts, imageSize: null });
-      }
-      const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
-      if (isNsfw) {
-        const err = new Error(`Gemini image API (public-${keyIdx}) NSFW block: ${errBody.slice(0, 200)}`);
-        err.isNsfw = true;
-        throw err;
-      }
-      throw new Error(`Gemini image API (public-${keyIdx}) error ${resp.status}: ${errBody.slice(0, 200)}`);
-    }
-
-    const data = await resp.json();
-    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    if (!imagePart) throw noImageError(`No image in Gemini response (public-${keyIdx})`, data);
-
-    const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
-    const elapsedMs = Date.now() - epStart;
-    console.log(`[illustrationGenerator] \u2705 public-${keyIdx} with photo succeeded (${elapsedMs}ms, ${imgBuf.length} bytes)`);
-    // If this key responded fast, stick with it
-    if (elapsedMs < 60000) {
-      markKeyFast(keyIdx);
-    }
-    return imgBuf;
-  } catch (err) {
-    console.warn(`[illustrationGenerator] \u274c public-${keyIdx} with photo failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
-    throw err;
-  }
+  return callGeminiImageParts(parts, {
+    aspectRatio: opts.aspectRatio || null,
+    imageSize: opts.imageSize || null,
+    seed: opts.seed ?? null,
+    abortSignal,
+    label: 'with photo reference',
+  });
 }
 
 /**
@@ -1567,6 +1606,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 }
 module.exports = {
   generateIllustration,
+  // cb-1: the ONE Gemini image transport (parts in, bytes out) every
+  // renderer shares — the coloring pages and line sheets call it directly.
+  callGeminiImageParts,
   verifyImageText,
   repairImageText,
   buildCharacterPrompt,
