@@ -57,6 +57,22 @@ function overlongResponse(request, filler = 'The gentle breeze drifts over the q
   return r;
 }
 
+/** Same story, but spread 4 — whose beat names Farmer Bea — never names
+ * her: the literal-anchor class that failed the live printed offers after
+ * three full rewrites (worker PR #301), because repair never ran on it. */
+function companionlessResponse(request) {
+  const r = validResponse(request);
+  r.spreads[3] = { spread: 4, text: 'Emma walks along the sunny path at Sunnybrook Farm and smiles at the animals. A kind neighbor waves at Emma warmly.' };
+  return r;
+}
+
+/** Same story, but the fixed world name never appears anywhere. */
+function worldlessResponse(request) {
+  const r = validResponse(request);
+  r.spreads = r.spreads.map(s => ({ ...s, text: s.text.replace('at Sunnybrook Farm', 'at the farm') }));
+  return r;
+}
+
 function pinnedRequest(requestId) {
   return buildStoryRequest({ bookId: BOOK_ID, profile: PROFILE, sessionId: 'sess_retries', requestId }).request;
 }
@@ -206,5 +222,113 @@ describe('repair passes', () => {
     const result = await generate('req_repair_flake');
     expect(result.repaired).toBe(true);
     expect(callText).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe('literal-name and echo repairs (bounded, minimal-edit)', () => {
+  it('a companion name missing from its beat spread is repaired in one pass on that spread only', async () => {
+    const request = pinnedRequest('req_anchor_repair');
+    callText
+      .mockResolvedValueOnce(ok(companionlessResponse(request)))
+      .mockResolvedValueOnce(ok(companionlessResponse(request)))
+      .mockResolvedValueOnce(ok(companionlessResponse(request)))
+      .mockResolvedValueOnce(ok(validResponse(request)));
+
+    const result = await generate('req_anchor_repair');
+    expect(callText).toHaveBeenCalledTimes(4);
+    expect(callText.mock.calls[3][0].label).toMatch(/:repair1$/);
+    expect(callText.mock.calls[3][0].userPrompt).toContain('spread 4: the beat names Farmer Bea');
+    expect(callText.mock.calls[3][0].userPrompt).toContain('missing companion or world proper name');
+    expect(result.repaired).toBe(true);
+    expect(result.response.spreads[3].text).toContain('Farmer Bea');
+  });
+
+  it('a name repair that rewrites an unimplicated spread is discarded, the next pass retries', async () => {
+    const request = pinnedRequest('req_anchor_boundary');
+    const overreach = validResponse(request);
+    overreach.spreads[5] = { spread: 6, text: 'Emma hops along the sunny path at Sunnybrook Farm and waves at the animals today.' };
+    callText
+      .mockResolvedValueOnce(ok(companionlessResponse(request)))
+      .mockResolvedValueOnce(ok(companionlessResponse(request)))
+      .mockResolvedValueOnce(ok(companionlessResponse(request)))
+      .mockResolvedValueOnce(ok(overreach))
+      .mockResolvedValueOnce(ok(validResponse(request)));
+
+    const result = await generate('req_anchor_boundary');
+    expect(callText).toHaveBeenCalledTimes(5);
+    expect(result.repaired).toBe(true);
+    expect(result.response.spreads[5].text).toBe(validResponse(request).spreads[5].text);
+  });
+
+  it('a missing world name is repaired on the opening spread; adding it elsewhere is discarded', async () => {
+    const request = pinnedRequest('req_world_repair');
+    const elsewhere = worldlessResponse(request);
+    elsewhere.spreads[5] = { ...elsewhere.spreads[5], text: elsewhere.spreads[5].text.replace('at the farm', 'at Sunnybrook Farm') };
+    const fixed = worldlessResponse(request);
+    fixed.spreads[0] = { ...fixed.spreads[0], text: fixed.spreads[0].text.replace('at the farm', 'at Sunnybrook Farm') };
+    callText
+      .mockResolvedValueOnce(ok(worldlessResponse(request)))
+      .mockResolvedValueOnce(ok(worldlessResponse(request)))
+      .mockResolvedValueOnce(ok(worldlessResponse(request)))
+      .mockResolvedValueOnce(ok(elsewhere))
+      .mockResolvedValueOnce(ok(fixed));
+
+    const result = await generate('req_world_repair');
+    expect(callText).toHaveBeenCalledTimes(5);
+    expect(callText.mock.calls[3][0].userPrompt).toContain('the fixed world name "Sunnybrook Farm" must appear in the story');
+    expect(result.repaired).toBe(true);
+    expect(result.response.spreads[0].text).toContain('Sunnybrook Farm');
+    expect(result.response.spreads[5].text).toBe(worldlessResponse(request).spreads[5].text);
+  });
+
+  it('a mangled versions echo is re-echoed by repair without any prose change', async () => {
+    const request = pinnedRequest('req_echo_repair');
+    const mangled = validResponse(request);
+    mangled.versions = { ...mangled.versions, catalog: `${request.versions.catalog}x` };
+    const reworded = validResponse(request);
+    reworded.spreads[1] = { ...reworded.spreads[1], text: reworded.spreads[1].text.replace('sunny', 'bright') };
+    callText
+      .mockResolvedValueOnce(ok(mangled))
+      .mockResolvedValueOnce(ok(mangled))
+      .mockResolvedValueOnce(ok(mangled))
+      .mockResolvedValueOnce(ok(reworded))
+      .mockResolvedValueOnce(ok(validResponse(request)));
+
+    const result = await generate('req_echo_repair');
+    expect(callText).toHaveBeenCalledTimes(5);
+    expect(callText.mock.calls[3][0].userPrompt).toContain('versions.catalog must echo');
+    expect(result.repaired).toBe(true);
+    expect(result.response.versions).toEqual(request.versions);
+    expect(result.response.spreads[1].text).toBe(validResponse(request).spreads[1].text);
+  });
+
+  it('a wrong title or request id is still not repairable — the story itself is wrong', async () => {
+    const request = pinnedRequest('req_title_not_repairable');
+    const wrongTitle = validResponse(request);
+    wrongTitle.title = 'A Different Book';
+    callText.mockResolvedValue(ok(wrongTitle));
+
+    const err = await generate('req_title_not_repairable').catch(e => e);
+    expect(err).toBeInstanceOf(StoryGenerationError);
+    expect(callText).toHaveBeenCalledTimes(3); // 3 generations, no repair pass
+    expect(err.validationErrors.join(' ')).toContain('title must exactly equal');
+  });
+
+  it('every model call heartbeats through onProgress (attempts and repairs)', async () => {
+    const request = pinnedRequest('req_heartbeat');
+    const onProgress = jest.fn();
+    callText
+      .mockResolvedValueOnce(ok(overlongResponse(request)))
+      .mockResolvedValueOnce(ok(overlongResponse(request)))
+      .mockResolvedValueOnce(ok(overlongResponse(request)))
+      .mockResolvedValueOnce(ok(validResponse(request)));
+
+    await generateStory({ bookId: BOOK_ID, profile: PROFILE, sessionId: 'sess_retries', requestId: 'req_heartbeat', onProgress });
+    expect(onProgress.mock.calls.map(c => c[0])).toEqual([
+      { bookId: BOOK_ID, status: 'attempt', attempt: 1 },
+      { bookId: BOOK_ID, status: 'attempt', attempt: 2 },
+      { bookId: BOOK_ID, status: 'attempt', attempt: 3 },
+      { bookId: BOOK_ID, status: 'repair', repair: 1 },
+    ]);
   });
 });

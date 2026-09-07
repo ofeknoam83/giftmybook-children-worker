@@ -41,6 +41,30 @@ function offerMap(bookId) {
     ] };
 }
 
+/**
+ * The model's outline as the definition needs it. The advertised title is
+ * LOCKED by the caller (it is the title painted on the cover the customer
+ * scanned), so the model's transcription of it is irrelevant — a curly
+ * apostrophe or a dropped space in the echo used to fail the whole offer
+ * before any story was written. Beat numbers are coerced (a JSON-mode model
+ * may return "1"), never re-ordered: the definition validator still
+ * requires 1..12 in order.
+ * @param {*} raw parsed model JSON
+ * @param {string|null|undefined} lockedTitle the advertised title, when known
+ * @returns {object} outline
+ */
+function normalizeOutline(raw, lockedTitle) {
+  const outline = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
+  if (lockedTitle) outline.title = lockedTitle;
+  else if (typeof outline.title === 'string') outline.title = outline.title.trim();
+  if (Array.isArray(outline.beats)) {
+    outline.beats = outline.beats.map(b => (b && typeof b === 'object'
+      ? { spread: Number(b.spread), beat: typeof b.beat === 'string' ? b.beat.trim() : b.beat }
+      : b));
+  }
+  return outline;
+}
+
 async function loadOfferDefinition(bookId, tag) {
   const match = TAG.exec(String(tag));
   if (!match) return null;
@@ -79,8 +103,7 @@ Return only JSON with keys: title (exact printed title), premise (one short para
     body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }, { inline_data: { mimeType: 'image/jpeg', data: reference.toString('base64') } }] }], generationConfig: jsonQaGenerationConfig(8192, 'gemini-2.5-flash') }),
   });
   if (!resp.ok) throw new Error(`Offer preparation failed (${resp.status})`);
-  const outline = JSON.parse(jsonText(await resp.json()));
-  if (title && outline.title !== title) throw new Error('Offer preparation changed the advertised title');
+  const outline = normalizeOutline(JSON.parse(jsonText(await resp.json())), title);
   if (typeof outline.title !== 'string' || !outline.title.trim() || outline.title.length > 180) throw new Error('Could not read the printed title');
   const bookId = `upsell_${key.slice(0, 32)}`;
   const hit = { book: { id: bookId, title_template: outline.title.split(profile.name).join('{name}'), premise: outline.premise, archetype, beats: outline.beats },
@@ -95,10 +118,19 @@ Return only JSON with keys: title (exact printed title), premise (one short para
   return { hit, tag };
 }
 
+/**
+ * Prepare (or reuse) the pinned offer definition, then write ONE validated
+ * story against it through the ordinary writer.
+ * @param {object} opts {sourceBookId, coverIndex, coverPath, title, profile,
+ *   themeId, sessionId, tuning?, onProgress?} — onProgress is the server's
+ *   activity heartbeat, forwarded to the writer's attempt/repair loop.
+ */
 async function generateOfferStory(opts) {
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
   const { hit, tag } = await prepareOfferDefinition(opts);
+  onProgress?.({ bookId: hit.book.id, status: 'outline' });
   return require('./writer').generateStory({ bookId: hit.book.id, profile: opts.profile, sessionId: opts.sessionId,
-    tuning: opts.tuning, definition: hit, definitionTag: tag });
+    tuning: opts.tuning, definition: hit, definitionTag: tag, onProgress });
 }
 
-module.exports = { prepareOfferDefinition, generateOfferStory, loadOfferDefinition, validateOfferDefinition, offerMap };
+module.exports = { prepareOfferDefinition, generateOfferStory, loadOfferDefinition, validateOfferDefinition, offerMap, normalizeOutline };

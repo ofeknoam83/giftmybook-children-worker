@@ -223,9 +223,10 @@ function selectOfferedDetails(profile, map) {
 
 // Failure classes ONE targeted repair call can fix without touching the
 // plot: word bounds, accidental doubled words, personalization
-// legality/caps/minima, banned terms, leakage, and the evidence hard-gate.
-// Everything else (schema, echo, title, refrain, beats, spread numbering)
-// means the story itself is wrong and repair must not run.
+// legality/caps/minima, banned terms, leakage, the evidence hard-gate,
+// a missing literal beat anchor (a proper name) and a mangled versions
+// echo. Everything else (schema, request/book id echo, title, refrain,
+// spread numbering) means the story itself is wrong and repair must not run.
 const REPAIRABLE_ERROR_PATTERNS = [
   /^spread \d+: \d+ words, must be /,
   /^total \d+ words, must be /,
@@ -239,6 +240,21 @@ const REPAIRABLE_ERROR_PATTERNS = [
   /appears in the story text but is not declared in personalization_evidence/,
   /appears on spread \d+ but its evidence declares only/,
   /^personalization_evidence is empty although usable/,
+  // Literal beat anchors (2026-09-07): a spread whose beat names the
+  // companion but whose prose says "the little firefly", or a story that
+  // never says the world's name, is a missing PROPER NAME — one wording
+  // change on the implicated spread, never a plot change. Printed offers
+  // made this the dominant exhaustion cause: their model-authored outlines
+  // name the companion on nearly every beat (catalog beats do so on one or
+  // two), so a single dropped name after three full rewrites failed the
+  // whole book without the repair pass ever running.
+  /^spread \d+: the beat names .+ — the companion must appear on this spread$/,
+  /^the fixed world name ".+" must appear in the story$/,
+  // A mangled versions echo is a copy error, not a story error: the
+  // printed-offer catalog tag is a 74-character hash the model must
+  // reproduce byte for byte. Repair re-echoes it, and the delta boundary
+  // proves no prose moved.
+  /^versions\.[a-z_]+ must echo '/,
 ];
 
 /**
@@ -270,7 +286,7 @@ function buildRepairPrompt({ request, response, errors }) {
     '## REPAIR RULES',
     'Do NOT change: the plot events or their order, the title, the refrain text or which spreads carry it, the spread numbering, or request_id/book_id/versions (echo verbatim: '
       + JSON.stringify({ request_id: request.request_id, book_id: request.book_id, versions: request.versions })
-      + '). You MAY edit ONLY the spread text implicated by the violations above: reword an offending spread (same meaning, shorter or longer to meet word bounds); REMOVE a violating personalization moment from its own spread; ADD a required moment only on its slot\'s designated spread. Update personalization_evidence and omitted_profile_fields ONLY to exactly describe those edits, so every supplied detail is accounted for. All other spreads stay verbatim. Prose only in "text".',
+      + '). You MAY edit ONLY the spread text implicated by the violations above: reword an offending spread (same meaning, shorter or longer to meet word bounds); REMOVE a violating personalization moment from its own spread; ADD a required moment only on its slot\'s designated spread; ADD a missing companion or world proper name to the spread the violation names with the smallest wording change (a missing world name goes on spread 1 or spread 12), never a new event. If a violation names versions, re-echo the versions object verbatim and change no prose at all. Update personalization_evidence and omitted_profile_fields ONLY to exactly describe those edits, so every supplied detail is accounted for. All other spreads stay verbatim. Prose only in "text".',
   ].join('\n\n');
 }
 
@@ -380,6 +396,15 @@ function checkRepairDelta({ before, after, errors, map }) {
       for (const slot of map?.slots || []) permitted.add(slot.spread);
       for (const e of beforeEvidence) permitted.add(e.spread);
       omissionsFree = true;
+    } else if (/^the fixed world name /.test(err)) {
+      // The world's name is introduced where the beats introduce the world:
+      // the opening or the closing spread. (A companion-name anchor names
+      // its own spread and is handled by the first branch.)
+      permitted.add(1);
+      permitted.add(12);
+    } else if (/^versions\.[a-z_]+ must echo /.test(err)) {
+      // Echo repair: no spread is implicated — every line of prose stays
+      // verbatim, which the loop below enforces.
     } else {
       // Cap/legality errors: removals live on evidence-bearing spreads.
       for (const e of beforeEvidence) permitted.add(e.spread);
@@ -656,8 +681,12 @@ function buildUserPrompt({ request, book, theme, ageBand, map, tuning = null, va
 /**
  * Generate ONE validated story for one book candidate.
  *
- * @param {object} params {bookId, profile, sessionId, locale?, requestId?, costTracker?, label?, tuning?}
+ * @param {object} params {bookId, profile, sessionId, locale?, requestId?, costTracker?, label?, tuning?, onProgress?}
  *   `tuning` is a raw writerTuning field from the request (normalized here).
+ *   `onProgress({bookId, status: 'attempt'|'repair', attempt?, repair?})` fires
+ *   as each model call starts — the server's activity heartbeat, so a run
+ *   whose retries and repairs outlast the watchdog's idle window is never
+ *   killed mid-story (a story that dies there posts no callback at all).
  * @returns {Promise<{request: object, response: object, usage: object, attempts: number, nameOnly: boolean}>}
  * @throws {StoryGenerationError} when every generation attempt and repair pass fails validation
  */
@@ -666,6 +695,7 @@ async function generateStory(params) {
   const { request, book, themeId, ageBand, map } = buildStoryRequest({ ...params, tuning });
   const theme = params.definition?.theme || getBook(request.book_id).theme;
   const label = params.label || `catalogWriter:${request.book_id}`;
+  const onProgress = typeof params.onProgress === 'function' ? params.onProgress : null;
   const usageTotal = { inputTokens: 0, outputTokens: 0 };
   const maxAttempts = WRITER_MAX_ATTEMPTS();
   let lastErrors = null;
@@ -673,6 +703,7 @@ async function generateStory(params) {
   let lastResponseErrors = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    onProgress?.({ bookId: request.book_id, status: 'attempt', attempt });
     const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, tuning, validationErrors: lastErrors });
     let result;
     try {
@@ -747,6 +778,7 @@ async function generateStory(params) {
   let lastRepairFailure = null;
   while (repairsUsed < maxRepairs && lastResponse && isRepairable(lastErrors)) {
     repairsUsed++;
+    onProgress?.({ bookId: request.book_id, status: 'repair', repair: repairsUsed });
     try {
       const repairResult = await callText({
         model: WRITER_MODEL(),

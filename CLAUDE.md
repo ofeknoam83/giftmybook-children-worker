@@ -80,7 +80,16 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   becomes the next pass's base; one that breaks the boundary or a
   non-repairable check is discarded); plot-level failures never reach
   repair. A candidate that exhausts both budgets fails — never a silent
-  plot substitution. The tuning overlay is framed SCOPE-subordinate (binding on
+  plot substitution. Since 2026-09-07 a missing LITERAL beat anchor (the
+  companion's proper name on a spread whose beat names them; the world
+  name anywhere) and a mangled `versions` echo are bounded too — the
+  printed-offer path (`upsellOffer.js`, below) exhausted three full
+  rewrites over ONE dropped companion name, and the repair pass built for
+  exactly that kind of edit never ran; the delta boundary pins a name fix
+  to the implicated spread (world name: spread 1 or 12) and an echo fix
+  to zero prose changes. Every model call heartbeats through `onProgress`
+  so retries + repairs + polish can never outlast the server's idle
+  watchdog mid-story (a story killed there posts no callback). The tuning overlay is framed SCOPE-subordinate (binding on
   prose, never on plot/refrain/title/slots/contract), restated at the END
   of the user prompt (`buildStyleCheckpoint` — NON-NEGOTIABLE lines
   verbatim), and, when an overlay is pinned, a validated story gets ONE
@@ -107,6 +116,19 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   personalization_map}) schema-validated at boot; `data/augments/drafts/` is
   NEVER loaded. No approved map ⇒ the book generates **name-only** — maps are
   never fabricated at runtime.
+- `upsellOffer.js` — the **printed offer** (`/upsell/{bookId}/{index}` QR on
+  the interior's upsell spread): a cover whose title has no catalog plot.
+  `prepareOfferDefinition` authors ONE private, immutable definition for
+  that exact offer + child (Gemini reads the cover; the advertised title is
+  LOCKED by the caller and never re-transcribed; beat numbers are coerced,
+  never re-ordered), content-hashed to
+  `children-upsell-definitions/{sha256}.json` with a pointer per
+  (source book, index, title, band, name, image), and `generateOfferStory`
+  writes it through the ordinary writer + validation with the
+  `upsell-v1-{hash}` catalog tag pinned (`getBookForTag` resolves it for
+  print). Requested by `/v13/generate-stories` with
+  `bookIds: ['printed-upsell']` + `upsellOffer`; failures carry the
+  validation errors.
 - `pipeline.js` — full-book run: resolve story (request pair → checkpoint →
   fresh) → illustrate → `assemblePdf` (minPages 32; 12 spreads + front matter)
   → cover PDF (`coverGenerator`, unchanged) → callback payload. Failure codes:

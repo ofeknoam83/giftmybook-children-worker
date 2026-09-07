@@ -92,15 +92,24 @@ describe('targeted repair pass', () => {
       'selected_detail_count 5 exceeds map max_details 4',
       "evidence: slot s07_trait does not allow profile field 'activities'",
       'banned brand/IP term in story text: "Lego"',
+      // Literal beat anchors and a mangled versions echo are one proper
+      // name / one re-echo away from valid — a printed offer exhausted
+      // three full rewrites over exactly this (2026-09-07).
+      'spread 5: the beat names Flicker — the companion must appear on this spread',
+      'the fixed world name "Moonlit Grove" must appear in the story',
+      "versions.catalog must echo 'upsell-v1-abc'",
     ])).toBe(true);
   });
 
   it('refuses plot-level or structural failures — and any mix containing one', () => {
     expect(isRepairable(["title must exactly equal the rendered title 'X'"])).toBe(false);
     expect(isRepairable(['spreads must be numbered 1-12 in order (got 1,2)'])).toBe(false);
+    expect(isRepairable(["request_id mismatch: 'req_other'"])).toBe(false);
+    expect(isRepairable(["book_id mismatch: 'other_book'"])).toBe(false);
+    expect(isRepairable(['spread 7: the beat requires counting ONE, TWO, THREE — the spread must count one, two, three'])).toBe(false);
     expect(isRepairable([
       'spread 7: 64 words, must be 50-60 for age band 8-10',
-      "versions.writer_engine must echo '1.3.0'",
+      "title must exactly equal the rendered title 'X'",
     ])).toBe(false);
     expect(isRepairable([])).toBe(false);
     expect(isRepairable(null)).toBe(false);
