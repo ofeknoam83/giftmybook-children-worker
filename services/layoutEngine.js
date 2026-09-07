@@ -199,14 +199,43 @@ function goldRule(page, y, w = 80) {
 
 // ── Image helpers ─────────────────────────────────────────────────────────────
 
-async function embedFullBleed(pdfDoc, page, buf) {
+/**
+ * The ONE lossy encode of a full-bleed page (2026-09-07). Until now an
+ * embedded spread reached the PDF through THREE JPEG generations — the
+ * split canvas at 93, each half re-encoded at sharp's default 80 by the
+ * format-preserving extract, then the page embed at 93 again — all with
+ * the default 4:2:0 chroma subsampling, which halves colour resolution
+ * exactly on the dark brown strokes over coloured scenery. The split now
+ * stays lossless (PNG) and the page is encoded ONCE here.
+ * @type {{quality: number, chromaSubsampling: string}}
+ */
+const PAGE_JPEG = Object.freeze({ quality: 93, chromaSubsampling: '4:2:0' });
+/** Text-bearing pages (story text painted into the art): full chroma, quality 95. */
+const TEXT_PAGE_JPEG = Object.freeze({ quality: 95, chromaSubsampling: '4:4:4' });
+
+/**
+ * Resize a page image to the 300 DPI canvas (`fit: 'cover'` — full-bleed)
+ * and encode it once. Exported for tests.
+ * @param {Buffer} buf any sharp-readable image
+ * @param {number} wp page width in pixels
+ * @param {number} hp page height in pixels
+ * @param {{text?: boolean}} [opts] text-bearing page ⇒ TEXT_PAGE_JPEG
+ * @returns {Promise<Buffer>} JPEG bytes
+ */
+async function encodeFullBleedJpeg(buf, wp, hp, { text = false } = {}) {
+  return sharp(buf)
+    .resize(wp, hp, { fit: 'cover', kernel: 'lanczos3' })
+    .toColorspace('srgb')
+    .jpeg({ ...(text ? TEXT_PAGE_JPEG : PAGE_JPEG) })
+    .toBuffer();
+}
+
+async function embedFullBleed(pdfDoc, page, buf, opts = {}) {
   const pw = page.getWidth(); const ph = page.getHeight();
   const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
   // fit: 'cover' fills the page edge-to-edge (full-bleed design intent)
-  const r = await sharp(buf)
-    .resize(wp, hp, { fit: 'cover' })
-    .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
+  const r = await encodeFullBleedJpeg(buf, wp, hp, opts);
   const img = await pdfDoc.embedJpg(r);
   page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
 }
@@ -224,26 +253,22 @@ async function splitSpreadImage(buf, pw, ph) {
   // Build a full spreadW × hp canvas. Legacy 16:9 assets: scaledH > hp — center
   // vertical crop (caption insets — see illustrator/config). Shorter sources
   // (quad 2:1 on portrait trim, bad assets): cover-resize to avoid extract errors.
-  let spreadBuf;
-  if (scaledH >= hp) {
-    const excessH = scaledH - hp;
-    const cropTop = Math.floor(excessH * 0.5);
-    spreadBuf = await sharp(buf)
+  // The canvas stays LOSSLESS (raw pixels, then PNG halves): the page embed
+  // (encodeFullBleedJpeg) is the one and only JPEG generation.
+  const canvas = scaledH >= hp
+    ? sharp(buf)
       .resize(spreadW, scaledH, { kernel: 'lanczos3' })
-      .extract({ left: 0, top: cropTop, width: spreadW, height: hp })
-      .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
-  } else {
-    spreadBuf = await sharp(buf)
-      .resize(spreadW, hp, { fit: 'cover', kernel: 'lanczos3', position: 'centre' })
-      .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
-  }
-
-  const leftBuf = await sharp(spreadBuf)
-    .extract({ left: 0, top: 0, width: wp, height: hp })
+      .extract({ left: 0, top: Math.floor((scaledH - hp) * 0.5), width: spreadW, height: hp })
+    : sharp(buf)
+      .resize(spreadW, hp, { fit: 'cover', kernel: 'lanczos3', position: 'centre' });
+  const { data, info } = await canvas.toColorspace('srgb').removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const raw = { raw: { width: info.width, height: info.height, channels: info.channels } };
+  const half = (left) => sharp(data, raw)
+    .extract({ left, top: 0, width: wp, height: hp })
+    .png({ compressionLevel: 1 })
     .toBuffer();
-  const rightBuf = await sharp(spreadBuf)
-    .extract({ left: wp, top: 0, width: wp, height: hp })
-    .toBuffer();
+  const leftBuf = await half(0);
+  const rightBuf = await half(wp);
 
   return { leftBuf, rightBuf };
 }
@@ -898,8 +923,11 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
   if (entry.spreadIllustrationBuffer) {
     try {
       ({ leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
-      await embedFullBleed(pdfDoc, leftPage, leftBuf);
-      await embedFullBleed(pdfDoc, rightPage, rightBuf);
+      // Story text painted into the art ⇒ the text-bearing encode (full
+      // chroma, quality 95); the overlay path's text is PDF type.
+      const pageOpts = { text: !!entry.textEmbeddedInArt };
+      await embedFullBleed(pdfDoc, leftPage, leftBuf, pageOpts);
+      await embedFullBleed(pdfDoc, rightPage, rightBuf, pageOpts);
     } catch (e) {
       console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
     }
@@ -2428,6 +2456,10 @@ module.exports = {
   buildEmbeddedPreviewPdf,
   FORMATS,
   splitSpreadImage,
+  // 2026-09-07: the one lossy encode of a page (exported for tests).
+  encodeFullBleedJpeg,
+  PAGE_JPEG,
+  TEXT_PAGE_JPEG,
   // Book-wide caption typography (caption pages + half panels share it),
   // exported for the sharp-free suite.
   BOOK_CAPTION_FONT_SIZE,

@@ -718,6 +718,9 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         spread: r.spread,
         url: r.url,
         storageKey: r.storageKey,
+        // 2026-09-07: the shipped pixel size (null when unreadable) — the
+        // bench must be able to SEE a render that came back below 4K.
+        size: r.size || null,
         qa: {
           pass: r.advisories.filter(a => a.stage === 'spreadQa').length === 0,
           advisories: r.advisories,

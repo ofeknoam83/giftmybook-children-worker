@@ -691,6 +691,32 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   rejects re-render. The app-side Art Bench judge and the typography
   rubric (`illustrationJudge.js`, `illustrationTuning.js` there) name the
   same face and ink.
+  **Print resolution (2026-09-07)**: the template path requests Gemini's
+  largest tier (`imageSize: '4K'`, about 4096×2304 for 16:9 — the pinned
+  cap height is ~33 px there) and the print path upscales that 1.28× onto
+  the 300 DPI spread canvas (`layoutEngine` `splitSpreadImage`, 5250 px
+  incl. bleed), so painted text prints at ~234 DPI; vector type in the
+  PDF is the only way past that ceiling. Two things used to lose
+  sharpness between the model and the printer. (1) Nothing measured what
+  came back: a 400 naming the `imageSize` field retries once WITHOUT it,
+  and the model's 1K default (an 8 px cap height) would have passed every
+  gate. `illustrationGenerator` now enforces `opts.minRenderHeight` — an
+  image below it is a failed attempt with `undersized: true` + its
+  measured size on the attempt log (`shared/illustration/renderSize.js`
+  `imageDimensions`, fail-open); the illustrator passes the floor for
+  embedded renders from `flags.minEmbeddedRenderHeight(tier)` (4K → 2000,
+  2K → 1000, 1K → 500; `CATALOG_MIN_EMBEDDED_RENDER_HEIGHT` pins it, 0
+  disables), records the shipped `size` on every result and `.qa.json`
+  marker, flags a replayed page below the floor with a stage `render`
+  advisory, and echoes it as `renders[].size` on probe callbacks and
+  `renderSizes` on completion callbacks. (2) The PDF encoded every spread
+  THREE times — the split canvas at JPEG 93, each half again at sharp's
+  default 80 (the format-preserving extract), the page embed at 93 — all
+  with 4:2:0 chroma subsampling, which halves colour resolution exactly on
+  dark brown strokes over coloured scenery. The split now stays lossless
+  and `encodeFullBleedJpeg` is the ONE encode: quality 95 with 4:4:4
+  chroma for text-bearing pages (`textEmbeddedInArt`), 93 / 4:2:0 for
+  text-free art.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -739,8 +765,13 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   instead of the full-spread manuscript template (new books only; a
   partially rendered book keeps its namespace).
 - `CATALOG_EMBEDDED_IMAGE_SIZE=2K` — (ce-16, OPT-IN) request this output
-  size (`1K`|`2K`|`4K`) on embedded renders; a model that rejects the field
-  renders at its default. Cache-keyed (`-is{size}`).
+  size (`1K`|`2K`|`4K`) on embedded renders; the template path requests
+  `4K` by default. Cache-keyed (`-is{size}`).
+- `CATALOG_MIN_EMBEDDED_RENDER_HEIGHT=N` — (2026-09-07) the pixel height an
+  embedded render must reach or the attempt fails (the resolution guard).
+  Unset: follows the requested tier (4K → 2000, 2K → 1000, 1K → 500;
+  nothing requested → off). `0` disables; the measured size still rides
+  every callback.
 - `CATALOG_TEXT_INK_QA=0` — (ce-18) stop measuring the painted text's INK
   colour: no per-spread ink defect and no book-level ink gate (the pinned
   ink still rides every prompt).

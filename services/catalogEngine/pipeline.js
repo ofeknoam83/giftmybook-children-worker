@@ -469,6 +469,10 @@ async function runBookPipeline(params) {
     outfitLockUsed: art.outfitLockUsed || 'none',
     // ce-15: the typography anchor the embedded spreads were held to, or 'none'.
     typographyAnchorUsed: art.typographyAnchorUsed || 'none',
+    // 2026-09-07: the shipped pixel size of every spread ([{spread, width,
+    // height}]) — a page that came back below the requested 4K is never
+    // silent on the completion callback.
+    renderSizes: art.renderSizes || [],
     // ce-18: the book-level ink verdict — always present (null when the
     // gate did not run: kill-switch, non-embedded layout, or <2 measured).
     textInkQa: art.textInkQa || null,

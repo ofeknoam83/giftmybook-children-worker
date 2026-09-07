@@ -52,6 +52,7 @@ const flags = require('../flags');
 const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
 const { canUseTypographyGuide, createTypographyGuide, createTypographyTemplate, letteringJudgeImage } = require('./typographyGuide');
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
+const { imageDimensions } = require('../../shared/illustration/renderSize');
 const { resolveBookTextRules, resolveTypographyGuideRules } = require('../../shared/illustration/config');
 const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
 const { checkSavedText, recoverText } = require('./textRecovery');
@@ -242,6 +243,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         ...(repaired ? { textRepaired: true } : {}) };
       await uploadBuffer(Buffer.from(JSON.stringify(marker)), `${saved.storageKey}.qa.json`, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
     }
+    saved.size = await imageDimensions(saved.buffer);
     return saved;
   }
   // The render is uploaded to the cache key BEFORE QA runs, so the image
@@ -328,6 +330,17 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // Per-attempt diagnostics sink (filled by generateIllustration): when the
   // render fails, the advisory carries WHY — variant ladder, NSFW blocks,
   // Gemini finish/block reasons, the model's own refusal text.
+  // Full-canvas manuscript templates default to 4K so small painted glyphs
+  // retain detail (the explicit size override remains available), and the
+  // resolution GUARD follows the requested tier (2026-09-07): an embedded
+  // render that comes back below the floor is a failed attempt in the
+  // renderer, never a page of blurred text; the shipped size rides the
+  // result, the marker, and every callback.
+  const embeddedImageSize = embedText && (flags.embeddedImageSize() || typographyAnchor?.kind === 'template') ? (flags.embeddedImageSize() || '4K') : null;
+  const renderFloor = embedText ? flags.minEmbeddedRenderHeight(embeddedImageSize) : 0;
+  const undersizedNote = (size) => (embedText && renderFloor > 0 && size && size.height < renderFloor
+    ? `undersized render ${size.width}×${size.height}px shipped — below the ${renderFloor}px floor for painted text (a render from before the resolution guard); re-render this spread for print-sharp text`
+    : null);
   const renderOpts = {
     aspectRatio: aspect === 'wide' ? '16:9' : '1:1',
     // Keep painted lettering, but let catalog QA verify saved candidates
@@ -358,9 +371,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // ce-15: the pack index of the TYPOGRAPHY REFERENCE (the renderer's
     // text rules cite it: "match REFERENCE IMAGE N").
     ...(Number.isInteger(refs.typographyRef) ? { typographyRef: refs.typographyRef } : {}),
-    // Full-canvas manuscript templates default to 4K so small painted
-    // glyphs retain detail. The explicit size override remains available.
-    ...(embedText && (flags.embeddedImageSize() || typographyAnchor?.kind === 'template') ? { imageSize: flags.embeddedImageSize() || '4K' } : {}),
+    ...(embeddedImageSize ? { imageSize: embeddedImageSize } : {}),
+    ...(renderFloor > 0 ? { minRenderHeight: renderFloor } : {}),
     bookId,
     costTracker,
     // The identity anchor bytes still ride (the renderer's with-photo
@@ -486,11 +498,15 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           ? (Array.isArray(marker.qa?.blocking) && marker.qa.blocking.length ? [...marker.qa.blocking] : ['saved artwork has unresolved QA findings'])
           : [];
         log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes${markerBlocking.length > 0 ? `, ${markerBlocking.length} BLOCKING defect(s) on record` : ''})`);
+        const cachedSize = await imageDimensions(cached);
+        const replayAdvisories = Array.isArray(marker.advisories) ? [...marker.advisories] : [];
+        if (undersizedNote(cachedSize)) replayAdvisories.push({ stage: 'render', spread, note: undersizedNote(cachedSize) });
         return {
           spread, buffer: cached, storageKey,
           url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS),
-          advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
+          advisories: replayAdvisories,
           fresh: false,
+          size: cachedSize,
           bathWater,
           blocking: markerBlocking,
           candidates: [],
@@ -677,6 +693,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     }
   }
   url = await getSignedUrl(storageKey, SIGNED_URL_TTL_MS);
+  // The shipped pixels' size — echoed on the result, the marker and the
+  // callbacks; an undersized page (an unvouched cached render from before
+  // the guard) is never silent.
+  const size = await imageDimensions(buffer);
+  if (undersizedNote(size)) advisories.push({ stage: 'render', spread, note: undersizedNote(size) });
 
   const blocking = residualBlocking(best);
   if (!best.qa || best.qa.qaUnavailable) {
@@ -706,6 +727,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         Buffer.from(JSON.stringify({
           advisories, tuningTag,
           renderHash: renderContentHash(buffer),
+          size,
           qaVersion: QA_VERSION,
           qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], companionBox: best.qa.companionBox || null, textInk: best.qa.textInk || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
           // Residual findings remain attached to the canonical best artwork,
@@ -724,7 +746,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // bathWater rides the result so the set gates can exempt these spreads
   // from outfit judgments (their coverage legitimately differs).
   return {
-    spread, buffer, storageKey, url, advisories, fresh, bathWater,
+    spread, buffer, storageKey, url, advisories, fresh, bathWater, size,
     blocking,
     candidates: candidateLog,
     // Every scored candidate that still holds its own bytes (the N=1 base
@@ -1654,6 +1676,10 @@ async function illustrateStory(params) {
     textInkQa: textInkQa || null,
     outfitLockUsed,
     typographyAnchorUsed,
+    // 2026-09-07: the shipped pixel size of every spread — the print path
+    // upscales a 4K render to the 300 DPI canvas, so a page that came back
+    // smaller is visible here rather than only on the printed proof.
+    renderSizes: results.map(r => ({ spread: r.spread, width: r.size ? r.size.width : null, height: r.size ? r.size.height : null })),
     bookBible,
     // In-memory bible (sheet bytes, outfit spec) for the pipeline's other
     // consumers — the upsell spread and the wrap cover; never serialized.
