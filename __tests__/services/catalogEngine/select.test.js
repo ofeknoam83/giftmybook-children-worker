@@ -156,3 +156,21 @@ test('verified words outrank better-looking misspelled and unverified candidates
   expect(isClean(typo)).toBe(false);
   expect(isClean(unread)).toBe(false);
 });
+
+describe('qa-13: template drift shades selection — the candidate that kept the drawn lettering in place wins', () => {
+  const { scoreCandidate, pickBest, WEIGHTS } = require('../../../services/catalogEngine/illustrator/select');
+  const withRatio = (k, ratio) => ({ k, qa: { pass: true, blocking: [], advisory: [], templateConformance: ratio == null ? null : { ratio } }, metrics: null });
+
+  test('a preserved template costs nothing, drift costs in proportion, and an unmeasured page is not charged', () => {
+    const kept = withRatio(1, 1);
+    kept.score = scoreCandidate(kept);
+    const drifted = withRatio(2, 0.6);
+    drifted.score = scoreCandidate(drifted);
+    const unmeasured = withRatio(3, null);
+    unmeasured.score = scoreCandidate(unmeasured);
+    expect(kept.score).toBe(WEIGHTS.base);
+    expect(unmeasured.score).toBe(WEIGHTS.base);
+    expect(drifted.score).toBeCloseTo(WEIGHTS.base + WEIGHTS.templateDrift * 0.4, 5);
+    expect(pickBest([drifted, kept]).k).toBe(1);
+  });
+});

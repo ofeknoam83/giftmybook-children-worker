@@ -140,8 +140,8 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   `missing_identity_reference`), one render + ONE vision QA check
   (`spreadQa.js`: painted text / missing / duplicated child / broken medium) +
   a bounded corrective re-render loop (`CATALOG_SPREAD_QA_MAX_REPAIRS`,
-  default 2, clamped 0-4 — each pass steered by the LATEST check's
-  defects), then ship-with-advisory (`qaAdvisories`). Renders
+  default 1 since #295, clamped 0-4 — each pass steered by the LATEST
+  check's defects), then ship-with-advisory (`qaAdvisories`). Renders
   cache at `children-jobs/{bookId}/ce-renders/{STYLE_VERSION}/{storyHash}/spread-N.{aspect}.png`
   — the story fingerprint (definition id + spread texts) means a regenerated
   manuscript re-renders while an unchanged story replays; a `.qa.json`
@@ -717,6 +717,64 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   and `encodeFullBleedJpeg` is the ONE encode: quality 95 with 4:4:4
   chroma for text-bearing pages (`textEmbeddedInArt`), 93 / 4:2:0 for
   text-free art.
+  **The template is HELD TO (2026-09-07, `qa-13`, book ace1cc29)**: one
+  spread of an enchanted-forest book shipped with its manuscript
+  re-typeset — CENTRED rows at 1.57× the template's size, lower on the
+  page and into the fold margin, over a lightened wash — beside eleven
+  pages that kept the drawn lettering. Two causes, both general. (1)
+  Nothing compared a render against the template it was given as its
+  EDIT BASE: the judge's `text_not_left_aligned` / `text_backdrop_treated`
+  booleans both passed, and the size ruler read the judge's rough bbox as
+  1.4× (the advisory band `needsRepair` ignores by design) for a block
+  that measured 1.57×. (2) The ce-18 ink read was measuring SCENERY:
+  `textInkColour` averaged the 20% most background-deviant pixels of the
+  judged bbox, but the glyphs of a real block cover ~5% of their own
+  tight bbox (measured on the template), so over a night forest the
+  "ink" read #7b7269 for glyphs that were #1e0201 — ten of twelve
+  spreads carried a phantom BLOCKING ink defect, each spent its ONE
+  repair render on it (the real defects never steered a repair), the
+  ink set gate elected the forest (#3b443a) as the book's ink and spent
+  two more re-renders, and −0.8 × a scenery ΔE shaded every candidate
+  score. Now `metrics.templateConformance` measures every embedded
+  render against THIS spread's template (the transparent full canvas
+  rides QA as `letteringTemplate`): the template's alpha resampled onto
+  the render's grid, each glyph-core pixel counted as painted IN PLACE
+  when the render within a small placement tolerance (0.2% of the width)
+  is ink-dark — or ink-light: an inverted fill still sits where the
+  template put it, and its polarity is reported — AGAINST the scenery
+  ring around it (contrast, never an absolute threshold: a dark scene
+  with no text reads 0). Calibrated on that render: a preserved template
+  0.97–1.0 (6–12 px jitter absorbed), a 25 px shift 0.68, 1.1× / 1.25×
+  enlargements 0.60 / 0.53, the shipped page 0.20. Below
+  `CATALOG_TEMPLATE_CONFORMANCE_MIN` (default 0.35) it is the BLOCKING
+  `embedded story text departs from the drawn lettering template` (its
+  own repair note names the EDIT BASE and its contract); below 0.7 the
+  advisory `drifts` (selection only — `select.js` charges
+  `templateDrift`, −40 × (1 − ratio)); the ratio rides the verdict, the
+  `.qa.json` marker and the callbacks as `templateConformance` — tune the
+  floor from those numbers, never blind. The painted INK is now read at
+  the template's in-place glyph pixels (`textInk.source: 'template'`;
+  suppressed on a departed page, whose template positions hold scenery),
+  the bbox heuristic runs only on the legacy guide/page-crop paths (its
+  pixel share dropped from 20% to the measured 5%), and the ink set gate
+  therefore compares real inks. Kill-switch `CATALOG_TEMPLATE_CONFORMANCE=0`.
+  The same audit closed a third hole on the one path that DOES recreate
+  pixels without the reference pack: the automatic lettering recovery
+  (`textRecovery.js` → `repairImageText`, a reference-free Gemini edit of
+  the whole canvas whose text-column patch is pasted over the saved
+  render) replaced the buffer but kept the ORIGINAL render's verdict —
+  only its spelling status was updated — so identity, outfit, template
+  conformance, ink and the child bbox the contact gate crops from all
+  described pixels no judge had seen. A repaired page is now re-judged
+  (`checkSpreadRenderV2` on the corrected pixels, on the fresh path and
+  the reviewed rebuild alike; a checker outage keeps the old verdict with
+  a `spreadQa` advisory, never a silent pass), so a re-typeset or drifted
+  patch is caught like any other render. It did not fire on book
+  ace1cc29 (no recovery log lines, no composite seam in the shipped
+  pixels) — that spread was a single full-reference render the gates
+  failed to reject. QA_VERSION `qa-13`; STYLE_VERSION stays `ce-19` (no
+  prompt change — qa-12 markers re-check on replay, and only the pages
+  the new checker rejects re-render).
 
 - `coloring/` — **the coloring book (`cb-1`, 2026-09-07 —
   `docs/COLORING_BOOK_V2_PLAN.md`)**: companion scenes from the story world,
@@ -840,6 +898,12 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   ink still rides every prompt).
 - `CATALOG_TEXT_INK_MAX_RERENDERS=N` — (ce-18) corrective re-renders the ink
   set gate may spend per run (0-4, default 2).
+- `CATALOG_TEMPLATE_CONFORMANCE=0` — (qa-13) stop measuring embedded
+  renders against their drawn lettering template (no `departs`/`drifts`
+  defects; the ink falls back to the bbox heuristic).
+  `CATALOG_TEMPLATE_CONFORMANCE_MIN=0.35` — the share of the template's
+  glyphs that must be painted in place (0-1) before a page is BLOCKING;
+  the advisory band ends at 0.7.
 - `CATALOG_CHARACTER_SHEET=0` — (ce-9) no character model sheet (renders
   anchor on the cover alone; the outfit spec derives from the cover again).
 - `CATALOG_SHEET_REQUIRED=0` — (ce-9) a book whose sheet cannot be built
@@ -908,7 +972,7 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
   `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`),
   `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3),
-  `CATALOG_SPREAD_QA_MAX_REPAIRS` (default 2, clamped 0-4).
+  `CATALOG_SPREAD_QA_MAX_REPAIRS` (default 1 since #295, clamped 0-4).
 
 ## Endpoints
 

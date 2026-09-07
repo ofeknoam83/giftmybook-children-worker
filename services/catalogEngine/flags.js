@@ -193,6 +193,14 @@ function envInt(name, def, min, max) {
   return Number.isInteger(n) && n >= min && n <= max ? n : def;
 }
 
+/** Bounded real-number knob with a default (unset / NaN / out-of-range ⇒ default). */
+function envFloat(name, def, min, max) {
+  const raw = process.env[name];
+  if (raw === undefined || String(raw).trim() === '') return def;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= min && n <= max ? n : def;
+}
+
 module.exports = {
   fitRankingEnabled: () => !envOff('CATALOG_FIT_RANKING'),
   personalizationMapsEnabled: () => !envOff('CATALOG_PERSONALIZATION_MAPS'),
@@ -234,6 +242,15 @@ module.exports = {
   // ce-18 — the painted text's ink colour
   textInkQaEnabled: () => !envOff('CATALOG_TEXT_INK_QA'),
   textInkMaxRerenders: () => envInt('CATALOG_TEXT_INK_MAX_RERENDERS', 2, 0, 4),
+  // 2026-09-07 — the drawn lettering template, HELD TO: every embedded
+  // render is measured against the template it was given as its edit base
+  // (metrics.templateConformance); below the floor the page DEPARTED from
+  // it (blocking). The floor is a share of the template's glyphs painted
+  // in place, calibrated on the ace1cc29 render (0.20) vs a preserved
+  // template (≥ 0.97); tune it from the `templateConformance` field the
+  // markers and callbacks carry, never blind.
+  templateConformanceEnabled: () => !envOff('CATALOG_TEMPLATE_CONFORMANCE'),
+  templateConformanceMin: () => envFloat('CATALOG_TEMPLATE_CONFORMANCE_MIN', 0.35, 0, 1),
   // 2026-09-07 — the resolution floor for embedded renders (see the header).
   minEmbeddedRenderHeight: (imageSize) => {
     const explicit = envInt('CATALOG_MIN_EMBEDDED_RENDER_HEIGHT', -1, 0, 8000);

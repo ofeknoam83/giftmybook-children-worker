@@ -169,10 +169,12 @@ function needsRepair(qa) {
   if (qa?.textVerification?.status === 'unverified') return false; // Re-read, do not buy artwork for an OCR outage.
   if (!qa || qa.qaUnavailable) return false;
   if (Array.isArray(qa.blocking) && qa.blocking.length > 0) return true;
-  // The 'oversized' advisory (2–4× the footprint) shades
-  // selection only — the judged bbox is too rough on small blocks to spend
-  // repair renders on; 'too large' (≥ 4×) is blocking and repairs.
-  return (qa.advisory || []).some(d => d.startsWith('embedded story text') && !d.startsWith('embedded story text oversized'));
+  // The 'oversized' advisory (1.25–1.5× the footprint) shades selection
+  // only — the judged bbox is too rough on small blocks to spend repair
+  // renders on; 'too large' (≥ 1.5×) is blocking and repairs. qa-13's
+  // 'drifts from the drawn lettering template' band is the same kind of
+  // finding (measured, sub-threshold): selection only, never a render.
+  return (qa.advisory || []).some(d => d.startsWith('embedded story text') && !d.startsWith('embedded story text oversized') && !d.startsWith('embedded story text drifts from the drawn lettering template'));
 }
 
 /**
@@ -217,8 +219,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const spreadText = story.spreads.find(s => s.spread === spread)?.text || '';
   if (reviewedOnly) {
     if (forceRerender) throw new Error('Reviewed rebuild cannot generate new artwork');
-    const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log,
-      buffer => checkSpreadRenderV2(buffer, { label: `reviewedRecovery:${bookId}:s${spread}`, expectedText: embedText ? spreadText : null, outfitSpec: bible?.outfit?.outfit || null }));
+    const recheckSaved = buffer => checkSpreadRenderV2(buffer, { label: `reviewedRecovery:${bookId}:s${spread}`, expectedText: embedText ? spreadText : null, outfitSpec: bible?.outfit?.outfit || null });
+    const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, recheckSaved);
     if (embedText && !textVerificationCurrent(saved.qa?.textVerification, spreadText)) {
       const check = automaticTextRecovery ? checkSavedText : (buffer, text, costs) => verifyImageText(buffer, text, undefined, costs);
       let verification = await check(saved.buffer, spreadText, costTracker);
@@ -234,6 +236,18 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           saved.buffer = recovery.buffer;
           repaired = true;
           saved.advisories.push({ stage: 'textRecovery', spread, note: 'Automatically repaired spelling in the saved illustration; original artwork retained.' });
+          // qa-13: the corrected pixels are re-judged — the saved verdict
+          // described the pixels the edit started from. A checker outage
+          // keeps the saved verdict and says so, never a silent pass.
+          const rejudged = await recheckSaved(recovery.buffer);
+          if (rejudged && !rejudged.qaUnavailable) {
+            saved.qa = rejudged;
+            saved.blocking = Array.isArray(rejudged.blocking) ? [...rejudged.blocking] : [];
+            saved.bbox = rejudged.bbox || null;
+            saved.propBoxes = Array.isArray(rejudged.propBoxes) ? rejudged.propBoxes : [];
+          } else {
+            saved.advisories.push({ stage: 'spreadQa', spread, note: `corrected lettering could not be re-judged (${rejudged?.qaUnavailable || 'no verdict'}) — the saved verdict describes the pixels before the edit` });
+          }
         }
       }
       saved.qa = applyTextVerification({ ...saved.qa, blocking: saved.blocking }, verification);
@@ -413,6 +427,13 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     inkHex: embedText && flags.textInkQaEnabled() ? textRules.fontColorHex : null,
     // qa-7: the block's footprint — the ruler the judged text bbox is held to.
     expectedBlock: embedText ? (({ widthPercent, heightPercent }) => ({ widthPercent, heightPercent }))(expectedTextBlock(spreadText, textRules)) : null,
+    // qa-13: THIS spread's drawn template — the EDIT BASE the render was
+    // given — so the painted text is MEASURED against it (the share of its
+    // glyphs painted in place; metrics.templateConformance) and the ink
+    // read at those glyphs. Kill-switch CATALOG_TEMPLATE_CONFORMANCE=0.
+    letteringTemplate: embedText && typographyAnchor?.kind === 'template' && typographyAnchor.base64 && flags.templateConformanceEnabled()
+      ? { base64: typographyAnchor.base64, mimeType: typographyAnchor.mimeType || 'image/png', hash: typographyAnchor.hash || null }
+      : null,
     shotType: shotEntry ? shotEntry.shotType : null,
     outfitSpec: outfitSpecText,
     bathWater,
@@ -616,11 +637,25 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   if (automaticTextRecovery && best.qa?.textVerification?.status === 'mismatch') {
     const recovery = await recoverText({ buffer: best.buffer, text: spreadText, verification: best.qa.textVerification,
       storageKey, spread, renderBudget, costTracker, log });
-    best.qa = applyTextVerification(best.qa, recovery.verification);
     if (recovery.repaired) {
-      best = { ...best, buffer: recovery.buffer, key: recovery.key, variant: 'text-repair' };
+      // qa-13: the edit REPLACED the pixels (a reference-free Gemini edit
+      // pasted over the text column), so the verdict that ships must
+      // describe the pixels that ship — identity, outfit, template
+      // conformance, ink, the child bbox the contact gate crops from.
+      // Before this the ORIGINAL render's verdict vouched for an image no
+      // judge had ever seen (only its spelling status was updated).
+      const letteringReference = await letteringReferenceFor();
+      const qa = await checkSpreadRenderV2(recovery.buffer, { label: `spreadQa:${bookId}:s${spread}:textRepair`, ...qaOpts, letteringReference });
+      const m = await metricsFor(recovery.buffer, qa);
+      best = { ...best, buffer: recovery.buffer, key: recovery.key, qa: applyTextVerification(qa, recovery.verification), metrics: m, variant: 'text-repair' };
       fresh = true;
       advisories.push({ stage: 'textRecovery', spread, note: 'Automatically corrected painted spelling in the existing illustration.' });
+      if (best.qa.qaUnavailable && !checkerUnavailable) {
+        checkerUnavailable = true;
+        advisories.push({ stage: 'spreadQa', spread, note: `shipped UNCHECKED — ${best.qa.qaUnavailable}` });
+      }
+    } else {
+      best.qa = applyTextVerification(best.qa, recovery.verification);
     }
     best.score = scoreCandidate({ qa: best.qa, metrics: best.metrics });
   }
@@ -729,7 +764,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           renderHash: renderContentHash(buffer),
           size,
           qaVersion: QA_VERSION,
-          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], companionBox: best.qa.companionBox || null, textInk: best.qa.textInk || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
+          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], companionBox: best.qa.companionBox || null, textInk: best.qa.textInk || null, templateConformance: best.qa.templateConformance || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
           // Residual findings remain attached to the canonical best artwork,
           // including after automatic completion and subsequent cache replay.
           ...(blocking.length > 0 ? { unresolved: true } : {}),

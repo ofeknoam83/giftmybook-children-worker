@@ -94,12 +94,217 @@ const MAX_HEX_PER_SLOT = 8;
 const DEFAULT_INK_DELTA_E_THRESHOLD = 26;
 /** ΔE beyond which one spread's ink differs from the book's own median ink. */
 const INK_SET_DELTA_E_THRESHOLD = 14;
-/** Share of the text bbox's most background-deviant pixels treated as glyph candidates. */
-const INK_PIXEL_FRACTION = 0.2;
+/**
+ * Share of the text bbox's most background-deviant pixels treated as glyph
+ * candidates — the LEGACY read, used only when no drawn lettering template
+ * rides the render (`templateConformance` below is the sound measurement).
+ * 2026-09-07 (book ace1cc29): the glyphs of a real text block cover about
+ * 5% of their own tight bbox (measured on the drawn template: 5.3%), so the
+ * original 0.2 averaged at least three scenery pixels for every glyph pixel
+ * — over a night forest the "ink" read #7b7269 for glyphs that were #1e0201,
+ * ten of twelve spreads got a phantom BLOCKING ink defect, and each spent
+ * its one repair render on it. The fraction now matches the coverage.
+ */
+const INK_PIXEL_FRACTION = 0.05;
 /** A pixel must sit this far (0-255 luminance) from the background median to be glyph. */
 const INK_MIN_DEVIATION = 18;
 /** Fewer glyph pixels than this is unmeasurable — fail open, never a verdict. */
 const INK_MIN_PIXELS = 40;
+
+// ── 2026-09-07: the drawn lettering template, HELD TO (book ace1cc29) ───
+/** Template alpha at or above this (0-255, after resampling) is a glyph CORE pixel. */
+const TEMPLATE_CORE_ALPHA = 200;
+/** Template alpha below this is scenery the model was asked to paint. */
+const TEMPLATE_CLEAR_ALPHA = 16;
+/** A core pixel counts as painted DARK when the darkest render pixel within
+ *  the tolerance radius is at most this luminance AND at least
+ *  TEMPLATE_CONTRAST below the surrounding scenery. */
+const TEMPLATE_DARK_MAX_LUM = 100;
+const TEMPLATE_CONTRAST = 30;
+/** …and painted LIGHT (inverted ink) when the brightest is at least this
+ *  luminance and TEMPLATE_LIGHT_CONTRAST above the scenery. */
+const TEMPLATE_LIGHT_MIN_LUM = 190;
+const TEMPLATE_LIGHT_CONTRAST = 40;
+/** Placement tolerance: a glyph may drift this share of the image width. */
+const TEMPLATE_TOLERANCE_WIDTH = 0.002;
+/** The scenery ring a core pixel is contrasted against (share of the width). */
+const TEMPLATE_RING_WIDTH = 0.006;
+/** Below this share of in-place glyphs the render DEPARTED from the template (blocking). */
+const TEMPLATE_CONFORMANCE_BLOCKING = 0.35;
+/** Below this share it DRIFTED (advisory: shades selection, never repairs). */
+const TEMPLATE_CONFORMANCE_ADVISORY = 0.7;
+
+/**
+ * Separable running min/max over a Uint8 plane (a square window of radius
+ * r) — the placement tolerance of the template check.
+ * @param {Uint8Array} src
+ * @param {number} w
+ * @param {number} h
+ * @param {number} r
+ * @param {boolean} max true for the max filter
+ * @returns {Uint8Array}
+ */
+function rankFilter(src, w, h, r, max) {
+  const tmp = new Uint8Array(w * h);
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y += 1) {
+    const row = y * w;
+    for (let x = 0; x < w; x += 1) {
+      let m = max ? 0 : 255;
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(w - 1, x + r);
+      for (let k = x0; k <= x1; k += 1) {
+        const v = src[row + k];
+        if (max ? v > m : v < m) m = v;
+      }
+      tmp[row + x] = m;
+    }
+  }
+  for (let x = 0; x < w; x += 1) {
+    for (let y = 0; y < h; y += 1) {
+      let m = max ? 0 : 255;
+      const y0 = Math.max(0, y - r);
+      const y1 = Math.min(h - 1, y + r);
+      for (let k = y0; k <= y1; k += 1) {
+        const v = tmp[k * w + x];
+        if (max ? v > m : v < m) m = v;
+      }
+      out[y * w + x] = m;
+    }
+  }
+  return out;
+}
+
+/**
+ * How faithfully a render kept the drawn lettering template it was given as
+ * its EDIT BASE — measured, not judged. The template is exact ground truth:
+ * every glyph's position, size, face and alignment. A core template pixel
+ * counts as painted IN PLACE when the render, within a small placement
+ * tolerance, is ink-dark (or ink-light: an inverted fill still sits where
+ * the template put it) AGAINST its own surrounding scenery — contrast, not
+ * an absolute threshold, so a dark night scene with no text reads 0, not 1.
+ *
+ * Calibrated on the ace1cc29 render (2026-09-07): the template composited
+ * exactly or shifted 6 px scores 1.0, shifted 12 px 0.97, shifted 25 px
+ * 0.68, enlarged 1.1× 0.60, enlarged 1.25× 0.53; the shipped page — the
+ * manuscript re-typeset centred at 1.57× the template's size, lower, over a
+ * lightened wash — scores 0.20 (its only matches are where the enlarged
+ * rows cross the template's rows). Every threshold above is a share of the
+ * image width, so 4K and 2K renders measure alike.
+ *
+ * The in-place glyph pixels also give the painted INK directly (mean RGB
+ * at the exact core positions that carry ink), which is why this replaces
+ * `textInkColour`'s bbox heuristic whenever a template rides.
+ *
+ * Deterministic; fail-open (null) on an unreadable image or template, or a
+ * template with no glyphs. Pure pixels — nothing here reaches a prompt.
+ *
+ * @param {Buffer} buffer the render's bytes
+ * @param {{base64: string}} template the transparent full-canvas template
+ * @returns {Promise<{ratio:number, polarity:'dark'|'light', hex:string|null, inkPixels:number, corePixels:number, inPlacePixels:number, block:{x:number,y:number,w:number,h:number}}|null>}
+ */
+async function templateConformance(buffer, template) {
+  if (!Buffer.isBuffer(buffer) || !template || typeof template.base64 !== 'string' || !template.base64) return null;
+  try {
+    const meta = await sharp(buffer).metadata();
+    const W = meta.width || 0;
+    const H = meta.height || 0;
+    if (W < 64 || H < 64) return null;
+    // The template is resampled onto the render's own grid (Gemini's 4K
+    // 16:9 is 5504 px wide, the template 5461 — a proportional fit, never
+    // a crop), and only its alpha matters: where the glyphs ARE.
+    const alphaFull = await sharp(Buffer.from(template.base64, 'base64'))
+      .ensureAlpha().resize(W, H, { fit: 'fill', kernel: 'lanczos3' })
+      .extractChannel(3).raw().toBuffer();
+    let minX = W; let maxX = -1; let minY = H; let maxY = -1;
+    for (let i = 0; i < W * H; i += 1) {
+      if (alphaFull[i] < 64) continue;
+      const x = i % W;
+      const y = (i / W) | 0;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    if (maxX < 0) return null;
+    const block = { x: minX / W, y: minY / H, w: (maxX - minX + 1) / W, h: (maxY - minY + 1) / H };
+    // Only the template's block (plus a margin for the ring) is read, at
+    // native resolution — the whole canvas would be millions of pixels of
+    // scenery the check never needs.
+    const margin = Math.max(12, Math.round(TEMPLATE_RING_WIDTH * W));
+    const left = Math.max(0, minX - margin);
+    const top = Math.max(0, minY - margin);
+    const width = Math.min(W - left, maxX - minX + 1 + 2 * margin);
+    const height = Math.min(H - top, maxY - minY + 1 + 2 * margin);
+    const { data: rgb, info } = await sharp(buffer)
+      .extract({ left, top, width, height })
+      .removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (info.channels < 3) return null;
+    const n = width * height;
+    const A = new Uint8Array(n);
+    for (let y = 0; y < height; y += 1) {
+      const src = (top + y) * W + left;
+      A.set(alphaFull.subarray(src, src + width), y * width);
+    }
+    const L = new Uint8Array(n);
+    for (let i = 0; i < n; i += 1) {
+      const p = i * info.channels;
+      L[i] = Math.round(0.2126 * rgb[p] + 0.7152 * rgb[p + 1] + 0.0722 * rgb[p + 2]);
+    }
+    const r = Math.max(2, Math.round(TEMPLATE_TOLERANCE_WIDTH * W));
+    const minL = rankFilter(L, width, height, r, false);
+    const maxL = rankFilter(L, width, height, r, true);
+    // Scenery = template-clear pixels beyond the glyphs' own hairline zone.
+    const near = rankFilter(A, width, height, Math.max(2, Math.round(0.0008 * W)), true);
+    // Integral images of the scenery luminance → the local ring mean in O(1).
+    const stride = width + 1;
+    const S0 = new Uint32Array(stride * (height + 1));
+    const S1 = new Float64Array(stride * (height + 1));
+    for (let y = 1; y <= height; y += 1) {
+      let c0 = 0; let c1 = 0;
+      for (let x = 1; x <= width; x += 1) {
+        const i = (y - 1) * width + (x - 1);
+        if (near[i] < TEMPLATE_CLEAR_ALPHA) { c0 += 1; c1 += L[i]; }
+        S0[y * stride + x] = S0[(y - 1) * stride + x] + c0;
+        S1[y * stride + x] = S1[(y - 1) * stride + x] + c1;
+      }
+    }
+    const R = Math.max(6, Math.round(TEMPLATE_RING_WIDTH * W));
+    let core = 0; let dark = 0; let light = 0;
+    let dr = 0; let dg = 0; let db = 0; let dc = 0;
+    let lr = 0; let lg = 0; let lb = 0; let lc = 0;
+    for (let i = 0; i < n; i += 1) {
+      if (A[i] < TEMPLATE_CORE_ALPHA) continue;
+      core += 1;
+      const x = i % width;
+      const y = (i / width) | 0;
+      const x0 = Math.max(0, x - R); const x1 = Math.min(width, x + R + 1);
+      const y0 = Math.max(0, y - R); const y1 = Math.min(height, y + R + 1);
+      const cnt = S0[y1 * stride + x1] - S0[y0 * stride + x1] - S0[y1 * stride + x0] + S0[y0 * stride + x0];
+      if (cnt < 8) continue;
+      const ring = (S1[y1 * stride + x1] - S1[y0 * stride + x1] - S1[y1 * stride + x0] + S1[y0 * stride + x0]) / cnt;
+      if (minL[i] <= TEMPLATE_DARK_MAX_LUM && minL[i] <= ring - TEMPLATE_CONTRAST) dark += 1;
+      if (maxL[i] >= TEMPLATE_LIGHT_MIN_LUM && maxL[i] >= ring + TEMPLATE_LIGHT_CONTRAST) light += 1;
+      const p = i * info.channels;
+      if (L[i] <= TEMPLATE_DARK_MAX_LUM && L[i] <= ring - TEMPLATE_CONTRAST) { dr += rgb[p]; dg += rgb[p + 1]; db += rgb[p + 2]; dc += 1; } else if (L[i] >= TEMPLATE_LIGHT_MIN_LUM && L[i] >= ring + TEMPLATE_LIGHT_CONTRAST) { lr += rgb[p]; lg += rgb[p + 1]; lb += rgb[p + 2]; lc += 1; }
+    }
+    if (core < INK_MIN_PIXELS) return null;
+    const isDark = dark >= light;
+    const inPlace = isDark ? dark : light;
+    const inkCount = isDark ? dc : lc;
+    return {
+      ratio: Math.round((inPlace / core) * 1000) / 1000,
+      polarity: isDark ? 'dark' : 'light',
+      hex: inkCount >= INK_MIN_PIXELS ? (isDark ? rgbToHex(dr / dc, dg / dc, db / dc) : rgbToHex(lr / lc, lg / lc, lb / lc)) : null,
+      inkPixels: inkCount,
+      corePixels: core,
+      inPlacePixels: inPlace,
+      block: { x: Math.round(block.x * 1000) / 1000, y: Math.round(block.y * 1000) / 1000, w: Math.round(block.w * 1000) / 1000, h: Math.round(block.h * 1000) / 1000 },
+    };
+  } catch (err) {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Bbox + crop
@@ -891,6 +1096,9 @@ module.exports = {
   outfitColourCheck,
   textInkColour,
   inkSetOutliers,
+  templateConformance,
+  TEMPLATE_CONFORMANCE_BLOCKING,
+  TEMPLATE_CONFORMANCE_ADVISORY,
   bboxRules,
   embedImage,
   registerEmbeddingBackend,

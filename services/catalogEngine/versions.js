@@ -268,7 +268,25 @@ const SCENE_INTEGRATION_VERSION = 'si-1';
  * qa-11 field it was asked passed. Markers written under qa-11 never
  * judged the face or the alignment — replays re-check.
  */
-const QA_VERSION = 'qa-12';
+/**
+ * qa-13 (2026-09-07, book ace1cc29): the drawn lettering template is HELD
+ * TO, and the ink is read from it. One spread shipped with its manuscript
+ * re-typeset — centred, 1.57× the template's size, lower on the page, over
+ * a lightened wash — while the judge's alignment/backdrop booleans passed
+ * and the size ruler read the rough bbox as 1.4× (the advisory band).
+ * Nothing had ever compared the render against the template it was given
+ * as its EDIT BASE. The verdict now carries `templateConformance`
+ * (metrics.templateConformance: the share of the template's glyphs painted
+ * in place, measured against the surrounding scenery) — below the floor it
+ * is the BLOCKING 'embedded story text departs from the drawn lettering
+ * template', below the advisory band 'drifts' (selection only) — and the
+ * painted INK is now sampled at those in-place glyph pixels instead of the
+ * bbox heuristic, whose 20% pixel share averaged mostly scenery (ten of
+ * twelve spreads of that book carried a phantom ink defect; the "book's
+ * ink" the set gate elected was the night forest). Markers written under
+ * qa-12 never measured either — replays re-check.
+ */
+const QA_VERSION = 'qa-13';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip
