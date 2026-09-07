@@ -855,7 +855,15 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 
 ## Kept services (untouched by the cutover)
 
-`coverGenerator.js` (Lulu wrap cover; still the identity/style anchor),
+`coverGenerator.js` (Lulu wrap cover; still the identity/style anchor —
+since 2026-09-07 every cover prompt it builds carries `FLAT_COVER_ART_RULE`:
+a cover IS the printed surface, full-bleed to all four edges, NEVER a
+picture of a book — no 3D mockup, pages, spine, shadow, border, mat, card
+or background; `qaCoverFlatArtwork` is the matching vision gate on the
+front cover with one hardened retry, ship-and-flag as `coverArtworkAdvisory`
+beside `coverAnatomyAdvisory`, and a pre-generated cover is flagged as-is;
+the app's cover OPTIONS carry the same rule and DROP a cover that still
+depicts a book — `coverArtworkGuard.js` there),
 `layoutEngine.js` (pdf-lib layout; entries contract unchanged),
 `coloringBookGenerator/Layout`, `comics/`, `gcsStorage`, `progressReporter`,
 `costTracker`, `retry`, `workerCommits`, `promptSanitizer`,

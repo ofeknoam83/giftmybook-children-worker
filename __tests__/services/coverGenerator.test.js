@@ -35,9 +35,15 @@ jest.mock('../../services/illustrationGenerator', () => ({
   canonicalBookArtStyle: jest.fn(() => 'pixar_premium'),
   getNextApiKey: jest.fn(() => 'fake-key'),
   fetchWithTimeout: jest.fn(),
+  generateIllustration: jest.fn(),
 }));
 
-const { buildUpsellCoverPrompt, geminiImagePartFromResponsePart, shouldSkipCoverStyleHarmonize, UPSELL_STYLES } = require('../../services/coverGenerator');
+const {
+  buildUpsellCoverPrompt, geminiImagePartFromResponsePart, shouldSkipCoverStyleHarmonize, UPSELL_STYLES,
+  qaCoverFlatArtwork, generateFrontCoverImage, FLAT_COVER_ART_RULE, flatCoverArtRepairNote,
+} = require('../../services/coverGenerator');
+const { fetchWithTimeout, generateIllustration } = require('../../services/illustrationGenerator');
+const { downloadBuffer } = require('../../services/gcsStorage');
 
 describe('buildUpsellCoverPrompt', () => {
   const base = {
@@ -189,5 +195,184 @@ describe('buildUpsellCoverPrompt — every UPSELL_STYLE resolves to 3D (never 2D
     expect(prompt).not.toContain('Watercolor style.');
     expect(prompt).not.toContain('Paper cutout style.');
     expect(prompt).not.toContain('Scandi minimal.');
+  });
+});
+
+// ── Flat cover artwork (2026-09-07): a cover is the printed surface, never a picture of a book ──
+
+/** One Gemini JSON-QA response as the mocked fetchWithTimeout resolves it. */
+const qaResponse = (verdict) => ({
+  ok: true,
+  json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(verdict) }] } }] }),
+});
+const CLEAN_FLAT = { book_mockup: false, framed_artwork: false, photo_surface: false };
+const CLEAN_WARDROBE = { flag_on_clothing: false, logo_on_clothing: false, lettering_on_clothing: false };
+const CLEAN_ANATOMY = { hand_count: 2, arm_count: 2, extra_or_fused_fingers: false, extra_limb: false };
+
+describe('FLAT_COVER_ART_RULE rides every generated cover prompt', () => {
+  test('the upsell prompt forbids a book mockup and never opens with "Book cover for"', () => {
+    const prompt = buildUpsellCoverPrompt('Luna and the Star', 'Luna', 5, 'female', 'watercolor');
+    expect(prompt).toContain(FLAT_COVER_ART_RULE);
+    expect(prompt).toContain('NEVER A PICTURE OF A BOOK');
+    expect(prompt).not.toMatch(/^Book cover for/m);
+    expect(prompt).toContain('never a picture of a book) for a book titled "Luna and the Star"');
+  });
+
+  test('the rule names the concrete drift classes: mockup, pages/spine/shadow, frame/mat/card, background', () => {
+    for (const phrase of ['3D book mockup', 'spine', 'cast shadow of a book', 'rounded-corner card', 'mat', 'tabletop', 'all four edges']) {
+      expect(FLAT_COVER_ART_RULE).toContain(phrase);
+    }
+  });
+
+  test('the repair note restates the verdict and the full-bleed demand', () => {
+    const note = flatCoverArtRepairNote('depicts a physical book / product mockup');
+    expect(note).toMatch(/^CRITICAL COVER FORMAT REPAIR: the previous render depicts a physical book \/ product mockup\./);
+    expect(note).toContain('filling the entire image edge to edge');
+  });
+});
+
+describe('qaCoverFlatArtwork', () => {
+  beforeEach(() => { fetchWithTimeout.mockReset(); });
+
+  test('a clean full-bleed cover passes', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(qaResponse(CLEAN_FLAT));
+    await expect(qaCoverFlatArtwork(Buffer.from('img'))).resolves.toEqual({ pass: true, reason: null });
+    const [, init] = fetchWithTimeout.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.contents[0].parts[0].text).toContain('FRONT COVER');
+    expect(body.contents[0].parts[1].inline_data.data).toBe(Buffer.from('img').toString('base64'));
+  });
+
+  test('a book mockup fails with a reason', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(qaResponse({ ...CLEAN_FLAT, book_mockup: true }));
+    const v = await qaCoverFlatArtwork(Buffer.from('img'));
+    expect(v.pass).toBe(false);
+    expect(v.reason).toBe('depicts a physical book / product mockup');
+  });
+
+  test('framed / matted artwork fails, and reasons join', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(qaResponse({ book_mockup: true, framed_artwork: true, photo_surface: false }));
+    const v = await qaCoverFlatArtwork(Buffer.from('img'));
+    expect(v.pass).toBe(false);
+    expect(v.reason).toContain('inside a frame, mat or card');
+    expect(v.reason).toContain(' + ');
+  });
+
+  test('fenced JSON is tolerated', async () => {
+    fetchWithTimeout.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: '```json\n{"book_mockup": false, "framed_artwork": true, "photo_surface": false}\n```' }] } }] }),
+    });
+    const v = await qaCoverFlatArtwork(Buffer.from('img'));
+    expect(v.pass).toBe(false);
+  });
+
+  test('infrastructure failures pass (fail-open): HTTP error, thrown fetch, unparseable answer', async () => {
+    fetchWithTimeout.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(qaCoverFlatArtwork(Buffer.from('img'))).resolves.toEqual({ pass: true, reason: null });
+    fetchWithTimeout.mockRejectedValueOnce(new Error('timeout'));
+    await expect(qaCoverFlatArtwork(Buffer.from('img'))).resolves.toEqual({ pass: true, reason: null });
+    fetchWithTimeout.mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }) });
+    await expect(qaCoverFlatArtwork(Buffer.from('img'))).resolves.toEqual({ pass: true, reason: null });
+  });
+});
+
+describe('generateFrontCoverImage — flat-artwork gate with one hardened retry', () => {
+  const child = { childName: 'Luna', childAge: 5 };
+  beforeEach(() => {
+    fetchWithTimeout.mockReset();
+    generateIllustration.mockReset();
+    downloadBuffer.mockReset();
+    downloadBuffer.mockImplementation(async (url) => Buffer.from(`bytes-of:${url}`));
+  });
+
+  test('the scene prompt carries the flat-artwork rule', async () => {
+    generateIllustration.mockResolvedValueOnce('https://r/first.png');
+    fetchWithTimeout
+      .mockResolvedValueOnce(qaResponse(CLEAN_FLAT))
+      .mockResolvedValueOnce(qaResponse(CLEAN_WARDROBE))
+      .mockResolvedValueOnce(qaResponse(CLEAN_ANATOMY));
+    const out = await generateFrontCoverImage(child, 'https://ref/photo.jpg', { bookId: 'b1' });
+    expect(generateIllustration).toHaveBeenCalledTimes(1);
+    expect(generateIllustration.mock.calls[0][0]).toContain(FLAT_COVER_ART_RULE);
+    expect(out).toEqual({
+      frontCoverImageUrl: 'https://r/first.png',
+      frontCoverBuffer: Buffer.from('bytes-of:https://r/first.png'),
+      coverAnatomyAdvisory: null,
+      coverArtworkAdvisory: null,
+    });
+  });
+
+  test('the graphic-novel scene carries it too', async () => {
+    generateIllustration.mockResolvedValueOnce('https://r/gn.png');
+    fetchWithTimeout
+      .mockResolvedValueOnce(qaResponse(CLEAN_FLAT))
+      .mockResolvedValueOnce(qaResponse(CLEAN_WARDROBE))
+      .mockResolvedValueOnce(qaResponse(CLEAN_ANATOMY));
+    await generateFrontCoverImage(child, 'https://ref/photo.jpg', { isGraphicNovel: true });
+    expect(generateIllustration.mock.calls[0][0]).toContain(FLAT_COVER_ART_RULE);
+  });
+
+  test('a render that depicts a book is re-rendered with the repair note and the clean retry ships', async () => {
+    generateIllustration
+      .mockResolvedValueOnce('https://r/mockup.png')
+      .mockResolvedValueOnce('https://r/flat.png');
+    fetchWithTimeout
+      .mockResolvedValueOnce(qaResponse({ ...CLEAN_FLAT, book_mockup: true })) // first render: mockup
+      .mockResolvedValueOnce(qaResponse(CLEAN_FLAT))                            // retry: flat
+      .mockResolvedValueOnce(qaResponse(CLEAN_WARDROBE))
+      .mockResolvedValueOnce(qaResponse(CLEAN_ANATOMY));
+    const out = await generateFrontCoverImage(child, 'https://ref/photo.jpg', { bookId: 'b1' });
+    expect(generateIllustration).toHaveBeenCalledTimes(2);
+    const retryScene = generateIllustration.mock.calls[1][0];
+    expect(retryScene).toContain('CRITICAL COVER FORMAT REPAIR: the previous render depicts a physical book / product mockup.');
+    // The retry keeps the full original scene (identity + rules) in front of the note.
+    expect(retryScene.startsWith(generateIllustration.mock.calls[0][0])).toBe(true);
+    // Same identity inputs on the retry as on the first render.
+    expect(generateIllustration.mock.calls[1].slice(1, 3)).toEqual(generateIllustration.mock.calls[0].slice(1, 3));
+    expect(out.frontCoverImageUrl).toBe('https://r/flat.png');
+    expect(out.frontCoverBuffer).toEqual(Buffer.from('bytes-of:https://r/flat.png'));
+    expect(out.coverArtworkAdvisory).toBeNull();
+    // The wardrobe/anatomy reads ran on the ACCEPTED (retry) bytes, not the mockup.
+    const wardrobeBody = JSON.parse(fetchWithTimeout.mock.calls[2][1].body);
+    expect(wardrobeBody.contents[0].parts[1].inline_data.data).toBe(Buffer.from('bytes-of:https://r/flat.png').toString('base64'));
+  });
+
+  test('a retry that still depicts a book keeps the first cover and flags it (ship-and-flag)', async () => {
+    generateIllustration
+      .mockResolvedValueOnce('https://r/mockup.png')
+      .mockResolvedValueOnce('https://r/mockup2.png');
+    fetchWithTimeout
+      .mockResolvedValueOnce(qaResponse({ ...CLEAN_FLAT, framed_artwork: true }))
+      .mockResolvedValueOnce(qaResponse({ ...CLEAN_FLAT, framed_artwork: true }))
+      .mockResolvedValueOnce(qaResponse(CLEAN_WARDROBE))
+      .mockResolvedValueOnce(qaResponse(CLEAN_ANATOMY));
+    const out = await generateFrontCoverImage(child, 'https://ref/photo.jpg', { bookId: 'b1' });
+    expect(generateIllustration).toHaveBeenCalledTimes(2);
+    expect(out.frontCoverImageUrl).toBe('https://r/mockup.png');
+    expect(out.coverArtworkAdvisory).toBe('cover artwork: shows the artwork inside a frame, mat or card instead of filling the image (shipped after 1 retry)');
+  });
+
+  test('a retry that errors keeps the first cover and flags it', async () => {
+    generateIllustration
+      .mockResolvedValueOnce('https://r/mockup.png')
+      .mockRejectedValueOnce(new Error('quota'));
+    fetchWithTimeout
+      .mockResolvedValueOnce(qaResponse({ ...CLEAN_FLAT, book_mockup: true }))
+      .mockResolvedValueOnce(qaResponse(CLEAN_WARDROBE))
+      .mockResolvedValueOnce(qaResponse(CLEAN_ANATOMY));
+    const out = await generateFrontCoverImage(child, 'https://ref/photo.jpg', { bookId: 'b1' });
+    expect(out.frontCoverImageUrl).toBe('https://r/mockup.png');
+    expect(out.coverArtworkAdvisory).toBe('cover artwork: depicts a physical book / product mockup (retry errored)');
+  });
+
+  test('a QA outage never blocks the cover and spends no retry', async () => {
+    generateIllustration.mockResolvedValueOnce('https://r/first.png');
+    fetchWithTimeout.mockRejectedValue(new Error('down'));
+    const out = await generateFrontCoverImage(child, 'https://ref/photo.jpg', { bookId: 'b1' });
+    expect(generateIllustration).toHaveBeenCalledTimes(1);
+    expect(out.frontCoverImageUrl).toBe('https://r/first.png');
+    expect(out.coverArtworkAdvisory).toBeNull();
+    expect(out.coverAnatomyAdvisory).toBeNull();
   });
 });
