@@ -566,7 +566,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   const parts = [];
   if (opts.typographyTemplate === true && opts.embedText && opts.typographyRef > 0) {
-    parts.push('EDIT THE FULL-SPREAD LETTERING TEMPLATE: preserve its lettering at exactly its existing scale and position; complete the missing artwork throughout the canvas.');
+    parts.push('EDIT THE FULL-SPREAD LETTERING TEMPLATE: preserve its lettering at exactly its existing scale, position, typeface, regular weight, dark ink and left-aligned rows; complete the missing artwork throughout the canvas. Never restyle the letters (no bold, sans-serif, rounded, handwritten or subtitle lettering, no outline, stroke, glow or shadow around the glyphs, never centred rows, never a lighter fill).');
   }
 
   // ce-9 BIBLE MODE: when a Book Bible rides the render, the identity and
@@ -912,7 +912,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const embedStoryText = opts.embedText && pageText && pageText.trim();
   let embedSummary = null; // ce-15: footprint/column/reference facts reused by the checklist and the final check
   const guideRules = (opts.typographyGuide === true || opts.typographyTemplate === true) && Number.isInteger(opts.typographyRef) && opts.typographyRef > 0;
-  const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules : resolveBookTextRules)(opts.childAge, opts.bookTextInk, opts.typographyTemplate ? opts.typographyScale : 1) : null;
+  const textRulesForEmbed = embedStoryText ? (guideRules ? resolveTypographyGuideRules(opts.childAge, opts.typographyTemplate ? opts.typographyScale : 1) : resolveBookTextRules(opts.childAge)) : null;
   if (embedStoryText) {
     const tr = textRulesForEmbed;
     // ce-13: the geometry is stated as a CONCRETE column box on the shot
@@ -960,7 +960,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Main characters and key action should not be hidden behind the text');
     parts.push(`- TYPOGRAPHY CONSISTENCY (CRITICAL): ${tr.typographyConsistency}`);
     if (typoRef) {
-      parts.push(opts.typographyTemplate ? `- EDIT BASE (REFERENCE IMAGE ${typoRef}): the full 16:9 canvas already carries THIS spread's exact words, line breaks, size, ink and position. Complete the illustration around and behind those glyphs. Preserve the lettering at its existing canvas-relative scale, without zooming, enlarging, reflowing, recolouring or changing its face. Its transparent space is missing scenery to paint, never a blank panel to preserve. Copy the template's words exactly: they ARE the manuscript below.` : `- TYPOGRAPHY REFERENCE (REFERENCE IMAGE ${typoRef} — this book’s fixed lettering reference): your text must look like the text in that image — the SAME typeface, weight, fill colour and shadow treatment, the SAME size relative to the page height (each of your rows as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way. Use it for the TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`);
+      parts.push(opts.typographyTemplate ? `- EDIT BASE (REFERENCE IMAGE ${typoRef}): the full 16:9 canvas already carries THIS spread's exact words, line breaks, typeface, weight, size, ink, alignment and position. Complete the illustration around and behind those glyphs. Preserve the lettering EXACTLY as drawn: at its existing canvas-relative scale, without zooming, enlarging, reflowing, recolouring, re-aligning or changing its face or weight — the rows stay LEFT-ALIGNED to their one shared margin (never centred), the fill stays the same dark cocoa ink (never lighter, never inverted), the letterforms stay plain regular-weight serif (never bold, sans-serif, rounded, handwritten or subtitle lettering), and NOTHING is added around them (no outline, stroke, contour, glow, halo, or drop shadow). Its transparent space is missing scenery to paint, never a blank panel to preserve. Copy the template's words exactly: they ARE the manuscript below.` : `- TYPOGRAPHY REFERENCE (REFERENCE IMAGE ${typoRef} — this book’s fixed lettering reference): your text must look like the text in that image — the SAME typeface, weight, fill colour and shadow treatment, the SAME size relative to the page height (each of your rows as tall as one of its rows), painted straight over the sharp, fully detailed scene the same way. Use it for the TYPE ONLY — never copy its words, its scenery, its composition, or anything else from it.`);
     }
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE — exactly ${lineCount} ${tr.blankLineBetweenSentences ? `text lines plus ${block.lineCount - lineCount} completely empty lines` : 'short lines'}. Paint them with EXACTLY these line breaks: one line per row, in this order, every word exactly as written (${tr.blankLineBetweenSentences ? 'a blank row is one full empty line between sentences' : 'a blank row is a paragraph gap'}). NEVER join two rows into one line and NEVER re-break a row — the breaks are part of the design:`);
@@ -1377,7 +1377,6 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     spreadIndex: opts.spreadIndex,
     totalSpreads: opts.totalSpreads || 13,
     childAge: opts.childAge,
-    bookTextInk: opts.bookTextInk === 'light' ? 'light' : 'dark',
     typographyGuide: opts.typographyGuide === true,
     typographyTemplate: opts.typographyTemplate === true,
     typographyScale: opts.typographyScale === 1.5 ? 1.5 : 1,
