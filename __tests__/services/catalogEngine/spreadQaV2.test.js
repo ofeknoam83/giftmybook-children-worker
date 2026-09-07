@@ -685,3 +685,104 @@ describe('qa-12: the book\'s ONE lettering is judged — typeface and alignment 
     expect(parts.filter(p => p.inline_data)).toHaveLength(2);
   });
 });
+
+describe('qa-13: the drawn lettering template is HELD TO — measured, and the ink read from it', () => {
+  const metrics = require('../../../services/catalogEngine/illustrator/metrics');
+  const { TEMPLATE_DEPARTS_DEFECT, TEMPLATE_DRIFTS_DEFECT, classifyDefects: classify, repairNote } = require('../../../services/catalogEngine/illustrator/spreadQa');
+  const TEXT = 'A soft cheer seemed to rise from the whole forest.';
+  const TEMPLATE = { base64: 'dGVtcGxhdGU=', mimeType: 'image/png', hash: 'abc' };
+  const opts = (over = {}) => ({ label: 't', expectedText: TEXT, inkHex: '#2A1C12', letteringTemplate: TEMPLATE, ...over });
+  const verdict = (over = {}) => cleanVerdict({
+    readable_text: true, visible_text: TEXT,
+    text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
+    text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false,
+    text_bbox: { x: 0.6, y: 0.2, w: 0.3, h: 0.5 },
+    ...over,
+  });
+  let spy;
+  let inkSpy;
+  beforeEach(() => {
+    spy = jest.spyOn(metrics, 'templateConformance');
+    inkSpy = jest.spyOn(metrics, 'textInkColour');
+  });
+  afterEach(() => { spy.mockRestore(); inkSpy.mockRestore(); });
+
+  test('below the floor the page DEPARTED from the template — BLOCKING, and no ink is read (the template positions hold scenery)', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    spy.mockResolvedValueOnce({ ratio: 0.17, polarity: 'dark', hex: '#2e1511', inkPixels: 2554, corePixels: 76156, inPlacePixels: 13034, block: { x: 0.65, y: 0.2, w: 0.21, h: 0.33 } });
+    const r = await checkSpreadRenderV2(IMG, opts());
+    expect(spy).toHaveBeenCalledWith(IMG, TEMPLATE);
+    expect(r.blocking).toEqual([`${TEMPLATE_DEPARTS_DEFECT} (17% of the template's glyphs are painted in place)`]);
+    expect(r.textInk).toBeNull();
+    expect(inkSpy).not.toHaveBeenCalled();
+    expect(r.templateConformance.ratio).toBe(0.17);
+  });
+
+  test('the advisory band DRIFTS — selection only — and the ink comes from the in-place glyphs', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    spy.mockResolvedValueOnce({ ratio: 0.6, polarity: 'dark', hex: '#33261c', inkPixels: 8000, corePixels: 76156, inPlacePixels: 45000, block: { x: 0.65, y: 0.2, w: 0.21, h: 0.33 } });
+    const r = await checkSpreadRenderV2(IMG, opts());
+    expect(r.blocking).toEqual([]);
+    expect(r.advisory).toEqual([`${TEMPLATE_DRIFTS_DEFECT} (60% of the template's glyphs are painted in place)`]);
+    expect(r.textInk).toMatchObject({ hex: '#33261c', polarity: 'dark', pass: true, pixels: 8000, source: 'template' });
+    expect(r.textInk.deltaE).toBeLessThan(6);
+    expect(inkSpy).not.toHaveBeenCalled();
+  });
+
+  test('a preserved template is clean; an inverted fill in place is still the ink defect (the ce-18 case, read exactly)', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    spy.mockResolvedValueOnce({ ratio: 0.98, polarity: 'dark', hex: '#2c1d13', inkPixels: 70000, corePixels: 76156, inPlacePixels: 74000, block: { x: 0.65, y: 0.2, w: 0.21, h: 0.33 } });
+    const clean = await checkSpreadRenderV2(IMG, opts());
+    expect(clean.defects).toEqual([]);
+    expect(clean.textInk).toMatchObject({ pass: true, source: 'template' });
+
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    spy.mockResolvedValueOnce({ ratio: 0.9, polarity: 'light', hex: '#fcf2dc', inkPixels: 57000, corePixels: 76156, inPlacePixels: 68000, block: { x: 0.65, y: 0.2, w: 0.21, h: 0.33 } });
+    const inverted = await checkSpreadRenderV2(IMG, opts());
+    expect(inverted.blocking).toEqual(["embedded story text ink colour differs (painted #fcf2dc, the book's ink is #2A1C12)"]);
+    expect(inverted.textInk).toMatchObject({ polarity: 'light', pass: false, source: 'template' });
+  });
+
+  test('an unmeasurable template fails open — no defect, no ink, and never the bbox heuristic beside a template', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    spy.mockResolvedValueOnce(null);
+    const r = await checkSpreadRenderV2(IMG, opts());
+    expect(r.defects).toEqual([]);
+    expect(r.textInk).toBeNull();
+    expect(r.templateConformance).toBeNull();
+    expect(inkSpy).not.toHaveBeenCalled();
+  });
+
+  test('without a template the legacy bbox ink read still runs and no conformance is claimed', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    inkSpy.mockResolvedValueOnce({ hex: '#2a1c12', deltaE: 0, polarity: 'dark', pass: true, pixels: 500 });
+    const r = await checkSpreadRenderV2(IMG, opts({ letteringTemplate: null }));
+    expect(spy).not.toHaveBeenCalled();
+    expect(inkSpy).toHaveBeenCalledTimes(1);
+    expect(r.textInk).toMatchObject({ pass: true });
+    expect(r.templateConformance).toBeNull();
+  });
+
+  test('CATALOG_TEMPLATE_CONFORMANCE_MIN moves the floor', async () => {
+    process.env.CATALOG_TEMPLATE_CONFORMANCE_MIN = '0.8';
+    try {
+      fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+      spy.mockResolvedValueOnce({ ratio: 0.6, polarity: 'dark', hex: '#33261c', inkPixels: 8000, corePixels: 76156, inPlacePixels: 45000, block: { x: 0.65, y: 0.2, w: 0.21, h: 0.33 } });
+      const r = await checkSpreadRenderV2(IMG, opts());
+      expect(r.blocking[0]).toContain(TEMPLATE_DEPARTS_DEFECT);
+      expect(r.textInk).toBeNull();
+    } finally {
+      delete process.env.CATALOG_TEMPLATE_CONFORMANCE_MIN;
+    }
+  });
+
+  test('classification and the repair note: departs is blocking, drifts advisory, and the note names the EDIT BASE', () => {
+    const { blocking, advisory } = classify([`${TEMPLATE_DEPARTS_DEFECT} (17%)`, `${TEMPLATE_DRIFTS_DEFECT} (60%)`]);
+    expect(blocking).toHaveLength(1);
+    expect(advisory).toHaveLength(1);
+    const note = repairNoteV2([`${TEMPLATE_DEPARTS_DEFECT} (17% of the template's glyphs are painted in place)`], TEXT, { typographyRef: 1 });
+    expect(note).toContain('REFERENCE IMAGE 1 is the EDIT BASE');
+    expect(note).toContain('Never re-typeset, move, centre, enlarge, reflow, restyle or recolour the lettering');
+    expect(repairNote([`${TEMPLATE_DRIFTS_DEFECT} (60%)`], TEXT, {})).toContain('the lettering template is the EDIT BASE');
+  });
+});

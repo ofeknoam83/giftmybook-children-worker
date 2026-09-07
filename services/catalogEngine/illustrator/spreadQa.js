@@ -31,6 +31,7 @@ const sharp = require('sharp');
 const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustrationGenerator');
 const { SHOT_TYPE_QA_DESCRIPTIONS } = require('./shotPlan');
 const metrics = require('./metrics');
+const flags = require('../flags');
 
 const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
 // Every strict-JSON judge call shares ONE generationConfig: thinking OFF on
@@ -589,6 +590,12 @@ function repairNote(defects, expectedText = null, opts = {}) {
     if (d.includes('crosses the page fold')) {
       notes.push('This image prints as TWO facing book pages and the vertical centerline is the physical FOLD — any word crossing it is cut in half in print. Use a SMALLER font and re-wrap the text into MORE, SHORTER lines (about 5 words each) so the whole block fits its narrow column, then keep the ENTIRE block fully on ONE page: completely within the left 35% or the right 35% of the image, with NO word or letter in the middle 30%. Fix ONLY the text size and placement; keep the scene otherwise identical.');
     }
+    if (d.startsWith(TEMPLATE_DEPARTS_DEFECT) || d.startsWith(TEMPLATE_DRIFTS_DEFECT)) {
+      // qa-13: the template IS the answer — the note names the edit base
+      // and restates its contract in the renderer's own words.
+      const ref = Number.isInteger(opts.typographyRef) && opts.typographyRef > 0 ? `REFERENCE IMAGE ${opts.typographyRef}` : 'the lettering template';
+      notes.push(`The story text was NOT kept where the lettering template draws it. ${ref} is the EDIT BASE: its glyphs are already on the canvas at their final position, size, typeface, regular weight, dark ink and left-aligned rows — keep EVERY one of them exactly there, and paint the scene through and around them at full sharpness. Never re-typeset, move, centre, enlarge, reflow, restyle or recolour the lettering, and never lighten, blur, fog or empty the scenery behind it. Fix ONLY the lettering; keep the scene otherwise identical.`);
+    }
     if (d.startsWith('embedded story text too large') || d.startsWith('embedded story text oversized')) {
       const fp = opts.expectedBlock && Number(opts.expectedBlock.widthPercent) > 0 ? ` — at the book's fixed size this block is only about ${opts.expectedBlock.widthPercent}% of the image width wide and ${opts.expectedBlock.heightPercent}% of its height tall` : '';
       const ref = Number.isInteger(opts.typographyRef) && opts.typographyRef > 0 ? ` — the exact size and style of the text in REFERENCE IMAGE ${opts.typographyRef}` : '';
@@ -945,7 +952,38 @@ const BLOCKING_PREFIXES = [
   // steers the repair loop; the ce-4 tilt/wave/pitch finding stays advisory.
   'embedded story text typeface differs',
   'embedded story text not left-aligned',
+  // qa-13: the drawn lettering template is HELD TO — a page whose painted
+  // text is not where the template put it (re-typeset centred, enlarged,
+  // moved) is a different book beside the pages that kept it, whatever the
+  // judged booleans said (the ace1cc29 spread passed every one of them).
+  // The 'drifts' band (advisory) shades selection only.
+  'embedded story text departs from the drawn lettering template',
 ];
+
+/** qa-13 fixed defect strings for the template measurement (never model text). */
+const TEMPLATE_DEPARTS_DEFECT = 'embedded story text departs from the drawn lettering template (re-typeset: moved, enlarged, centred or restyled instead of kept in place)';
+const TEMPLATE_DRIFTS_DEFECT = 'embedded story text drifts from the drawn lettering template';
+
+/**
+ * The ink verdict shape `textInkColour` returns, for an ink read straight
+ * from the template's in-place glyph pixels (qa-13).
+ * @param {string} hex
+ * @param {'dark'|'light'} polarity
+ * @param {number} pixels
+ * @param {string} targetHex
+ * @returns {{hex: string, deltaE: number|null, polarity: string, pass: boolean|null, pixels: number, source: 'template'}}
+ */
+function inkVerdict(hex, polarity, pixels, targetHex) {
+  const d = metrics.deltaE(hex, targetHex);
+  return {
+    hex,
+    deltaE: Number.isFinite(d) ? Number(d.toFixed(2)) : null,
+    polarity,
+    pass: Number.isFinite(d) ? d <= metrics.DEFAULT_INK_DELTA_E_THRESHOLD : null,
+    pixels,
+    source: 'template',
+  };
+}
 
 /** qa-12 fixed defect strings for the two lettering fields (never model text). */
 const TEXT_TYPEFACE_DEFECT = 'embedded story text typeface differs from the book\'s lettering (bold, sans-serif, rounded, handwritten, italic, or outlined display lettering instead of plain regular-weight book serif)';
@@ -1047,8 +1085,14 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     expectedBlock: opts.expectedBlock && Number(opts.expectedBlock.widthPercent) > 0 && Number(opts.expectedBlock.heightPercent) > 0
       ? { widthPercent: Number(opts.expectedBlock.widthPercent), heightPercent: Number(opts.expectedBlock.heightPercent) }
       : null,
+    // qa-13: the spread's drawn lettering template (the transparent full
+    // canvas the render was given as its EDIT BASE) — the ground truth the
+    // painted text is MEASURED against; absent ⇒ no conformance check and
+    // the legacy bbox ink read.
+    letteringTemplate: opts.letteringTemplate && typeof opts.letteringTemplate.base64 === 'string' && opts.letteringTemplate.base64 ? opts.letteringTemplate : null,
     sheetRef: null,
   };
+  const templateFloor = flags.templateConformanceMin();
   if (o.emotion && (o.emotionVocabulary.length === 0 || !o.emotionVocabulary.includes(o.emotion.emotion))) o.emotion = null;
   const { prompt, required } = buildSpreadQaPromptV2(o);
   const refs = () => ({ sheetRef: o.sheetRef, props: o.props.map(p => ({ name: p.name, ref: p.ref })), companionRef: o.companion ? o.companion.ref : null });
@@ -1093,6 +1137,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     const defects = [];
     let sizeRatio = null; // qa-8: exposed on the result so selection can prefer the smaller painted block
     let textInk = null; // qa-10: the measured ink colour, exposed for selection and the set gate
+    let templateConformance = null; // qa-13: the share of the drawn template's glyphs painted in place
     if (json.child_absent) defects.push('child hero missing from the scene');
     if (json.multiple_children) defects.push('duplicated child hero');
     if (json.flat_or_photo_style) defects.push('style break: flat/2D or photographic medium');
@@ -1194,8 +1239,33 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         // — the polarity flip an image model reaches for when the pinned
         // ink would be illegible on that scene — scored a clean pass.
         // Fail-open: an unmeasurable block yields no verdict.
-        if (o.inkHex && textBbox) {
-          textInk = await metrics.textInkColour(imageBuffer, textBbox, { targetHex: o.inkHex });
+        // qa-13: the drawn lettering template is HELD TO — the share of its
+        // glyphs the render painted in place (metrics.templateConformance,
+        // deterministic pixels against the template the render was given).
+        // Below the floor the page re-typeset the manuscript (the ace1cc29
+        // spread: centred, 1.57× the size, lower, over a wash — and every
+        // judged boolean above passed); the advisory band shades selection.
+        if (o.letteringTemplate) {
+          templateConformance = await metrics.templateConformance(imageBuffer, o.letteringTemplate);
+          if (templateConformance) {
+            const share = `${Math.round(templateConformance.ratio * 100)}% of the template's glyphs are painted in place`;
+            if (templateConformance.ratio < templateFloor) defects.push(`${TEMPLATE_DEPARTS_DEFECT} (${share})`);
+            else if (templateConformance.ratio < metrics.TEMPLATE_CONFORMANCE_ADVISORY) defects.push(`${TEMPLATE_DRIFTS_DEFECT} (${share})`);
+          }
+        }
+        if (o.inkHex) {
+          if (o.letteringTemplate) {
+            // With a template the ink is read at ITS in-place glyph pixels
+            // — the exact painted fill whatever the scenery — and only when
+            // the glyphs are in place: a departed page's template positions
+            // hold scenery (the departure defect carries that case). The
+            // bbox heuristic never runs beside a template.
+            textInk = templateConformance && templateConformance.hex && templateConformance.ratio >= templateFloor
+              ? inkVerdict(templateConformance.hex, templateConformance.polarity, templateConformance.inkPixels, o.inkHex)
+              : null;
+          } else if (textBbox) {
+            textInk = await metrics.textInkColour(imageBuffer, textBbox, { targetHex: o.inkHex });
+          }
           if (textInk && textInk.pass === false) {
             defects.push(`embedded story text ink colour differs (painted ${textInk.hex}, the book's ink is ${o.inkHex})`);
           }
@@ -1226,6 +1296,10 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       bbox: cleanBbox(json.child_bbox),
       textSizeRatio: sizeRatio,
       textInk,
+      // qa-13: the template measurement — selection charges its drift, the
+      // marker keeps it, the callbacks echo it (the number to tune the
+      // floor from, never blind).
+      templateConformance,
       // Per-prop boxes (present props only) — the contact-sheet gate crops
       // each prop beside its sheet from these, never the whole spread.
       propBoxes: o.props.map((p, i) => ({ name: p.name, bbox: json.props && json.props[i] && json.props[i].presence === 'present' ? cleanBbox(json.props[i].bbox) : null })),
@@ -1302,5 +1376,5 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   return notes.length > 0 ? `${base} ${notes.join(' ')}` : base;
 }
 
-module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };
+module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, TEMPLATE_DEPARTS_DEFECT, TEMPLATE_DRIFTS_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };
 

@@ -29,6 +29,11 @@ const WEIGHTS = {
   // candidate is already blocking; this shades the sub-threshold drift so
   // the closest-to-spec render wins between two otherwise-equal ones.
   textInkDelta: -0.8,
+  // qa-13: × (1 − templateConformance.ratio) — between two candidates the
+  // one that kept the drawn lettering template's glyphs in place wins over
+  // one that re-typeset them (a departed page is blocking already; this
+  // orders the rest, and a departed candidate below another departed one).
+  templateDrift: -40,
 };
 
 // Reference eligibility is stricter than shipping. A large or unmeasured
@@ -64,7 +69,7 @@ function candidateKey(storageKey, k, pass = 0) {
 /**
  * Score one candidate from its verdict + metrics. Pure.
  * @param {object} c
- * @param {{pass: boolean, blocking?: string[], advisory?: string[], defects?: string[], qaUnavailable?: string, textSizeRatio?: number|null, textInk?: {deltaE:number|null}|null}} c.qa
+ * @param {{pass: boolean, blocking?: string[], advisory?: string[], defects?: string[], qaUnavailable?: string, textSizeRatio?: number|null, textInk?: {deltaE:number|null}|null, templateConformance?: {ratio:number}|null}} c.qa
  * @param {{identityScore?: number|null, colour?: {slots?: object}|null, bbox?: {safeZoneOk?: boolean, offCenterOk?: boolean|null, shotSizeOk?: boolean|null}|null}|null} [c.metrics]
  * @returns {number}
  */
@@ -81,6 +86,9 @@ function scoreCandidate(c) {
   }
   if (qa.textInk && typeof qa.textInk.deltaE === 'number' && Number.isFinite(qa.textInk.deltaE)) {
     score += WEIGHTS.textInkDelta * qa.textInk.deltaE;
+  }
+  if (qa.templateConformance && typeof qa.templateConformance.ratio === 'number' && Number.isFinite(qa.templateConformance.ratio)) {
+    score += WEIGHTS.templateDrift * Math.max(0, 1 - Math.min(1, qa.templateConformance.ratio));
   }
   const m = c.metrics || {};
   if (typeof m.identityScore === 'number' && Number.isFinite(m.identityScore)) {

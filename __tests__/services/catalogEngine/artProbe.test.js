@@ -1034,6 +1034,10 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(needsRepair({ blocking: [], advisory: ['embedded story text lines misaligned (tilted)'] })).toBe(true);
     expect(needsRepair({ blocking: ['embedded story text too large (about 2× the book\'s fixed size)'], advisory: [] })).toBe(true);
     expect(needsRepair({ blocking: [], advisory: ['face hidden: turned away'] })).toBe(false);
+    // qa-13: the measured 'drifts from the drawn lettering template' band is
+    // selection-only like 'oversized'; 'departs' is blocking and repairs.
+    expect(needsRepair({ blocking: [], advisory: ['embedded story text drifts from the drawn lettering template (60% of the template\'s glyphs are painted in place)'] })).toBe(false);
+    expect(needsRepair({ blocking: ['embedded story text departs from the drawn lettering template (re-typeset: moved, enlarged, centred or restyled instead of kept in place) (17%)'], advisory: [] })).toBe(true);
   });
 
   test('CATALOG_TEXT_ANCHOR=0: no election, no reference, and every embedded key folds -ta0', async () => {

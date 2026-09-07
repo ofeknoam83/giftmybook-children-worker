@@ -169,10 +169,12 @@ function needsRepair(qa) {
   if (qa?.textVerification?.status === 'unverified') return false; // Re-read, do not buy artwork for an OCR outage.
   if (!qa || qa.qaUnavailable) return false;
   if (Array.isArray(qa.blocking) && qa.blocking.length > 0) return true;
-  // The 'oversized' advisory (2–4× the footprint) shades
-  // selection only — the judged bbox is too rough on small blocks to spend
-  // repair renders on; 'too large' (≥ 4×) is blocking and repairs.
-  return (qa.advisory || []).some(d => d.startsWith('embedded story text') && !d.startsWith('embedded story text oversized'));
+  // The 'oversized' advisory (1.25–1.5× the footprint) shades selection
+  // only — the judged bbox is too rough on small blocks to spend repair
+  // renders on; 'too large' (≥ 1.5×) is blocking and repairs. qa-13's
+  // 'drifts from the drawn lettering template' band is the same kind of
+  // finding (measured, sub-threshold): selection only, never a render.
+  return (qa.advisory || []).some(d => d.startsWith('embedded story text') && !d.startsWith('embedded story text oversized') && !d.startsWith('embedded story text drifts from the drawn lettering template'));
 }
 
 /**
@@ -413,6 +415,13 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     inkHex: embedText && flags.textInkQaEnabled() ? textRules.fontColorHex : null,
     // qa-7: the block's footprint — the ruler the judged text bbox is held to.
     expectedBlock: embedText ? (({ widthPercent, heightPercent }) => ({ widthPercent, heightPercent }))(expectedTextBlock(spreadText, textRules)) : null,
+    // qa-13: THIS spread's drawn template — the EDIT BASE the render was
+    // given — so the painted text is MEASURED against it (the share of its
+    // glyphs painted in place; metrics.templateConformance) and the ink
+    // read at those glyphs. Kill-switch CATALOG_TEMPLATE_CONFORMANCE=0.
+    letteringTemplate: embedText && typographyAnchor?.kind === 'template' && typographyAnchor.base64 && flags.templateConformanceEnabled()
+      ? { base64: typographyAnchor.base64, mimeType: typographyAnchor.mimeType || 'image/png', hash: typographyAnchor.hash || null }
+      : null,
     shotType: shotEntry ? shotEntry.shotType : null,
     outfitSpec: outfitSpecText,
     bathWater,
@@ -729,7 +738,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           renderHash: renderContentHash(buffer),
           size,
           qaVersion: QA_VERSION,
-          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], companionBox: best.qa.companionBox || null, textInk: best.qa.textInk || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
+          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], companionBox: best.qa.companionBox || null, textInk: best.qa.textInk || null, templateConformance: best.qa.templateConformance || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
           // Residual findings remain attached to the canonical best artwork,
           // including after automatic completion and subsequent cache replay.
           ...(blocking.length > 0 ? { unresolved: true } : {}),
