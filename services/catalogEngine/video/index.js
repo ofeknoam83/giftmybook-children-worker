@@ -32,7 +32,7 @@ const { normalizePropValue } = require('../illustrator/bible/propSheet');
 const { QA_VERSION, VIDEO_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
-const { buildFilmPlan, pickStorySpreads } = require('./plan');
+const { buildFilmPlan, pickStorySpreads, alternateSpread } = require('./plan');
 const { buildJourneyBrief, repairBrief } = require('./brief');
 const { validateRenders, fetchStill, prepareStartFrame, contentHash } = require('./stills');
 const { judgeStill, rankStills } = require('./stillSelect');
@@ -226,33 +226,93 @@ async function generateGiftVideo(p) {
     // no text-free stills to choose from, so the story-arc trio is
     // re-rendered text-free through the production path (the gv-1 rule)
     // and gated afterwards.
-    const arc = pickStorySpreads(embedded.map(e => e.spread), emotionPlan).spreads.slice(0, sceneCount);
+    //
+    // The gate is RECOVERABLE (2026-09-07, dispatch gv_1788803092138): a
+    // "text-free" re-render can still carry in-world lettering the beat
+    // invites — a moon map labelled "CRATER 1 CRATER 2" — and since #297
+    // the illustrator SHIPS such a spread with its blocking 'painted text'
+    // finding on record instead of failing it. The film then failed
+    // `video_text_visible` on the first hit, and a re-dispatch replayed the
+    // same cached lettered render from its `wide-plain` key for ever. Now a
+    // rejected start frame first re-renders FRESH (the cached bytes are the
+    // defect), then the nearest untried spread substitutes for its role,
+    // within `CATALOG_VIDEO_TEXT_GATE_RETRIES` extra renders; the run fails
+    // only when the budget is spent with lettering still on the frame.
+    const embeddedSpreads = embedded.map(e => e.spread);
+    const arc = pickStorySpreads(embeddedSpreads, emotionPlan).spreads.slice(0, sceneCount);
     advisories.push({ stage: 'video', note: `embedded renders carry painted text — spread(s) ${arc.join(', ')} (the story arc) were re-rendered text-free instead of being chosen by the still gate` });
     log('info', `re-rendering ${arc.length} embedded spread(s) text-free for the film: ${arc.join(', ')}`);
     onProgress(0.1, `Rendering text-free start frames (${arc.length})...`);
-    const art = await renderStorySpreads({
-      bookId, story, bookDef, profile,
-      approvedCoverUrl: p.approvedCoverUrl, childPhotoUrl: p.childPhotoUrl || null, characterDescription: p.characterDescription || null,
-      textLayout: 'half', spreads: arc, tuning: p.tuning || null,
-      identityKeyed: !!p.identityKeyed, seed: Number.isInteger(p.seed) ? p.seed : null, probeNonce: p.probeNonce || null,
-      costTracker, forceRerender: false,
-      onProgress: (f, m) => { touch(); onProgress(0.1 + f * 0.15, m); }, log,
-    });
-    if (art.unresolved && art.unresolved.length > 0 && !flags.shipOnExhaustion()) {
-      throw new VideoError(`text-free start frames for spread(s) ${art.unresolved.map(u => u.spread).join(', ')} ended with unresolved defects`, 'consistency_unresolved', { unresolved: art.unresolved, bookBible: art.bookBible });
+    const textBlocking = new Map(); // spread → the illustrator's own painted-text finding
+    const renderTextFree = async (spreads, fresh) => {
+      const art = await renderStorySpreads({
+        bookId, story, bookDef, profile,
+        approvedCoverUrl: p.approvedCoverUrl, childPhotoUrl: p.childPhotoUrl || null, characterDescription: p.characterDescription || null,
+        textLayout: 'half', spreads, rerenderSpreads: fresh ? spreads : null, tuning: p.tuning || null,
+        identityKeyed: !!p.identityKeyed, seed: Number.isInteger(p.seed) ? p.seed : null, probeNonce: p.probeNonce || null,
+        costTracker, forceRerender: false,
+        onProgress: (f, m) => { touch(); onProgress(0.1 + f * 0.15, m); }, log,
+      });
+      if (art.unresolved && art.unresolved.length > 0 && !flags.shipOnExhaustion()) {
+        throw new VideoError(`text-free start frames for spread(s) ${art.unresolved.map(u => u.spread).join(', ')} ended with unresolved defects`, 'consistency_unresolved', { unresolved: art.unresolved, bookBible: art.bookBible });
+      }
+      for (const r of art.results) {
+        if (!r.buffer) throw new VideoError(`text-free start frame for spread ${r.spread} could not be rendered (${r.advisories.map(a => a.note).join('; ') || 'render failed'})`, 'render_failed');
+        frames.set(r.spread, { buffer: r.buffer, hash: contentHash(r.buffer), storageKey: r.storageKey, rerendered: true });
+        // The illustrator's OWN verdict: a spread shipped on exhaustion with
+        // 'painted text in the illustration' on record is lettered whatever
+        // the still judge says (and a judge outage must never pass it).
+        const painted = (Array.isArray(r.blocking) ? r.blocking : []).find(d => /^painted text/.test(d));
+        if (painted) textBlocking.set(r.spread, painted); else textBlocking.delete(r.spread);
+      }
+      return art;
+    };
+    const isTextual = (j) => (j.verdict && j.verdict.textPresent) || textBlocking.has(j.spread);
+    const transcriptOf = (j) => (j.verdict && j.verdict.transcript) || textBlocking.get(j.spread) || '';
+    await renderTextFree(arc, false);
+    const judgedAll = await judgeAll(arc.filter(s => frames.has(s)));
+    const tried = new Set(arc);
+    const retried = new Set();
+    const pending = judgedAll.filter(isTextual).map(j => j.spread);
+    const textGateLog = []; // every lettered attempt, for the failure payload
+    for (const j of judgedAll) if (isTextual(j)) textGateLog.push({ segment: 0, kind: 'spread', spread: j.spread, pass: false, transcript: transcriptOf(j) || undefined });
+    let retries = flags.videoTextGateRetries();
+    while (pending.length > 0 && retries > 0) {
+      const failed = pending[0];
+      let target;
+      let fresh;
+      if (!retried.has(failed)) {
+        // First the same spread, rendered fresh: the cached render is the
+        // lettered one, and a replay would return it unchanged.
+        target = failed; fresh = true; retried.add(failed);
+      } else {
+        target = alternateSpread(failed, embeddedSpreads, tried);
+        if (target === null) break; // nothing left to substitute for this role
+        fresh = false; tried.add(target);
+      }
+      retries -= 1;
+      log('info', `text gate: spread ${failed} carries painted text — ${fresh ? `re-rendering spread ${target} fresh` : `substituting spread ${target}`} (${retries} retr${retries === 1 ? 'y' : 'ies'} left)`);
+      onProgress(0.2, fresh ? `Re-rendering spread ${target} without lettering...` : `Rendering spread ${target} as a substitute start frame...`);
+      await renderTextFree([target], fresh);
+      const [j] = await judgeAll([target]);
+      const idx = judgedAll.findIndex(x => x.spread === target);
+      if (idx >= 0) judgedAll[idx] = j; else judgedAll.push(j);
+      if (isTextual(j)) {
+        textGateLog.push({ segment: 0, kind: 'spread', spread: target, pass: false, transcript: transcriptOf(j) || undefined });
+        continue; // `failed` stays pending: next pass substitutes (or moves on)
+      }
+      pending.shift();
+      advisories.push({ stage: 'video', spread: target, note: fresh
+        ? `text gate: spread ${target} re-rendered fresh after its cached text-free render carried painted text`
+        : `text gate: spread ${target} stands in for spread ${failed}, whose text-free renders kept carrying painted text` });
     }
-    for (const r of art.results) {
-      if (!r.buffer) throw new VideoError(`text-free start frame for spread ${r.spread} could not be rendered (${r.advisories.map(a => a.note).join('; ') || 'render failed'})`, 'render_failed');
-      frames.set(r.spread, { buffer: r.buffer, hash: contentHash(r.buffer), storageKey: r.storageKey, rerendered: true });
+    if (pending.length > 0) {
+      const worst = textGateLog[textGateLog.length - 1];
+      throw new VideoError(`spread ${worst.spread} still carries painted text after the text-free re-render ("${worst.transcript || ''}") — a text-free film cannot use it (${textGateLog.length} lettered render(s): ${textGateLog.map(t => `s${t.spread}`).join(', ')}; ${flags.videoTextGateRetries() === 0 ? 'CATALOG_VIDEO_TEXT_GATE_RETRIES=0' : 'the retry budget is spent'})`, 'video_text_visible', { textGate: textGateLog });
     }
-    const judged = await judgeAll(arc.filter(s => frames.has(s)));
-    const textual = judged.filter(j => j.verdict && j.verdict.textPresent);
-    if (textual.length > 0) {
-      throw new VideoError(`spread ${textual[0].spread} still carries painted text after the text-free re-render ("${textual[0].verdict.transcript || ''}") — a text-free film cannot use it`, 'video_text_visible', { textGate: textual.map(j => ({ segment: 0, kind: 'spread', spread: j.spread, pass: false, transcript: j.verdict.transcript || undefined })) });
-    }
-    const ranked = rankStills(judged, { count: arc.length });
+    const ranked = rankStills(judgedAll, { count: arc.length });
     picked = ranked.picked;
-    const unavailable = new Map(judged.map(j => [j.spread, j.unavailable]));
+    const unavailable = new Map(judgedAll.map(j => [j.spread, j.unavailable]));
     for (const r of ranked.report) stillReport.push({ ...r, storageKey: frames.get(r.spread).storageKey, rerendered: true, unavailable: unavailable.get(r.spread) || null });
   }
   if (picked.length === 0) {
