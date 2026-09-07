@@ -50,7 +50,7 @@ const { STYLE_VERSION, QA_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
-const { canUseTypographyGuide, createTypographyGuide, createTypographyTemplate, chooseBookTextInk } = require('./typographyGuide');
+const { canUseTypographyGuide, createTypographyGuide, createTypographyTemplate, letteringJudgeImage } = require('./typographyGuide');
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
 const { resolveBookTextRules, resolveTypographyGuideRules } = require('../../shared/illustration/config');
 const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
@@ -136,7 +136,13 @@ function renderTextColumnHint(side, rules) {
   const top = rules.topPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const bottom = rules.bottomPaddingPercent ?? rules.cornerVerticalPaddingPercent;
   const xRange = side === 'left' ? `x from ${edge}% to ${active}%` : `x from ${100 - active}% to ${100 - edge}%`;
-  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height). Compose that column from the scene's naturally simpler areas — sky, open ground, distance, water, a wall — rendered at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from their own thin, tight contrasting hairline, not from treating the background or changing the book’s ink. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
+  // ONE ink (dark cocoa) needs LIGHT ground: the column is composed from
+  // the scene's naturally LIGHTER calm area — the way printed picture books
+  // set dark type over sky — so the fixed ink reads on a night or deep-
+  // water scene too, and the model never has a legibility reason to invert
+  // the fill (the drift ce-18 measured and the 2026-09-07 ivory round
+  // repeated).
+  return `\nCOMPOSITION FOR PRINT (TEXT COLUMN): the story text is painted over the ${side.toUpperCase()} column of this image (${xRange} of the width, y from ${top}% to ${100 - bottom}% of the height) in SMALL DARK cocoa-brown book type. Compose that column from the scene's naturally simpler AND LIGHTER areas — open sky, mist, sunlit water, pale sand, snow, a light wall, bright distance — the brightest calm part of the picture, so the small dark letters read on it the way printed picture books set dark type over sky; in a night or deep-water scene put the column where the scene is naturally lightest (the moonlit sky, sunbeams through the water, a lit surface). Render the column at FULL sharpness, colour, and detail like the rest of the picture: NEVER blur, fog, soften, darken, lighten, desaturate, or empty it, and never lay a card, board, panel, band, glow, or vignette there — the small letters get their legibility from the light scenery under them and their own thin, tight pale hairline, not from treating the background or changing the book’s ink. No faces, companion, props, or signage inside the column; the scenery continues through it edge to edge; the child and all key action live outside it.`;
 }
 
 /** Corrective world-gate re-renders allowed per run (cost bound). */
@@ -201,7 +207,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, bookTextInk = 'dark', candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -271,9 +277,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     : '';
   // ce-15: the embedded sibling of the half hint (renderTextColumnHint).
   const typographyScale = typographyAnchor?.kind === 'template' && typographyAnchor.typographyScale === 1.5 ? 1.5 : 1;
-  const textRules = embedText ? (['guide', 'template'].includes(typographyAnchor?.kind) ? resolveTypographyGuideRules : resolveBookTextRules)(profile?.age, bookTextInk, typographyScale) : null;
+  const drawnLettering = embedText && ['guide', 'template'].includes(typographyAnchor?.kind);
+  const textRules = embedText ? (drawnLettering ? resolveTypographyGuideRules(profile?.age, typographyScale) : resolveBookTextRules(profile?.age)) : null;
   if (embedText && typographyAnchor?.kind === 'template') {
-    typographyAnchor = await createTypographyTemplate({ childAge: profile?.age, ink: bookTextInk, text: spreadText, side: shotEntry?.textSide || 'left', typographyScale });
+    typographyAnchor = await createTypographyTemplate({ childAge: profile?.age, text: spreadText, side: shotEntry?.textSide || 'left', typographyScale });
   }
   const columnHint = embedText ? renderTextColumnHint(shotEntry ? shotEntry.textSide : null, textRules) : '';
   const sceneWithLayout = `${sceneWithShot}${halfHint}${columnHint}`;
@@ -333,7 +340,6 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     totalSpreads: 12,
     childName: profile.name,
     childAge: profile.age,
-    bookTextInk,
     typographyGuide: typographyAnchor?.kind === 'guide',
     typographyTemplate: typographyAnchor?.kind === 'template',
     ...(typographyAnchor?.kind === 'template' ? { typographyScale } : {}),
@@ -415,9 +421,21 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     emotion: promptBible.emotion ? { emotion: promptBible.emotion.emotion, intensity: promptBible.emotion.intensity, cue: EMOTION_CUES[promptBible.emotion.emotion] || null } : null,
     emotionVocabulary: EMOTIONS,
   };
+  // qa-12: the LETTERING REFERENCE the judge compares the painted text
+  // against — THIS spread's drawn template (or the guide) flattened onto
+  // paper. Built once per spread, only when a check actually runs (a
+  // marker-vouched replay never pays for it).
+  let letteringReferencePromise = null;
+  const letteringReferenceFor = () => {
+    if (!letteringReferencePromise) {
+      letteringReferencePromise = drawnLettering ? letteringJudgeImage(typographyAnchor) : Promise.resolve(null);
+    }
+    return letteringReferencePromise;
+  };
   const runQa = async (buffer, label) => {
+    const letteringReference = await letteringReferenceFor();
     const [qa, verification] = await Promise.all([
-      checkSpreadRenderV2(buffer, { label, ...qaOpts }),
+      checkSpreadRenderV2(buffer, { label, ...qaOpts, letteringReference }),
       embedText ? (automaticTextRecovery ? checkSavedText(buffer, spreadText, costTracker) : verifyImageText(buffer, spreadText, undefined, costTracker)) : null,
     ]);
     return verification ? applyTextVerification(qa, verification) : qa;
@@ -1290,14 +1308,14 @@ async function renderStorySpreads(params) {
   const anchorEnabled = textLayout === 'embedded' && flags.textAnchorEnabled();
   const anchorOff = textLayout === 'embedded' && !flags.textAnchorEnabled();
   const anchorAdvisories = [];
-  let bookTextInk = 'dark';
   let guide = null;
   if (anchorEnabled && !reviewedOnly && flags.typographyGuideEnabled?.()) {
     try {
-      bookTextInk = await chooseBookTextInk(refPhoto);
-      let candidate = await createTypographyGuide({ childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text });
+      // ONE ink for every book (2026-09-07): no per-cover ink election —
+      // the drawn lettering is always the book ink (resolveBookTextRules).
+      let candidate = await createTypographyGuide({ childAge: profile?.age, text: story.spreads?.[0]?.text });
       {
-        const templateInput = { childAge: profile?.age, ink: bookTextInk, text: story.spreads?.[0]?.text,
+        const templateInput = { childAge: profile?.age, text: story.spreads?.[0]?.text,
           side: shotPlan?.[story.spreads?.[0]?.spread]?.textSide || 'left' };
         const compact = await createTypographyTemplate({ ...templateInput, typographyScale: 1 });
         const template = await createTypographyTemplate({ ...templateInput, typographyScale: 1.5 });
@@ -1325,9 +1343,7 @@ async function renderStorySpreads(params) {
         guidePaths: book.beats.map(b => renderCachePath(bookId, `${storyHash}-ta${candidate.hash.slice(0, 8)}`, b.spread, cacheAspect, tuningTag)),
       });
       if (useGuide) guide = candidate;
-      else bookTextInk = 'dark';
     } catch {
-      bookTextInk = 'dark';
       anchorAdvisories.push({ stage: 'typographyAnchor', note: 'Typography guide unavailable; using the existing page-reference path.' });
     }
   }
@@ -1352,7 +1368,7 @@ async function renderStorySpreads(params) {
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-    reviewedOnly, automaticTextRecovery, renderBudget, tuning, bible, bookTextInk, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    reviewedOnly, automaticTextRecovery, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
     legacyUnanchoredKey: reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
       ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag) : null,
@@ -1479,7 +1495,7 @@ async function renderStorySpreads(params) {
   const inkGateStart = Date.now();
   const textInkQa = reviewedOnly ? null : await runInkConsistencyGate({
     results,
-    inkHex: textLayout === 'embedded' && flags.textInkQaEnabled() ? resolveBookTextRules(profile?.age, bookTextInk).fontColorHex : null,
+    inkHex: textLayout === 'embedded' && flags.textInkQaEnabled() ? resolveBookTextRules(profile?.age).fontColorHex : null,
     rerender,
     onProgress,
     log,

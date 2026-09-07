@@ -122,7 +122,7 @@ const TEXT_RULES = {
   // One art-director spec for the whole book — models drift if each spread
   // re-invents type. Each render is a STATELESS call: this pinned spec (not
   // any earlier frame) is the anchor, and it is identical on every spread.
-  typographyConsistency: 'BOOK-WIDE LOCK: every spread of this book renders its text with the IDENTICAL font family, weight, size, and color — one continuous series, one subtitle spec for the whole book. This exact spec is pinned on every page, so follow it to the letter: never introduce a different face, a different weight, a noticeably larger or smaller point size, or a different text color on any spread. Within the block itself, every line uses the same single font, size, and color — never mix typefaces, sizes, weights, or colors between lines or words.',
+  typographyConsistency: 'BOOK-WIDE LOCK: every spread of this book renders its text with the IDENTICAL font family, weight, size, and color — one continuous series, one body-type spec for the whole book. This exact spec is pinned on every page, so follow it to the letter: never introduce a different face, a different weight, a noticeably larger or smaller point size, or a different text color on any spread. Within the block itself, every line uses the same single font, size, and color — never mix typefaces, sizes, weights, or colors between lines or words.',
   // ONE fixed fill color for the whole book — per-scene retinting is exactly
   // the cross-spread drift parents notice. Readability on any background
   // comes from the mandatory thin pale hairline, never from recolouring —
@@ -207,41 +207,60 @@ function resolvePictureBookTextRules(childAge) {
   };
 }
 
-/** Resolve a closed book-wide ink choice for the generated typography guide. */
-function resolveBookTextRules(childAge, ink = 'dark') {
-  const rules = resolvePictureBookTextRules(childAge);
-  if (ink !== 'light') return rules;
-  return {
-    ...rules,
-    fontColorHex: '#FFF4DE',
-    fontColor: 'ONE fixed ink for this entire book: warm ivory (#FFF4DE), regular weight, matching the typography guide exactly. Every spread uses this same ivory fill, including brighter scenes. A hairline of deep cocoa (#2A1C12) may hug the glyphs for contrast; no glow, drop-shadow cloud, background panel, tinted rectangle or per-scene color change.',
-    textIntegration: 'Paint the small regular-weight letters directly into the continuous scene. Use natural open scenery for the text. Keep the same ink and size as the guide on every spread; do not make the text follow the scene lighting. Never add a panel, haze patch or background treatment behind the text.',
-  };
+/**
+ * The book-wide text rules for a child's age — ONE ink for EVERY book
+ * (2026-09-07). A per-cover light/ivory ink existed for one day (#304):
+ * a dark cover switched the whole book to ivory glyphs with a cocoa
+ * hairline, and the very next render of such a book came back as WHITE,
+ * BOLD, ROUNDED SANS-SERIF, CENTRED lettering with a thick dark contour —
+ * the "subtitle" look an image model reaches for the moment it is asked
+ * for light text with an outline (the ce-18 finding, repeated). The dark
+ * cocoa ink is the polarity the typeset caption/half pages already print
+ * in, so all three layouts share one ink, and every gate has one target.
+ * Legibility on a dark scene comes from the TEXT COLUMN hint (the column
+ * is composed from the scene's lighter calm area — sky, mist, sunlit
+ * water, pale sand), the way printed picture books set dark type over
+ * sky — never from switching the fill.
+ * @param {number|string|null|undefined} childAge
+ * @returns {typeof TEXT_RULES}
+ */
+function resolveBookTextRules(childAge) {
+  return resolvePictureBookTextRules(childAge);
 }
 
-/** The drawn guide and its Gemini instructions must describe identical type. */
-function resolveTypographyGuideRules(childAge, ink = 'dark', requestedScale = 1) {
+/**
+ * The rules for a book whose lettering is drawn by the typography guide /
+ * full-spread template (typographyGuide.js): the drawn glyphs and the
+ * Gemini instructions must describe IDENTICAL type — one face (Playfair
+ * Display Regular, the file in fonts/), one numeric size per age tier, one
+ * ink, one alignment. `requestedScale` 1.5 is the approved readable size
+ * (sentence-led rows, one empty row between sentences).
+ * @param {number|string|null|undefined} childAge
+ * @param {1|1.5} [requestedScale]
+ * @returns {typeof TEXT_RULES & {capHeightPercent: number}}
+ */
+function resolveTypographyGuideRules(childAge, requestedScale = 1) {
   const scale = requestedScale === 1.5 ? 1.5 : 1;
-  const rules = resolveBookTextRules(childAge, ink);
+  const rules = resolveBookTextRules(childAge);
   const capHeightPercent = Number(((rules.linePitchPercent <= 1.9 ? 0.95 : 1.1) * scale).toFixed(3));
   const linePitchPercent = Number((rules.linePitchPercent * scale).toFixed(3));
-  const edge = ink === 'light' ? 'deep cocoa (#2A1C12)' : 'warm off-white (#FFF9EF)';
+  const edge = 'warm off-white (#FFF9EF)';
   return {
     ...rules,
     capHeightPercent,
     linePitchPercent,
-    charWidthPercent: rules.charWidthPercent * scale,
+    charWidthPercent: Number((rules.charWidthPercent * scale).toFixed(3)),
     ...(scale === 1.5 ? {
       sentenceStartsNewLine: true, blankLineBetweenSentences: true, minWordsPerLine: 5, maxWordsPerLine: 7,
       // More vertical room for sentence gaps; still well inside the ~6%
       // top/bottom crop when a 16:9 render prints across square pages.
       topPaddingPercent: 20, bottomPaddingPercent: 26,
-      textAlignment: 'Every text line straight, horizontal and left-aligned to the same margin. Keep one constant line pitch. Preserve exactly one completely empty row between sentences; an existing paragraph break uses that same single blank row, never a doubled gap.',
+      textAlignment: 'Every text line straight, horizontal and LEFT-ALIGNED to one shared margin — every row begins at the EXACT same horizontal position, exactly as the lettering template shows; a ragged right edge is correct. NEVER centre the rows, right-align them, or indent some rows more than others. Keep one constant line pitch. Preserve exactly one completely empty row between sentences; an existing paragraph break uses that same single blank row, never a doubled gap.',
       maxCharsPerLine: Math.min(47, Math.floor((rules.activeSideMaxPercent - rules.edgePaddingPercent) / (rules.charWidthPercent * scale))),
     } : {}),
-    fontStyle: 'Playfair Display Regular, exactly matching the supplied lettering guide. One upright serif face and regular weight for the entire book. Do not substitute Georgia, Book Antiqua or another typeface; do not switch to bold, italic, decorative or headline lettering.',
+    fontStyle: 'Playfair Display Regular, exactly matching the supplied lettering guide — a classic high-contrast book serif at REGULAR weight, upright. One face and one weight for the entire book. Do not substitute Georgia, Book Antiqua or another typeface, and NEVER restyle the lettering as bold, semi-bold, italic, a sans-serif, a rounded or bubbly children\'s face, handwriting, brush or marker lettering, comic lettering, a subtitle or caption face, or any display/headline lettering. The glyphs are plain filled letterforms: never outlined, hollow, double-stroked, embossed, bevelled, glowing or shadowed.',
     fontSize: `SMALL book body type: cap height ${capHeightPercent}% of the FULL illustration height, line pitch ${linePitchPercent}% of its height, exactly matching the lettering guide at full height. This is the one target for every spread, including the first and last. Never scale type to fill the column or enlarge short passages. Keep short lines short and leave the remaining space as continuous scenery. Never poster, subtitle or headline scale.`,
-    fontColor: `ONE fixed fill for this entire book: ${rules.fontColorHex}, matching the lettering guide. Keep the SAME fill and regular weight on every spread regardless of scene lighting. A ${edge} hairline may hug each glyph: target thickness ${scale === 1.5 ? '0.01%' : '0.03%'} of the FULL image height, never more than ${scale === 1.5 ? '0.02%' : '0.05%'}. It must not thicken the letter or look like outlined display text. No thick contour, double stroke, shadow, glow, halo, panel or background patch.`,
+    fontColor: `ONE fixed fill for this entire book: deep warm cocoa-brown ${rules.fontColorHex}, matching the lettering guide — the same dark ink on EVERY spread, bright scene or dark scene alike. NEVER white, ivory, cream, yellow, gold or any pale fill, and never a colour picked to suit this scene. Keep the SAME fill and regular weight on every spread regardless of scene lighting. A ${edge} hairline may hug each glyph for legibility on mid-tone scenery: target thickness ${scale === 1.5 ? '0.01%' : '0.03%'} of the FULL image height, never more than ${scale === 1.5 ? '0.02%' : '0.05%'}. It must not thicken the letter or look like outlined display text. No thick contour, double stroke, shadow, glow, halo, panel or background patch.`,
   };
 }
 
