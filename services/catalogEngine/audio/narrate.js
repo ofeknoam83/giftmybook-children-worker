@@ -24,6 +24,7 @@ const { checkTake, repairNote, classifyTakeDefects } = require('./takeQa');
 const { scoreTake, takeCandidateKey, pickBest, compareCandidates, residualBlocking } = require('./select');
 const { directionWords, paceWords, controlWords, expectedTiming, normalizeSpoken } = require('./script');
 const flags = require('../flags');
+const { hasVerifiedExactSpeech, verifySpellingAmbiguity, substitutions } = require('./exactSpeech');
 
 const RUNGS = ['full', 'restate', 'plain'];
 
@@ -121,20 +122,37 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
   const nameInText = name && new RegExp(`(?<![\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(expectedText) ? name : null;
 
   // ── Replay ──────────────────────────────────────────────────────────────
-  const marker = !forceRetake && await loadJson(`${canonical}.qa.json`).catch(() => null);
+  let marker = !forceRetake && await loadJson(`${canonical}.qa.json`).catch(() => null);
   if (!forceRetake) {
-    const exactReplay = !opts.requireExactText || (marker?.qa && !marker.qa.qaUnavailable && Array.isArray(marker.qa.blocking) && marker.qa.blocking.length === 0 && !marker.unresolved && normalizeSpoken(marker.transcript) === normalizeSpoken(expectedText));
-    if (marker && marker.audioQaVersion === AUDIO_QA_VERSION && (marker.adminPicked || !marker.unresolved) && exactReplay) {
+    const speechOnly = marker?.qa && !marker.qa.qaUnavailable && Array.isArray(marker.qa.blocking)
+      && marker.qa.blocking.every(d => d.startsWith('narration text mismatch'))
+      && !marker.adminPicked && (!marker.unresolved || marker.qa.blocking.length > 0)
+      && (normalizeSpoken(expectedText) === normalizeSpoken(marker.transcript) || substitutions(expectedText, marker.transcript));
+    if (marker && marker.audioQaVersion === AUDIO_QA_VERSION && (opts.requireExactText ? speechOnly : (marker.adminPicked || !marker.unresolved))) {
       const buffer = await downloadBuffer(canonical).catch(() => null);
       if (buffer && buffer.length > 44 && contentHash(buffer) === marker.renderHash) {
-        log('info', `${label}: replays from ${canonical}${marker.adminPicked ? ' (admin-picked)' : ''}`);
-        const measure = marker.measure || measureTake(buffer);
-        return {
-          chunk: chunk.index, speaker: chunk.speaker, lineIndexes: chunk.lines.map(l => l.index), storageKey: canonical, takeHash: hash, buffer, measure: { ...measure, samples: undefined },
-          alignment: marker.alignment || null, transcript: marker.transcript || null, compare: marker.compare || null,
-          qa: marker.adminPicked ? { blocking: [], advisory: [], qaUnavailable: null } : (marker.qa || { blocking: [], advisory: [], qaUnavailable: null }),
-          score: marker.score ?? null, rung: marker.rung || null, candidates: 0, repairs: 0, cached: true, adminPicked: !!marker.adminPicked, candidateFiles: [], unresolved: false,
-        };
+        const check = { expectedText, transcript: marker.transcript, wav: buffer, language };
+        let exact = !opts.requireExactText || (marker.qa.blocking.length === 0 && !marker.unresolved
+          && hasVerifiedExactSpeech({ ...check, textVerification: marker.textVerification }));
+        if (!exact && flags.audioTranscriptQaEnabled()) {
+          const textVerification = await verifySpellingAmbiguity({ ...check, costTracker, signal, log });
+          if (textVerification) {
+            marker = { ...marker, textVerification, qa: { ...marker.qa, blocking: [] }, unresolved: false, checkedAt: new Date().toISOString() };
+            marker.score = scoreTake(marker);
+            await uploadBuffer(Buffer.from(JSON.stringify(marker)), `${canonical}.qa.json`, 'application/json');
+            exact = true;
+          }
+        }
+        if (exact) {
+          log('info', `${label}: replays from ${canonical}${marker.adminPicked ? ' (admin-picked)' : ''}`);
+          const measure = marker.measure || measureTake(buffer);
+          return {
+            chunk: chunk.index, speaker: chunk.speaker, lineIndexes: chunk.lines.map(l => l.index), storageKey: canonical, takeHash: hash, buffer, measure: { ...measure, samples: undefined },
+            alignment: marker.alignment || null, transcript: marker.transcript || null, compare: marker.compare || null, textVerification: marker.textVerification || null,
+            qa: marker.adminPicked ? { blocking: [], advisory: [], qaUnavailable: null } : (marker.qa || { blocking: [], advisory: [], qaUnavailable: null }),
+            score: marker.score ?? null, rung: marker.rung || null, candidates: 0, repairs: 0, cached: true, adminPicked: !!marker.adminPicked, candidateFiles: [], unresolved: false,
+          };
+        }
       }
     }
   }
@@ -191,12 +209,19 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
         log('warn', `${label}: verification unavailable — retrying the check on the same recording`);
         qa = await checkTake(qaInput);
       }
-      if (opts.requireExactText && !qa.qaUnavailable && normalizeSpoken(qa.transcript) !== normalizeSpoken(expectedText) && !qa.blocking.some(d => d.startsWith('narration text mismatch'))) qa.blocking.push('narration text mismatch');
+      let textVerification = null;
+      if (opts.requireExactText && !qa.qaUnavailable && normalizeSpoken(qa.transcript) !== normalizeSpoken(expectedText)) {
+        if (qa.blocking.every(d => d.startsWith('narration text mismatch'))) {
+          textVerification = await verifySpellingAmbiguity({ ...qaInput, transcript: qa.transcript, language });
+        }
+        if (textVerification) qa.blocking = qa.blocking.filter(d => !d.startsWith('narration text mismatch'));
+        else if (!qa.blocking.some(d => d.startsWith('narration text mismatch'))) qa.blocking.push('narration text mismatch');
+      }
       const cand = {
         k: r.k, pass, storageKey: key, buffer: r.wav, rung, alignment: r.alignment || null, model: r.model,
         measure: { seconds: measure.seconds, trim: measure.trim, trimmedSeconds: measure.trimmedSeconds, lufs: measure.lufs, peakDb: measure.peakDb, truePeakDb: measure.truePeakDb, longestSilenceSeconds: measure.longestSilenceSeconds, sampleRate: measure.sampleRate },
         qa: { blocking: qa.blocking, advisory: qa.advisory, qaUnavailable: qa.qaUnavailable },
-        transcript: qa.transcript, compare: qa.compare, judged: qa.judged, durationRatio: qa.durationRatio,
+        transcript: qa.transcript, compare: qa.compare, judged: qa.judged, durationRatio: qa.durationRatio, textVerification,
       };
       cand.score = scoreTake(cand);
       all.push({ k: r.k, pass, storageKey: key, score: cand.score, blocking: qa.blocking, advisory: qa.advisory, qaUnavailable: qa.qaUnavailable || null });
@@ -219,12 +244,12 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
   await uploadBuffer(best.buffer, canonical, 'audio/wav');
   await uploadBuffer(Buffer.from(JSON.stringify({
     audioQaVersion: AUDIO_QA_VERSION, audioVersion: AUDIO_VERSION, takeHash: hash, renderHash, score: best.score,
-    qa: best.qa, measure: best.measure, transcript: best.transcript, compare: best.compare, judged: best.judged, alignment: best.alignment,
+    qa: best.qa, measure: best.measure, transcript: best.transcript, compare: best.compare, judged: best.judged, alignment: best.alignment, textVerification: best.textVerification,
     provider, model: best.model, voiceKey: voice.key, rung: best.rung, candidate: best.storageKey, pass: best.pass, attemptId, repairs, unresolved, checkedAt: new Date().toISOString(),
   })), `${canonical}.qa.json`, 'application/json');
   return {
     chunk: chunk.index, speaker: chunk.speaker, lineIndexes: chunk.lines.map(l => l.index), storageKey: canonical, takeHash: hash, buffer: best.buffer, measure: best.measure,
-    alignment: best.alignment, transcript: best.transcript, compare: best.compare, judged: best.judged,
+    alignment: best.alignment, transcript: best.transcript, compare: best.compare, judged: best.judged, textVerification: best.textVerification,
     qa: best.qa, score: best.score, rung: best.rung, candidates: all.filter(c => c.score != null).length, repairs, cached: false, adminPicked: false,
     candidateFiles: all.filter(c => c.score != null).map(c => ({ storageKey: c.storageKey, score: c.score })), unresolved,
   };

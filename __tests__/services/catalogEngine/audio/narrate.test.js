@@ -156,6 +156,59 @@ test('full-film exact text rejects a permissive cached take and repairs missing 
 describe('full-film narration recovery', () => {
   const exact = a => ({ ...base({ adapter: a }), chunk: narrate.chunkLines(segment)[0], voice: cast.narrator,
     opts: { candidates: 1, maxRepairs: 0, budget: 1, requireExactText: true } });
+  const homophone = a => {
+    const p = exact(a);
+    p.chunk.lines[0] = { ...p.chunk.lines[0], text: 'Follow the route markers.' };
+    return p;
+  };
+  test('a saved text-only failure is checked against the same WAV and resumes without synthesis', async () => {
+    const buffer = take(3);
+    const p = homophone(adapter());
+    gcs.loadJson.mockResolvedValue({ audioQaVersion: AUDIO_QA_VERSION, renderHash: narrate.contentHash(buffer),
+      unresolved: true, transcript: 'Follow the root markers.', qa: { blocking: ['narration text mismatch'], advisory: [] } });
+    gcs.downloadBuffer.mockResolvedValue(buffer);
+    judgeAudio.mockResolvedValue({ json: { complete_recording: true, decisions: [{ index: 2, same_pronunciation: true }] } });
+    const result = await narrate.renderChunk(p);
+    expect(result).toMatchObject({ cached: true, unresolved: false, transcript: 'Follow the root markers.', qa: { blocking: [] } });
+    expect(result.textVerification.differences).toEqual([{ index: 2, expected: 'route', heard: 'root' }]);
+    expect(p.adapter.synthesize).not.toHaveBeenCalled();
+    expect(judgeAudio).toHaveBeenCalledTimes(1);
+    const marker = JSON.parse(gcs.uploadBuffer.mock.calls.find(c => c[1].endsWith('.qa.json'))[0]);
+    gcs.loadJson.mockResolvedValue(marker);
+    expect((await narrate.renderChunk(p)).cached).toBe(true);
+    expect(judgeAudio).toHaveBeenCalledTimes(1);
+    expect(p.adapter.synthesize).not.toHaveBeenCalled();
+  });
+  test('a new take retains its transcript and stores audio-based spelling verification', async () => {
+    const p = homophone(adapter());
+    judgeAudio.mockResolvedValueOnce(verdict('Follow the root markers.'))
+      .mockResolvedValueOnce({ json: { complete_recording: true, decisions: [{ index: 2, same_pronunciation: true }] } });
+    const result = await narrate.renderChunk(p);
+    expect(result).toMatchObject({ cached: false, unresolved: false, transcript: 'Follow the root markers.', qa: { blocking: [] } });
+    expect(result.textVerification).toBeTruthy();
+    expect(p.adapter.synthesize).toHaveBeenCalledTimes(1);
+    expect(judgeAudio).toHaveBeenCalledTimes(2);
+  });
+  test('a spelling verdict cannot clear another audio defect', async () => {
+    const p = homophone(adapter());
+    judgeAudio.mockResolvedValue({ json: { ...verdict('Follow the root markers.').json, glitch_or_artifact: true } });
+    const result = await narrate.renderChunk(p);
+    expect(result.unresolved).toBe(true);
+    expect(result.qa.blocking).toContain('synthesis artifact: glitch');
+    expect(result.textVerification).toBeNull();
+    expect(judgeAudio).toHaveBeenCalledTimes(1);
+  });
+  test('a rejected spelling check repairs the take instead of approving different speech', async () => {
+    const buffer = take(3); const p = homophone(adapter());
+    gcs.loadJson.mockResolvedValue({ audioQaVersion: AUDIO_QA_VERSION, renderHash: narrate.contentHash(buffer),
+      unresolved: true, transcript: 'Follow the red markers.', qa: { blocking: ['narration text mismatch'], advisory: [] } });
+    gcs.downloadBuffer.mockResolvedValue(buffer);
+    judgeAudio.mockResolvedValueOnce({ json: { complete_recording: false, decisions: [{ index: 2, same_pronunciation: false }] } })
+      .mockResolvedValueOnce(verdict('Follow the route markers.'));
+    const result = await narrate.renderChunk(p);
+    expect(result).toMatchObject({ cached: false, unresolved: false, transcript: 'Follow the route markers.' });
+    expect(p.adapter.synthesize).toHaveBeenCalledTimes(1);
+  });
   test.each([
     { qa: { blocking: [], qaUnavailable: 'judge down' } },
     { qa: null },

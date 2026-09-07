@@ -1,4 +1,5 @@
 const fs = require('fs');
+jest.mock('../../../../services/catalogEngine/audio/geminiAudio', () => ({ judgeAudio: jest.fn() }));
 jest.mock('../../../../services/gcsStorage', () => ({ uploadBuffer: jest.fn(async (_b, k) => `https://stored/${k}`), downloadBuffer: jest.fn(async () => null), loadJson: jest.fn(async () => null), saveJson: jest.fn(async () => {}), objectExists: jest.fn(async () => false), getSignedUrl: jest.fn(async k => `https://signed/${k}`) }));
 jest.mock('../../../../services/illustrationGenerator', () => ({ downloadPhotoAsBase64: jest.fn(async () => ({ base64: 'cmVm', mimeType: 'image/png' })), getNextApiKey: jest.fn() }));
 jest.mock('../../../../services/catalogEngine/illustrator', () => ({ renderStorySpreads: jest.fn() }));
@@ -44,7 +45,35 @@ test('all 12 scenes reach the final film; only character dialogue is lip-synced'
 
 test('missing spoken words stop the film before any animation is purchased', async () => {
   renderChunk.mockResolvedValue({ transcript: 'Goodbye.', qa: {}, unresolved: false });
-  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_audio_unresolved' });
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_audio_unresolved',
+    message: expect.stringContaining('at word 1: manuscript "hello"; transcript "goodbye"'),
+  });
+  expect(generateCandidates).not.toHaveBeenCalled();
+});
+
+test('the film accepts a homophone only with verification bound to that exact recording and manuscript', async () => {
+  const { judgeAudio } = require('../../../../services/catalogEngine/audio/geminiAudio');
+  const { verifySpellingAmbiguity } = require('../../../../services/catalogEngine/audio/exactSpeech');
+  const direction = await directScript();
+  direction.script.turns[0].text = 'Follow route markers.';
+  const buffer = encodeWav(new Float32Array(24000).fill(0.1), 24000);
+  judgeAudio.mockResolvedValue({ json: { complete_recording: true, decisions: [{ index: 1, same_pronunciation: true }] } });
+  const textVerification = await verifySpellingAmbiguity({ expectedText: 'Follow route markers.', transcript: 'Follow root markers.', wav: buffer, language: 'en' });
+  renderChunk.mockResolvedValueOnce({ buffer, measure: { trim: { start: 0, end: 1 }, lufs: -20 },
+    transcript: 'Follow root markers.', textVerification, qa: { blocking: [] }, takeHash: 'take', storageKey: 'take.wav' });
+  expect((await generateFullStoryFilm(input())).video.durationSeconds).toBe(36);
+  expect(generateCandidates).toHaveBeenCalledTimes(12);
+});
+
+test.each([
+  ['Hello again.', 'Hello.', 'at word 2: manuscript "again"; transcript "(end of passage)"'],
+  ['Hello.', 'Hello again.', 'at word 2: manuscript "(end of passage)"; transcript "again"'],
+  ['Hello.', '', 'at word 1: manuscript "hello"; transcript "(end of passage)"'],
+])('mismatch errors identify the first differing words including truncated passages', async (text, transcript, detail) => {
+  const direction = await directScript();
+  direction.script.turns[0].text = text;
+  renderChunk.mockResolvedValue({ transcript, qa: { blocking: ['narration text mismatch'] }, unresolved: true });
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ message: expect.stringContaining(detail) });
   expect(generateCandidates).not.toHaveBeenCalled();
 });
 
