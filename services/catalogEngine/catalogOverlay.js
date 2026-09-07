@@ -137,9 +137,8 @@ function validateOverlayShape(overlay, baseCatalog) {
         }
       } else if (field === 'retired') {
         // Retirement = removed from SELECTION forever, definition kept so
-        // already-sold stories still validate and print. The merged-catalog
-        // gate additionally enforces that every theme/band keeps a full
-        // slate of active books.
+        // already-sold stories still validate and print. A band may have
+        // fewer than three active books or be completely retired.
         if (typeof value !== 'boolean') errors.push(`${bookId}.retired must be true or false`);
       } else if (field === 'refrain') {
         const base = bookIndex.get(bookId).book;

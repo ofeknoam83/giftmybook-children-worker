@@ -55,8 +55,8 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   selection/eligibility/band counts immediately AND `buildStoryRequest`
   refuses fresh generation by id (customers can never get it again) while
   its definition remains so stored stories keep validating and printing;
-  the merged gate refuses to drop any theme/band below 3 active books (one
-  full slate). `retired: false` restores.
+  bands may have 0, 1, or 2 active books. Selection returns up to 3 distinct
+  active books and rejects empty bands with 422. `retired: false` restores.
 - `profile.js` — deterministic normalization (NFC, control-char rejection,
   dedupe, length caps). No LLM. Profile strings are data, never instructions.
 - `selection.js` — fit-weighted candidate selection: the handoff's exact
