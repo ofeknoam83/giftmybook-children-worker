@@ -1,6 +1,10 @@
 # Audiobook V2 — the performed read-aloud with a score and sound design (plan, ab-1)
 
-> **Status:** PLAN (2026-09-07). Nothing on this branch is code yet; §10 is the build order.
+> **Status:** IMPLEMENTED (2026-09-07, `ab-1` / `aq-1`) — `services/catalogEngine/audio/` +
+> `data/audio/` + the `/v13/generate-audiobook`, `/v13/audiobook-audition`, `/v13/pick-take`,
+> `/v13/cancel-audiobook` and `GET /v13/audiobook-cast` endpoints, 13 test suites. This
+> document is the design record; `CLAUDE.md` (the `audio/` section + the `CATALOG_AUDIO_*`
+> switches) is the running summary. §10 was the build order.
 > **Scope:** `giftmybook-children-worker` (this plan — the engine) + `giftmybook-standalone`
 > (`docs/AUDIOBOOK_V2_APP_WIRING.md` — the app half: dispatch, record, admin Audio Bench,
 > the read-along player, delivery). The V1 engine that this REPLACES for children's books

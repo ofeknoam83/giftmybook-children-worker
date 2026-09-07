@@ -1245,6 +1245,213 @@ app.post('/v13/cancel-coloring-book', authenticate, (req, res) => {
   return res.json({ success: true, bookId, message: 'Cancellation signal sent' });
 });
 
+// ── Audiobook (ab-1 — docs/AUDIOBOOK_V2_PLAN.md) ─────────────────────────
+// The performed read-aloud of one finished V1.3 story with a per-theme
+// score and sound design: POST /v13/generate-audiobook (202 + callback),
+// POST /v13/audiobook-audition (sync: one spread on a cast),
+// POST /v13/pick-take (the audiobook_unresolved remedy) and
+// POST /v13/cancel-audiobook. Every validation happens BEFORE the 202; the
+// callback payload carries every key on success and on failure.
+
+/** @param {string} bookId @returns {string} the watchdog map key of an audiobook run */
+function audiobookActiveJobKey(bookId) {
+  return `audiobook:${bookId}`;
+}
+
+const AUDIO_LANGUAGES = ['en', 'es', 'he'];
+const AUDIO_SPREAD_MAX = 12;
+
+/**
+ * Validate the shared audiobook request fields (story, profile, language,
+ * cast, dedication, tuning). Returns `{error, failureCode}` or the resolved
+ * inputs.
+ * @param {object} body
+ * @returns {Promise<object>}
+ */
+async function resolveAudiobookInputs(body) {
+  let profile;
+  try {
+    profile = catalogEngine.normalizeProfile(body.profile);
+  } catch (err) {
+    return { error: err.message };
+  }
+  const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
+  if (!storyPair) return { error: 'story {request, response} is required — the audiobook reads an existing validated story, never a fresh one' };
+  if (body.language !== undefined && body.language !== null && !AUDIO_LANGUAGES.includes(body.language)) return { error: `language must be one of ${AUDIO_LANGUAGES.join(', ')}` };
+  const cast = body.cast && typeof body.cast === 'object' && !Array.isArray(body.cast) ? body.cast : {};
+  for (const k of ['narrator', 'companion']) {
+    if (cast[k] !== undefined && cast[k] !== null && (typeof cast[k] !== 'string' || !/^[a-z][a-z0-9_]{1,40}$/.test(cast[k]))) return { error: `cast.${k} must be a voice key` };
+  }
+  let dedication = null;
+  if (body.dedication && typeof body.dedication === 'object') {
+    const text = typeof body.dedication.text === 'string' ? body.dedication.text.trim().slice(0, 1200) : '';
+    const from = typeof body.dedication.from === 'string' ? body.dedication.from.trim().slice(0, 80) : '';
+    if (text) dedication = { text, from };
+  }
+  if (body.audioTuning !== undefined && body.audioTuning !== null && (typeof body.audioTuning !== 'object' || Array.isArray(body.audioTuning))) return { error: 'audioTuning must be an object {versionLabel, hash, text}' };
+  let story;
+  try {
+    story = await resolveStory({ storyPair, checkpointStory: null, bookDefinitionId: null, profile, sessionId: body.sessionId || body.bookId, log: (level, msg) => console.log(`[audiobook:${body.bookId}] ${msg}`) });
+  } catch (err) {
+    return { error: err.message, failureCode: err.failureCode || 'invalid_story' };
+  }
+  const bookDef = await catalogEngine.getBookForTag(story.request.book_id, story.request?.versions?.catalog);
+  if (!bookDef) return { error: `story pins catalog '${story.request?.versions?.catalog}' which is no longer resolvable — regenerate the story`, failureCode: 'missing_book_definition' };
+  return { profile, story, bookDef, cast: { narrator: cast.narrator || undefined, companion: cast.companion || undefined }, dedication, language: body.language || 'en', audioTuning: body.audioTuning || null };
+}
+
+app.post('/v13/generate-audiobook', authenticate, async (req, res) => {
+  if (!catalogEngine.flags.audiobookEnabled()) {
+    return res.status(503).json({ success: false, error: 'the audiobook is disabled on this revision (CATALOG_AUDIOBOOK=0)', failureCode: 'audiobook_disabled' });
+  }
+  const body = req.body || {};
+  const { bookId, callbackUrl, progressCallbackUrl, dispatchId } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) return res.status(400).json({ success: false, error: 'invalid bookId' });
+  if (!callbackUrl) return res.status(400).json({ success: false, error: 'callbackUrl is required — the audiobook is delivered by callback only' });
+  if (dispatchId !== undefined && dispatchId !== null && (typeof dispatchId !== 'string' || dispatchId.length > 128)) return res.status(400).json({ success: false, error: 'dispatchId must be a string' });
+  const subsetOk = list => Array.isArray(list) && list.length > 0 && list.length <= AUDIO_SPREAD_MAX && list.every(n => Number.isInteger(n) && n >= 1 && n <= AUDIO_SPREAD_MAX) && new Set(list).size === list.length;
+  if (body.segments !== undefined && body.segments !== null && !subsetOk(body.segments)) return res.status(400).json({ success: false, error: `segments must be a unique list of spread numbers between 1 and ${AUDIO_SPREAD_MAX}` });
+  if (body.forceRetake !== undefined && body.forceRetake !== null && !subsetOk(body.forceRetake)) return res.status(400).json({ success: false, error: `forceRetake must be a unique list of spread numbers between 1 and ${AUDIO_SPREAD_MAX}` });
+  const inputs = await resolveAudiobookInputs(body);
+  if (inputs.error) return res.status(400).json({ success: false, error: inputs.error, ...(inputs.failureCode ? { failureCode: inputs.failureCode } : {}) });
+  const jobKey = audiobookActiveJobKey(bookId);
+  if (activeBooks.has(jobKey)) return res.status(409).json({ success: false, error: 'an audiobook run is already in progress for this bookId', failureCode: 'in_flight' });
+  const audioVersion = catalogEngine.versions.AUDIO_VERSION;
+  const qaVersion = catalogEngine.versions.AUDIO_QA_VERSION;
+  res.status(202).json({
+    success: true, bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', audioVersion,
+    cast: inputs.cast, language: inputs.language, accepted: { segments: Array.isArray(body.segments) ? body.segments : inputs.bookDef.book.beats.map(b => b.spread) },
+  });
+
+  const costTracker = new CostTracker();
+  const ctx = createBookContext(bookId, { mapKey: jobKey, callbackUrl, progressCallbackUrl: progressCallbackUrl || null });
+  const absoluteTimer = setTimeout(() => {
+    console.error(`[audiobook:${bookId}] hit the absolute timeout (${catalogEngine.flags.audioTimeoutMinutes()} min) — aborting`);
+    ctx.abortController.abort();
+  }, catalogEngine.flags.audioTimeoutMinutes() * 60 * 1000);
+  (async () => {
+    const started = Date.now();
+    const stable = { bookId, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', audioVersion, qaVersion };
+    const empty = { cached: false, audiobookUrl: null, storageKey: null, timelineUrl: null, timeline: null, durationSeconds: null, bytes: null, loudness: null, cast: null, script: null, audioTuningUsed: 'none', language: inputs.language, pronunciations: [], segments: [], music: null, sfx: null, ambience: null, gates: null, unresolved: [], advisories: [], warnings: [] };
+    let payload;
+    try {
+      const { generateAudiobook } = require('./services/catalogEngine/audio');
+      const r = await generateAudiobook({
+        bookId, story: inputs.story.response, bookDef: inputs.bookDef, profile: inputs.profile,
+        language: inputs.language, cast: inputs.cast, dedication: inputs.dedication, audioTuning: inputs.audioTuning,
+        segments: Array.isArray(body.segments) ? body.segments : undefined, forceRetake: Array.isArray(body.forceRetake) ? body.forceRetake : undefined, forceNew: !!body.forceNew,
+        injectedKeys: { ELEVENLABS_API_KEY: typeof body.ELEVENLABS_API_KEY === 'string' ? body.ELEVENLABS_API_KEY : null, apiKeys: body.apiKeys && typeof body.apiKeys === 'object' ? body.apiKeys : {} },
+        costTracker,
+        onProgress: (fraction, message) => {
+          ctx.touchActivity();
+          if (progressCallbackUrl) {
+            reportProgress(progressCallbackUrl, { bookId, stage: 'audiobook', progress: Math.round(Math.max(0, Math.min(1, fraction)) * 100), message, ...(dispatchId ? { dispatchId } : {}) }).catch(() => {});
+          }
+        },
+        touch: () => ctx.touchActivity(),
+        abortSignal: ctx.abortSignal,
+        log: (level, msg) => ctx.log(level, msg),
+      });
+      const { cached, ...rest } = r;
+      payload = { success: true, ...stable, ...empty, ...rest, cached: !!cached, ...(r.subset ? { subset: true } : {}), costs: costTracker.getSummary(), elapsedMs: Date.now() - started, failureCode: null, error: null };
+      console.log(`[v13] generate-audiobook for ${bookId}: ${r.cached ? 'replayed' : 'built'}${r.durationSeconds ? ` ${Math.round(r.durationSeconds)}s` : ' (takes only)'} in ${Date.now() - started}ms`);
+    } catch (err) {
+      console.error(`[v13] generate-audiobook failed for ${bookId}:`, err.message);
+      const d = err.details || {};
+      payload = { success: false, ...stable, ...empty, ...d, cached: false, costs: costTracker.getSummary(), elapsedMs: Date.now() - started, failureCode: err.failureCode || null, error: err.message, cancelled: err.failureCode === 'cancelled' || ctx.abortSignal.aborted };
+    } finally {
+      clearTimeout(absoluteTimer);
+      removeBookContext(jobKey);
+    }
+    await postWithRetry(callbackUrl, payload);
+  })();
+});
+
+// POST /v13/audiobook-audition — one spread through the full take path on a
+// cast (sync): the Audio Bench's voice picker.
+app.post('/v13/audiobook-audition', authenticate, async (req, res) => {
+  if (!catalogEngine.flags.audiobookEnabled()) {
+    return res.status(503).json({ success: false, error: 'the audiobook is disabled on this revision (CATALOG_AUDIOBOOK=0)', failureCode: 'audiobook_disabled' });
+  }
+  const body = req.body || {};
+  const { bookId } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) return res.status(400).json({ success: false, error: 'invalid bookId' });
+  if (body.spread !== undefined && body.spread !== null && (!Number.isInteger(body.spread) || body.spread < 1 || body.spread > AUDIO_SPREAD_MAX)) return res.status(400).json({ success: false, error: `spread must be an integer between 1 and ${AUDIO_SPREAD_MAX}` });
+  const inputs = await resolveAudiobookInputs(body);
+  if (inputs.error) return res.status(400).json({ success: false, error: inputs.error, ...(inputs.failureCode ? { failureCode: inputs.failureCode } : {}) });
+  const costTracker = new CostTracker();
+  const started = Date.now();
+  try {
+    const { auditionAudiobook } = require('./services/catalogEngine/audio');
+    const r = await auditionAudiobook({
+      bookId, story: inputs.story.response, bookDef: inputs.bookDef, profile: inputs.profile, language: inputs.language, cast: inputs.cast,
+      spread: Number.isInteger(body.spread) ? body.spread : 1, forceNew: !!body.forceNew,
+      injectedKeys: { ELEVENLABS_API_KEY: typeof body.ELEVENLABS_API_KEY === 'string' ? body.ELEVENLABS_API_KEY : null, apiKeys: body.apiKeys && typeof body.apiKeys === 'object' ? body.apiKeys : {} },
+      costTracker, log: (level, msg) => console.log(`[audition:${bookId}] ${msg}`),
+    });
+    return res.json({ success: true, bookId, audioVersion: catalogEngine.versions.AUDIO_VERSION, ...r, costs: costTracker.getSummary(), elapsedMs: Date.now() - started });
+  } catch (err) {
+    console.error(`[v13] audiobook-audition failed for ${bookId}:`, err.message);
+    return res.status(err.failureCode === 'audiobook_provider_unavailable' ? 503 : 500).json({ success: false, bookId, error: err.message, failureCode: err.failureCode || null, costs: costTracker.getSummary() });
+  }
+});
+
+// POST /v13/pick-take — promote one scored candidate take (from an
+// audiobook_unresolved failure payload) to its canonical key with an
+// admin-vouched marker, so the next /v13/generate-audiobook dispatch (no
+// forceNew) replays it into the mix (mirrors /v13/pick-candidate).
+app.post('/v13/pick-take', authenticate, async (req, res) => {
+  if (!catalogEngine.flags.audiobookEnabled()) {
+    return res.status(503).json({ success: false, error: 'the audiobook is disabled on this revision (CATALOG_AUDIOBOOK=0)', failureCode: 'audiobook_disabled' });
+  }
+  const body = req.body || {};
+  const { bookId, storageKey } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) return res.status(400).json({ success: false, error: 'invalid bookId' });
+  if (typeof storageKey !== 'string' || storageKey.length > 512) return res.status(400).json({ success: false, error: 'storageKey (a candidate take key of this book) is required' });
+  try {
+    const { pickTake } = require('./services/catalogEngine/audio/candidates');
+    const r = await pickTake({ bookId, candidateKey: storageKey, log: (level, msg) => console.log(`[pickTake:${bookId}] ${msg}`) });
+    return res.json({ success: true, bookId, ...r });
+  } catch (err) {
+    console.error(`[pickTake:${bookId}] failed:`, err.message);
+    return res.status(err.statusCode || 500).json({ success: false, bookId, error: err.message });
+  }
+});
+
+// POST /v13/cancel-audiobook — abort an in-flight audiobook run.
+app.post('/v13/cancel-audiobook', authenticate, (req, res) => {
+  const { bookId } = req.body || {};
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) return res.status(400).json({ success: false, error: 'invalid bookId' });
+  const ctx = activeBooks.get(audiobookActiveJobKey(bookId));
+  if (!ctx) return res.status(404).json({ success: false, error: 'No active audiobook run found for this bookId' });
+  console.log(`[v13] cancel-audiobook: aborting bookId=${bookId}`);
+  ctx.abortController.abort();
+  return res.json({ success: true, bookId, message: 'Cancellation signal sent' });
+});
+
+// GET /v13/audiobook-cast — the cast vocabulary (narrator + companion voice
+// keys with labels) and the worker's recommended default for a theme/band,
+// so the app's Audio Bench offers exactly the voices this revision can
+// perform (the app never duplicates cast.json).
+app.get('/v13/audiobook-cast', authenticate, (req, res) => {
+  try {
+    const cast = require('./services/catalogEngine/audio/cast');
+    const themeId = typeof req.query.themeId === 'string' ? req.query.themeId.trim().slice(0, 60) : null;
+    const ageBand = typeof req.query.ageBand === 'string' ? req.query.ageBand.trim().slice(0, 10) : null;
+    const theme = themeId ? catalogEngine.mergedCatalog().themes[themeId] || null : null;
+    const recommended = themeId ? cast.defaultNarratorKey({ themeId, ageBand: ageBand || '4-5', seedBasis: '' }) : null;
+    const companion = theme ? cast.companionCastKey(theme) : null;
+    return res.json({
+      success: true, audioVersion: catalogEngine.versions.AUDIO_VERSION, castHash: cast.castFileHash(),
+      narrators: cast.narratorOptions(), companions: cast.companionOptions(),
+      recommended: { narrator: recommended, companion },
+      languages: AUDIO_LANGUAGES, enabled: catalogEngine.flags.audiobookEnabled(),
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST /v13/generate-cover-image — admin probe-anchor cover for the
 // illustration feedback loop (docs/AI_ILLUSTRATION_FEEDBACK_LOOP_PLAN.md
 // §5.1): render ONLY the front-cover key art from a child photo through the

@@ -36,6 +36,19 @@ const RATES = {
   'kwaivgi/kling-v3-video': { perSecond: 0.168 },
   'veo-3.1-fast-generate-preview': { perSecond: 0.15 },
   'veo-3.1-generate-preview': { perSecond: 0.40 },
+  // Audiobook (ab-1, docs/AUDIOBOOK_V2_PLAN.md §7) — narration per 1,000
+  // characters, generated music / sound effects per second. Vendor pages
+  // as summarized 2026-09-07; verify against the account's plan before
+  // invoicing (ElevenLabs bills per plan tier, $0.10-0.18 per 1k chars).
+  'elevenlabs:eleven_v3': { perThousandChars: 0.18 },
+  'elevenlabs:eleven_multilingual_v2': { perThousandChars: 0.18 },
+  'gemini:gemini-2.5-pro-preview-tts': { perThousandChars: 0.08 },
+  'gemini:gemini-2.5-flash-preview-tts': { perThousandChars: 0.04 },
+  'openai:gpt-4o-mini-tts': { perThousandChars: 0.015 },
+  'elevenlabs:music_v1': { perSecond: 0.0025 },
+  'elevenlabs:sound_effects': { perSecond: 0.002 },
+  'lyria:lyria-002': { perSecond: 0.002 },
+  'lyria:lyria-3': { perSecond: 0.0027 },
 };
 
 // Unknown models bill at a plausible default, which silently hides a missing
@@ -57,6 +70,30 @@ class CostTracker {
     this.textUsage = {};   // model → { inputTokens, outputTokens }
     this.imageUsage = {};  // model → count
     this.videoUsage = {};  // model → generated seconds
+    this.audioChars = {};  // provider:model → synthesized characters (audiobook, ab-1)
+    this.audioSeconds = {}; // provider:model → generated seconds of music / effects
+  }
+
+  /**
+   * Record synthesized narration characters for a provider:model (ab-1).
+   * @param {string} model `provider:model`
+   * @param {number} characters
+   */
+  addAudioCharacters(model, characters) {
+    const n = Number(characters);
+    if (!Number.isFinite(n) || n <= 0) return;
+    this.audioChars[model] = (this.audioChars[model] || 0) + n;
+  }
+
+  /**
+   * Record generated seconds of music or sound effects (ab-1).
+   * @param {string} model `provider:model`
+   * @param {number} seconds
+   */
+  addAudioSeconds(model, seconds) {
+    const s = Number(seconds);
+    if (!Number.isFinite(s) || s <= 0) return;
+    this.audioSeconds[model] = (this.audioSeconds[model] || 0) + s;
   }
 
   addTextUsage(model, inputTokens, outputTokens) {
@@ -122,6 +159,20 @@ class CostTracker {
       };
     }
 
+    // Audiobook narration (per 1,000 characters) and generated audio (per second)
+    for (const [model, chars] of Object.entries(this.audioChars)) {
+      const rate = rateFor(model, { perThousandChars: 0.15 }, 'audio');
+      const cost = (chars / 1000) * (rate.perThousandChars || 0.15);
+      totalCost += cost;
+      breakdown[model] = { audioCharacters: chars, cost: Math.round(cost * 10000) / 10000 };
+    }
+    for (const [model, seconds] of Object.entries(this.audioSeconds)) {
+      const rate = rateFor(model, { perSecond: 0.0025 }, 'audio');
+      const cost = seconds * (rate.perSecond || 0.0025);
+      totalCost += cost;
+      breakdown[model] = { audioSeconds: Math.round(seconds * 100) / 100, cost: Math.round(cost * 10000) / 10000 };
+    }
+
     return {
       totalCost: Math.round(totalCost * 10000) / 10000,
       breakdown,
@@ -132,6 +183,8 @@ class CostTracker {
     this.textUsage = {};
     this.imageUsage = {};
     this.videoUsage = {};
+    this.audioChars = {};
+    this.audioSeconds = {};
   }
 
   // Re-hydrate from a previously saved summary (used to resume costs across retries)
@@ -146,6 +199,12 @@ class CostTracker {
       }
       if (data.videoSeconds != null) {
         this.addVideoSeconds(model, data.videoSeconds);
+      }
+      if (data.audioCharacters != null) {
+        this.addAudioCharacters(model, data.audioCharacters);
+      }
+      if (data.audioSeconds != null) {
+        this.addAudioSeconds(model, data.audioSeconds);
       }
     }
   }

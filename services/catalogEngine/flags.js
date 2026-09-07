@@ -258,6 +258,34 @@ module.exports = {
   videoMaxClipSeconds: () => envInt('CATALOG_VIDEO_MAX_CLIP_SECONDS', 30, 0, 600),
   videoShipOnExhaustion: () => envOn('CATALOG_VIDEO_SHIP_ON_EXHAUSTION'),
   videoMusic: () => String(process.env.CATALOG_VIDEO_MUSIC || 'none').trim() || 'none',
+  // ab-1 — the audiobook (docs/AUDIOBOOK_V2_PLAN.md §5.3). Everything ON by
+  // default except the opt-ins; every env is a kill-switch or a bounded knob.
+  audiobookEnabled: () => !envOff('CATALOG_AUDIOBOOK'),
+  audioNarratorProvider: () => String(process.env.CATALOG_AUDIO_NARRATOR_PROVIDER || 'elevenlabs').trim().toLowerCase() || 'elevenlabs',
+  audioNarratorModel: () => String(process.env.CATALOG_AUDIO_NARRATOR_MODEL || '').trim() || null,
+  audioTakeCandidates: () => envInt('CATALOG_AUDIO_TAKE_CANDIDATES', 2, 1, 3),
+  audioMaxRepairs: () => envInt('CATALOG_AUDIO_MAX_REPAIRS', 2, 0, 4),
+  audioBudgetPerSegment: () => envInt('CATALOG_AUDIO_BUDGET_PER_SEGMENT', 5, 1, 10),
+  audioConcurrency: () => envInt('CATALOG_AUDIO_CONCURRENCY', 4, 1, 8),
+  audioCharacterVoicesEnabled: () => !envOff('CATALOG_AUDIO_CHARACTER_VOICES'),
+  audioDirectorEnabled: () => !envOff('CATALOG_AUDIO_DIRECTOR'),
+  audioTranscriptQaEnabled: () => !envOff('CATALOG_AUDIO_TRANSCRIPT_QA'),
+  audioSttModel: () => String(process.env.CATALOG_AUDIO_STT_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash',
+  audioMusicEnabled: () => !envOff('CATALOG_AUDIO_MUSIC'),
+  audioMusicProvider: () => String(process.env.CATALOG_AUDIO_MUSIC_PROVIDER || 'lyria').trim().toLowerCase() || 'lyria',
+  audioSfxEnabled: () => !envOff('CATALOG_AUDIO_SFX'),
+  audioSfxProvider: () => String(process.env.CATALOG_AUDIO_SFX_PROVIDER || 'elevenlabs').trim().toLowerCase() || 'elevenlabs',
+  audioAmbienceEnabled: () => !envOff('CATALOG_AUDIO_AMBIENCE'),
+  audioPageTurnEnabled: () => !envOff('CATALOG_AUDIO_PAGE_TURN'),
+  audioListenQaEnabled: () => !envOff('CATALOG_AUDIO_LISTEN_QA'),
+  audioTargetLufs: () => {
+    const n = Number(process.env.CATALOG_AUDIO_TARGET_LUFS);
+    return Number.isFinite(n) && n <= -8 && n >= -30 ? n : -16;
+  },
+  audioShipOnExhaustion: () => envOn('CATALOG_AUDIO_SHIP_ON_EXHAUSTION'),
+  audioTimeoutMinutes: () => envInt('CATALOG_AUDIO_TIMEOUT_MINUTES', 20, 5, 90),
+  audioTuningLayerEnabled: () => !envOff('CATALOG_AUDIO_TUNING_LAYER'),
+  audioAssetCandidates: () => envInt('CATALOG_AUDIO_ASSET_CANDIDATES', 2, 1, 3),
   // cb-1 — the coloring book (docs/COLORING_BOOK_V2_PLAN.md §5.4). Every
   // switch is a kill-switch (on by default) except the explicit opt-ins.
   coloringBookEnabled: () => !envOff('CATALOG_COLORING_BOOK'),

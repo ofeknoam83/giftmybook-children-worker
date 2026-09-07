@@ -1,0 +1,47 @@
+{
+  "version": "palettes-1",
+  "note": "Per-theme instrument palettes for the music SUITES (ab-1, docs/AUDIOBOOK_V2_PLAN.md §4.5). A suite is generated ONCE per theme from these fixed words + the world-law card's palette line + the cue's fixed mood line; editing a palette changes the suite prompt hash and elects a new suite. Every suite is instrumental, gentle, no vocals, no heavy percussion.",
+  "global": {
+    "style": "gentle instrumental children's storybook score, warm and clear, no vocals, no lyrics, no heavy drums, no distortion, no sudden loud hits, a natural ending that resolves",
+    "negative": "vocals, singing, lyrics, rap, heavy drums, electric guitar distortion, harsh synth, sirens, screams, dissonance, abrupt stop"
+  },
+  "cues": {
+    "theme_intro": { "seconds": 14, "mood": "a bright, welcoming opening signature — the sound of arriving somewhere wonderful; a clear melody the whole suite shares" },
+    "calm": { "seconds": 60, "mood": "calm, unhurried, content — a quiet afternoon; the shared melody hinted softly" },
+    "playful": { "seconds": 60, "mood": "playful, bouncy, light on its feet — skipping and giggling; the shared melody at a hop" },
+    "wonder": { "seconds": 60, "mood": "hushed wonder and curiosity — something magical just came into view; the shared melody floating, slow" },
+    "tender": { "seconds": 60, "mood": "tender, close, loving — a hug at the end of the day; the shared melody, warm and simple" },
+    "gentle_tension": { "seconds": 60, "mood": "gentle, child-safe suspense — a tiptoe, a question mark, never scary; the shared melody in a minor colour, quiet" },
+    "triumph": { "seconds": 60, "mood": "proud and joyful — we did it together; the shared melody, fuller and brighter" },
+    "lullaby_outro": { "seconds": 30, "mood": "a lullaby ending — slowing down, softer and softer, the shared melody one last time, a gentle final chord that fades to rest" },
+    "refrain_motif": { "seconds": 4, "mood": "a tiny four-second sparkle of the shared melody — a musical wink that announces a repeated line; ends cleanly" }
+  },
+  "themes": {
+    "farm": { "instruments": "warm acoustic guitar, fiddle, soft upright piano, a light shaker", "tempoBpm": 84, "key": "G major", "feel": "sunny country morning" },
+    "dinosaur": { "instruments": "marimba, low bassoon, warm strings, soft hand drum", "tempoBpm": 80, "key": "D major", "feel": "wide prehistoric valley, big and friendly" },
+    "space": { "instruments": "soft synth pads, celesta, glass bells, a low gentle hum", "tempoBpm": 76, "key": "E major", "feel": "floating among quiet stars" },
+    "under_the_sea": { "instruments": "harp, glass marimba, slow pads, a soft vibraphone", "tempoBpm": 72, "key": "F major", "feel": "sunlit water, slow currents" },
+    "jungle": { "instruments": "kalimba, wooden flute, gentle hand percussion, warm nylon guitar", "tempoBpm": 88, "key": "A major", "feel": "green, alive, dappled light" },
+    "safari": { "instruments": "kora, warm strings, soft djembe, a wooden flute", "tempoBpm": 82, "key": "C major", "feel": "golden grass, big sky, gentle animals" },
+    "enchanted_forest": { "instruments": "celesta, harp, soft strings, a music box", "tempoBpm": 74, "key": "B-flat major", "feel": "moss, moonlight, tiny lights" },
+    "pirate": { "instruments": "accordion, tin whistle, nylon guitar, a soft frame drum", "tempoBpm": 92, "key": "D major", "feel": "salt breeze, a friendly ship, a treasure map" },
+    "construction": { "instruments": "bright xylophone, brushed drum kit played softly, tuba, clarinet", "tempoBpm": 96, "key": "C major", "feel": "busy, cheerful, hard hats and big machines" },
+    "dream": { "instruments": "music box, soft pads, harp, a whispering choir of synth voices without words", "tempoBpm": 66, "key": "E-flat major", "feel": "clouds, moonlight, floating" },
+    "christmas": { "instruments": "sleigh bells, piano, warm strings, a soft celesta", "tempoBpm": 86, "key": "F major", "feel": "snowfall, candlelight, cocoa" },
+    "thanksgiving": { "instruments": "acoustic guitar, warm piano, cello, a soft brush snare", "tempoBpm": 80, "key": "A-flat major", "feel": "autumn leaves, a long table, gratitude" }
+  },
+  "fallback": {
+    "note": "The CC0 freepd.com beds V1 shipped (data/audio/fallback/CREDITS.md) — the fail-open floor when a suite cue cannot be elected.",
+    "byCue": {
+      "theme_intro": "ambient-light.mp3",
+      "calm": "ambient-calm.mp3",
+      "playful": "ambient-playful.mp3",
+      "wonder": "ambient-curious.mp3",
+      "tender": "ambient-tender.mp3",
+      "gentle_tension": "ambient-suspense.mp3",
+      "triumph": "ambient-triumph.mp3",
+      "lullaby_outro": "ambient-bedtime.mp3",
+      "refrain_motif": "ambient-curious.mp3"
+    }
+  }
+}
