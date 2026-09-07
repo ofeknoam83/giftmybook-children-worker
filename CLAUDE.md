@@ -270,10 +270,10 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   one plate per distinct `visual_required` evidence value (two angles,
   flat background, no text) + a vision-read structured spec rendered to one
   inert `specText`; cached by (normalized value, theme, STYLE_VERSION);
-  the theme companion gets a sheet when drawable (`isDrawableCompanion`
-  excludes human adults — a named human companion is instead explicitly
-  ALLOWED by the COMPANION block, which used to contradict the no-humans
-  background rule on 38 books); fail-open. (4) The **emotion plan**
+  the theme companion gets a sheet when drawable (`isDrawableCompanion` —
+  since `ce-19` every named companion, PERSON-typed ones included; a named
+  human companion is explicitly ALLOWED by the COMPANION block, which used
+  to contradict the no-humans background rule on 38 books); fail-open. (4) The **emotion plan**
   (`emotionPlan.js`): a closed enum (10 emotions × 3 intensities) from a
   beat-keyword table, optionally refined by ONE per-story classifier call
   (`CATALOG_EMOTION_CLASSIFIER`), band 1-3 restricted, no adjacent repeats.
@@ -547,6 +547,52 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   name; and a set-gate re-render that comes back with MORE blocking
   defects than the flagged render is never adopted (the shipped bytes are
   restored to the key, the finding stays advisory).
+  **Secondary characters are Bible identities (`ce-19`, 2026-09-07)**: a
+  farm book's Farmer Bea was a different woman on two spreads. Two causes,
+  both general. (1) `isDrawableCompanion` EXCLUDED every person-typed
+  companion from the companion sheet (the renderer forbade inventing adult
+  faces), so the two human-guide themes (farm, construction — 38 books)
+  rendered their companion as a bare noun: no pixels, no spec, no
+  `look_match` (the check was sheet-gated), no set gate — twelve stateless
+  renders drew twelve farmers. (2) The ce-11 world/display-name masks in
+  `companionOnSpread` were raw substring splits, and the farm display name
+  "Farm" is a substring of "Farmer" — every "Farmer Bea" became "er Bea"
+  before the name was looked for, so on the farm theme the signal never
+  fired on ANY spread (no companion line, no COMPANION block, no QA check;
+  the beat's ACTION line was the only thing drawing her). The masks are
+  whole-word now (a mask that is a whole word of the companion's own name
+  is skipped). The general fix treats every named recurring companion —
+  human or creature, present catalog or overlay-patched — exactly like the
+  child: ONE shared `shared/illustration/companionKind.js` decides PERSON
+  vs creature for the sheet builder, the renderer, QA and the contact gate
+  alike (two divergent regexes before); a person-typed companion gets a
+  SECONDARY CHARACTER model sheet (one fictional person full-body in two
+  views, no child hero, no text, its own content check + retry note)
+  elected per theme like the creature sheet, plus a CHARACTER spec
+  (closed-vocab apparent age + build, skin tone, hair, face notes, outfit
+  garment by garment, dominant hex colours, marks —
+  `sanitizeCharacterSpec` / `renderCharacterSpecText`, inert and capped at
+  420 chars; creatures keep the object spec); the companion's spec
+  sentence now rides the COMPANION prompt block as FIXED LOOK (before
+  ce-19 it was derived, hashed and dropped on the floor) with the
+  reference cited in a person's terms and an "exactly ONE" rule (the
+  scene line and the pack label say it too); QA v2 (`qa-11`) judges
+  `look_match` against sheet + spec by face/age/hair/skin/build/outfit,
+  adds the soft `duplicated` (BLOCKING `companion duplicated`) and a soft
+  companion bbox; the new **companion contact-sheet gate**
+  (`checkCompanionContactSheet`, defect `companion_rendering`) tiles the
+  companion crops of every spread that expected it beside the companion
+  sheet — the set-level view two individually-passing spreads never get —
+  and re-renders flagged spreads citing the companion sheet's index in
+  the re-render's own pack; `renderSpread` results and `.qa.json` markers
+  carry `companionBox` + `companionExpected`, and callbacks'
+  `bookBible.companion` carries `specText` + `human`. The bible hash
+  folds the new sheet/spec, so the two themes re-key automatically; an
+  elected companion sheet is pinned per theme + prompt hash under
+  `catalog-assets/companion-sheets/{STYLE_VERSION}/` (delete the object to
+  re-elect). Kill-switch `CATALOG_HUMAN_COMPANION_SHEET=0` (person
+  companions back to nouns; creature sheets unaffected). STYLE_VERSION
+  `ce-19`, QA_VERSION `qa-11`.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -602,6 +648,10 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   failing `identity_kit_failed`.
 - `CATALOG_PROP_SHEETS=0` — (ce-9) no prop / companion sheets (props ride
   as quoted nouns only).
+- `CATALOG_HUMAN_COMPANION_SHEET=0` — (ce-19) no SECONDARY CHARACTER sheet
+  / character spec for a PERSON-typed companion (Farmer Bea, Builder Sam
+  ride as nouns again, unchecked, as before ce-19); creature companion
+  sheets unaffected.
 - `CATALOG_EMOTION_PLAN=0` — (ce-9) no per-spread emotion line/check;
   `CATALOG_EMOTION_CLASSIFIER=0` keeps the keyword table only.
 - `CATALOG_CONTACT_QA=0` — (ce-9) skip the contact-sheet set gate and its

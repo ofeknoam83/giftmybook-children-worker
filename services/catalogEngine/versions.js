@@ -161,7 +161,20 @@ const PROMPT_TEMPLATE_VERSION = '1.3.0'; // 1.3.0: explicit per-spread literal a
 // AND a hex, legible via a thin pale hairline instead of an inverted fill
 // — and that hex is the gate's target too. Prompt text changed on every
 // embedded render — ce-17 renders must never replay as ce-18.
-const STYLE_VERSION = 'ce-18';
+// ce-19: SECONDARY CHARACTERS are Bible identities. A PERSON-typed theme
+// companion (Farmer Bea, Builder Sam) was excluded from the companion
+// sheet (the renderer forbade inventing adult faces), so the two human-
+// guide themes rendered their companion as a bare noun — no pixels, no
+// spec, no look_match, no set gate — and every spread drew a different
+// farmer. Now every named companion gets a reference sheet (a person
+// full-body in two views) + a pinned CHARACTER spec (age, build, skin,
+// hair, face, outfit, colours, marks) that rides the COMPANION block as
+// FIXED LOOK, the reference pack's companion label and the scene line say
+// "exactly ONE of them", and QA judges the companion against sheet + spec.
+// The bible hash folds the new sheet/spec on the two themes, and the
+// COMPANION block text changed for every companion book — ce-18 renders
+// must never replay as ce-19.
+const STYLE_VERSION = 'ce-19';
 
 // Prompt-only revision, logged on fresh spread requests. Keep the render cache
 // namespace stable so deploying this direction never regenerates saved artwork.
@@ -222,7 +235,16 @@ const SCENE_INTEGRATION_VERSION = 'si-1';
  * the book's ink set. Markers written under qa-9 never measured ink —
  * replays re-check.
  */
-const QA_VERSION = 'qa-10';
+/**
+ * qa-11 (ce-19): the companion verdict judges a PERSON companion by face,
+ * apparent age, hair, skin tone, build and outfit against its sheet AND
+ * its pinned spec (quoted as data), gains the soft `duplicated` field
+ * (BLOCKING 'companion duplicated' — the book has exactly ONE of them)
+ * and a soft companion `bbox` the new companion contact-sheet gate crops
+ * its tiles from. Markers written under qa-10 never judged a human
+ * companion's look at all — replays re-check.
+ */
+const QA_VERSION = 'qa-11';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

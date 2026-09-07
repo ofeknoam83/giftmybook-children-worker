@@ -288,7 +288,7 @@ async function generateGiftVideo(p) {
         const r = propRefs.get(normalizePropValue(v));
         return { name: v, specText: r ? r.specText : null, sheet: r ? r.sheet : null, expected: declared.includes(v) ? 'required' : 'carried' };
       }),
-      companion: companionPresent ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion && bible.companion.base64 ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null } : null,
+      companion: companionPresent ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion && bible.companion.base64 ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null, specText: bible.companion ? bible.companion.specText || null : null, human: bible.companion ? !!bible.companion.human : undefined } : null,
       beat: beat ? beat.beat : null,
       emotion: emotion ? { ...emotion, cue: EMOTION_CUES[emotion.emotion] || null } : null,
     };

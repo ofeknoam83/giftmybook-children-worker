@@ -667,8 +667,13 @@ describe('QA marker integrity (renderHash)', () => {
 });
 
 describe('shot plan rides the render path (ce-8)', () => {
+  // farm_2_3_hello_farm's spread-3 beat names Farmer Bea, so since ce-19
+  // (whole-word masks: the display name "Farm" no longer eats "Farmer") the
+  // companion field is REQUIRED on that spread — a verdict without it is
+  // malformed (unchecked), never a pass or a fail.
   const cleanVerdict = JSON.stringify({
     readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false,
+    companion: { present: true, look_match: true },
   });
   const geminiText = text => ({
     ok: true,
@@ -802,7 +807,7 @@ describe('shot plan rides the render path (ce-8)', () => {
         return geminiText(JSON.stringify({ consistent: false, flagged: [{ spread: 3, defect: 'palette_lighting', note: 'colder palette' }] }));
       }
       spreadQaCalls += 1;
-      if (spreadQaCalls > 2) return geminiText(JSON.stringify({ readable_text: false, child_absent: true, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false }));
+      if (spreadQaCalls > 2) return geminiText(JSON.stringify({ readable_text: false, child_absent: true, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false, companion: { present: true, look_match: true } }));
       return geminiText(cleanVerdict);
     });
     const { worldQa, results, unresolved } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));

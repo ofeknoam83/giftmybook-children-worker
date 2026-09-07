@@ -244,7 +244,7 @@ async function buildBookBible(p) {
     // Each sheet's pixels AND its independently elected spec both shape
     // the prompt + QA, so both hashes are part of the identity below.
     props: props.filter(x => x && x.sheet).map(x => ({ value: x.value, key: x.sheet.storageKey, hash: x.sheet.hash, specHash: x.sheet.specHash || null, specText: x.sheet.specText || null })),
-    companion: companion ? { name: companion.key, key: companion.storageKey, hash: companion.hash, specHash: companion.specHash || null, specText: companion.specText || null } : null,
+    companion: companion ? { name: companion.key, key: companion.storageKey, hash: companion.hash, specHash: companion.specHash || null, specText: companion.specText || null, human: !!companion.human } : null,
     worldPlate: worldPlate ? { hash: worldPlate.hash } : null,
     emotionPlanHash: emotion ? emotion.hash : null,
   };
@@ -305,7 +305,12 @@ function buildReferencePack(bible, ctx) {
     refs.props[v] = push({ kind: 'prop', label: `PROP SHEET for "${v}" (this exact object — same object, colours, material and size whenever it appears; the background is not part of the scene).`, base64: sheet.base64, mimeType: sheet.mimeType || 'image/png' });
   }
   if (ctx.companionOnSpread && bible.companion) {
-    refs.companionRef = push({ kind: 'companion', label: `COMPANION SHEET for "${bible.companion.key}" (the book's companion character — draw exactly this design, colours and proportions).`, base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' });
+    // ce-19: a PERSON companion is labeled in the words a person drifts in
+    // (face, age, hair, skin, build, outfit) and framed identity-ONLY, like
+    // the child's sheet — never a pose or the studio background to copy.
+    refs.companionRef = push({ kind: 'companion', label: bible.companion.human
+      ? `SECONDARY CHARACTER SHEET for "${bible.companion.key}" (the book's ONE recurring companion, a fictional person — draw exactly this person: the same face, apparent age, hair colour/style/length, skin tone, build, and the same complete outfit on every spread; exactly ONE of them). Identity only — never copy the pose, the expression, or the plain studio background.`
+      : `COMPANION SHEET for "${bible.companion.key}" (the book's companion character — draw exactly this design, colours and proportions).`, base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' });
   }
   if (bible.worldPlate) {
     refs.worldPlateRef = push({ kind: 'worldPlate', label: 'WORLD STYLE PLATE (this book\'s fixed world): match its palette, lighting, era, materials, and environment logic exactly. Do NOT copy its composition, and NEVER treat it as the scene to draw — it contains no characters and this illustration\'s action comes from the prompt only.', base64: bible.worldPlate.base64, mimeType: bible.worldPlate.mimeType || 'image/png' });
@@ -346,9 +351,12 @@ function buildPromptBible(bible, refs, ctx) {
     outfitSpecText: bible.outfit ? bible.outfit.outfit : null,
     hairLine: ctx.characterDescription || null,
     props,
+    // ce-19: the companion's pinned spec sentence rides the COMPANION block
+    // exactly as a prop's rides the PROPS block (before ce-19 the companion
+    // spec was derived, hashed, and then dropped on the floor here).
     companion: ctx.companionOnSpread && bible.theme?.companion?.name
-      ? { name: bible.theme.companion.name, type: bible.theme.companion.type, ref: refs.companionRef }
-      : (ctx.companionOnSpread && bible.companion ? { name: bible.companion.key, type: bible.companion.type || 'companion', ref: refs.companionRef } : null),
+      ? { name: bible.theme.companion.name, type: bible.theme.companion.type, ref: refs.companionRef, specText: bible.companion ? bible.companion.specText || null : null, human: bible.companion ? !!bible.companion.human : undefined }
+      : (ctx.companionOnSpread && bible.companion ? { name: bible.companion.key, type: bible.companion.type || 'companion', ref: refs.companionRef, specText: bible.companion.specText || null, human: !!bible.companion.human } : null),
     emotionLine: emotionEntry ? renderEmotionLine(emotionEntry) : null,
     emotion: emotionEntry || null,
   };
@@ -373,7 +381,7 @@ async function summarizeBible(bible) {
     characterSheet: m.characterSheet ? { url: await url(m.characterSheet.key), hash: m.characterSheet.hash, likeness: m.characterSheet.likeness } : null,
     outfitSpec: m.outfitSpec ? { text: m.outfitSpec.text, hash: m.outfitSpec.hash, source: m.outfitSpec.source } : null,
     props: await Promise.all(m.props.map(async x => ({ value: x.value, url: await url(x.key), hash: x.hash, specText: x.specText }))),
-    companion: m.companion ? { name: m.companion.name, url: await url(m.companion.key), hash: m.companion.hash } : null,
+    companion: m.companion ? { name: m.companion.name, url: await url(m.companion.key), hash: m.companion.hash, specText: m.companion.specText || null, human: !!m.companion.human } : null,
     emotionPlanHash: m.emotionPlanHash,
     bibleHash: m.bibleHash,
   };

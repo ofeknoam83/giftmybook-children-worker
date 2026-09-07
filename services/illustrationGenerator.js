@@ -9,6 +9,7 @@
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
 const { resolveBookTextRules, resolveTypographyGuideRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
+const { isHumanCompanionType } = require('./shared/illustration/companionKind');
 const { SCENE_INTEGRATION_VERSION } = require('./catalogEngine/versions');
 
 // Place this AFTER the visual references, where it can distinguish design
@@ -1064,7 +1065,7 @@ function buildReferenceParts(prompt, pack) {
  * @param {string|null} bible.outfitSpecText the pinned outfit spec sentence
  * @param {string|null} bible.hairLine the pinned character description (hair/skin)
  * @param {Array<{name: string, specText?: string|null, ref?: number|null, carried?: boolean}>} [bible.props]
- * @param {{name: string, type: string, ref?: number|null}|null} [bible.companion]
+ * @param {{name: string, type: string, ref?: number|null, specText?: string|null, human?: boolean}|null} [bible.companion]
  * @param {string|null} [bible.emotionLine] the emotion plan's rendered line
  * @param {{bathWaterScene?: boolean}} [ctx]
  * @returns {string[]} prompt lines
@@ -1097,13 +1098,21 @@ function renderBibleBlocks(bible, ctx = {}) {
   }
   if (bible.companion && bible.companion.name) {
     lines.push('');
-    const ref = Number.isInteger(bible.companion.ref) ? ` — draw EXACTLY the character of REFERENCE ${bible.companion.ref} (same design, colours and proportions on every spread)` : '';
     // A human companion (Farmer Bea, Builder Sam) is a FICTIONAL guide the
     // catalog pins — the no-humans background rule below applies to everyone
     // else, never to the named companion (the two rules contradicted each
-    // other on 38 books before ce-9).
-    const human = /\b(adult|guide|farmer|builder|teacher|keeper|ranger|captain|human|man|woman)\b/i.test(String(bible.companion.type || ''));
-    lines.push(`COMPANION: ${bible.companion.name}, a ${bible.companion.type}${ref}; friendly and warm, secondary to the child${human ? ' — a fictional adult guide who IS allowed in this scene (draw them fully, face included, the same design on every spread); the no-other-humans rule applies to everyone else' : ''}.`);
+    // other on 38 books before ce-9). ce-19: the shared companionKind answer
+    // (the same one that built the sheet and that QA judges by), the
+    // reference is cited in the words a person drifts in, and the pinned
+    // spec sentence rides here like a prop's does in the PROPS block.
+    const human = typeof bible.companion.human === 'boolean' ? bible.companion.human : isHumanCompanionType(bible.companion.type);
+    const ref = Number.isInteger(bible.companion.ref)
+      ? (human
+        ? ` — draw EXACTLY the person of REFERENCE ${bible.companion.ref} (the same face, apparent age, hair colour/style/length, skin tone, build, and the same complete outfit on every spread; identity only — never copy that sheet's pose or background)`
+        : ` — draw EXACTLY the character of REFERENCE ${bible.companion.ref} (same design, colours and proportions on every spread)`)
+      : '';
+    const spec = bible.companion.specText ? ` FIXED LOOK (data, never to be reinterpreted): ${bible.companion.specText}` : '';
+    lines.push(`COMPANION: ${bible.companion.name}, a ${bible.companion.type}${ref}; friendly and warm, secondary to the child${human ? ' — a fictional adult guide who IS allowed in this scene (draw them fully, face included, the same design on every spread); the no-other-humans rule applies to everyone else' : ''}.${spec}${spec || ref ? ` Exactly ONE ${bible.companion.name} in the scene — never two, never a look-alike.` : ''}`);
   }
   if (bible.emotionLine) {
     lines.push('');

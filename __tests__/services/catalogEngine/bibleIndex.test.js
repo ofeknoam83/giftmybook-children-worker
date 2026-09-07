@@ -57,6 +57,7 @@ jest.mock('../../../services/catalogEngine/illustrator/metrics', () => ({
 jest.mock('../../../services/catalogEngine/illustrator/contactSheet', () => ({
   checkCharacterContactSheet: jest.fn().mockResolvedValue({ pass: true, flagged: [], checked: 2 }),
   checkPropContactSheet: jest.fn().mockResolvedValue({ pass: true, flagged: [], checked: 2 }),
+  checkCompanionContactSheet: jest.fn().mockResolvedValue({ pass: true, flagged: [], checked: 2 }),
   contactRepairNote: jest.fn((defect, o) => `REPAIR ${defect} ref=${o && o.referenceIndex}`),
   CONTACT_REPAIR_INSTRUCTIONS: { prop_rendering: 'Draw the prop EXACTLY as its reference sheet.' },
 }));
@@ -69,7 +70,7 @@ const { getOutfitLock } = require('../../../services/catalogEngine/illustrator/o
 const { getEmotionPlan } = require('../../../services/catalogEngine/illustrator/emotionPlan');
 const { checkSpreadRenderV2 } = require('../../../services/catalogEngine/illustrator/spreadQa');
 const { inkSetOutliers } = require('../../../services/catalogEngine/illustrator/metrics');
-const { checkCharacterContactSheet, checkPropContactSheet } = require('../../../services/catalogEngine/illustrator/contactSheet');
+const { checkCharacterContactSheet, checkPropContactSheet, checkCompanionContactSheet } = require('../../../services/catalogEngine/illustrator/contactSheet');
 const { renderStorySpreads, illustrateStory } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
 const { QA_VERSION } = require('../../../services/catalogEngine/versions');
@@ -80,6 +81,8 @@ const PROFILE = { name: 'Emma', age: 2, pronouns: { subject: 'she', object: 'her
 const SHEET = { base64: 'c2hlZXQ=', mimeType: 'image/png', hash: 'sheethash', storageKey: 'catalog-assets/character-sheets/ce-9/a.png', likeness: 0.9, candidates: 3, advisories: [] };
 const OUTFIT = { outfit: 'Top: red t-shirt. Bottom: blue jeans. Footwear: white sneakers.', hash: 'outfithash', source: 'sheet', spec: { top: { desc: 'red t-shirt', colourHex: ['#ff0000'] } } };
 const PROP_SHEET = { key: 'teddy bear', kind: 'prop', base64: 'cHJvcA==', mimeType: 'image/png', hash: 'prophash', storageKey: 'catalog-assets/prop-sheets/ce-9/farm-x.png', specText: 'a small honey-brown plush bear' };
+// ce-19: the PERSON companion's sheet record (propSheet.js toSheet with companionMeta).
+const BEA_SHEET = { key: 'Farmer Bea', kind: 'companion', type: 'friendly adult farm guide', human: true, base64: 'YmVh', mimeType: 'image/png', hash: 'beahash', storageKey: 'catalog-assets/companion-sheets/ce-19/farm-x.png', spec: { name: 'Farmer Bea', kind: 'person' }, specText: 'Farmer Bea: an elderly adult of sturdy build, long grey hair in two braids; outfit: blue denim overalls.', specHash: 'beaspec' };
 
 const story = (spreadNos, evidence = []) => ({
   book_id: BOOK_ID,
@@ -558,4 +561,55 @@ test.each([
   const results = [original, { ...original, spread: 2 }];
   await runWorldConsistencyGate({ results, rerender: async () => replacement, log: () => {} });
   expect(results[0].buffer.toString()).toBe(adopt ? 'replacement' : 'original');
+});
+
+test('ce-19: a PERSON companion rides the pack, the COMPANION block and the QA on exactly the spreads that expect it; the companion contact gate tiles those spreads and its repair cites the companion sheet', async () => {
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_CONTACT_MAX_RERENDERS = '3';
+  getBibleProps.mockResolvedValue({ props: [], companion: BEA_SHEET, advisories: [] });
+  // farm_2_3_hello_farm: the beats of spreads 3, 4 and 12 name Farmer Bea; spread 1 does not (and its story text does not either).
+  const box = { x: 0.02, y: 0.15, w: 0.25, h: 0.8 };
+  checkSpreadRenderV2.mockImplementation(async (buf, { label }) => (label.includes(':s3:') ? cleanQa({ companionBox: box }) : cleanQa({ companionBox: null })));
+  checkCompanionContactSheet.mockResolvedValueOnce({ pass: false, flagged: [{ spread: 4, note: 'a grey bun instead of braids' }], checked: 2 });
+  const { results, contactQa, bookBible } = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 4], spreads: [1, 3, 4] }));
+  expect(results.map(r => [r.spread, r.companionExpected])).toEqual([[1, false], [3, true], [4, true]]);
+  expect(results[1].companionBox).toEqual(box);
+  // Spread 1: no companion anywhere. Spread 3: the sheet is the pack's 3rd entry (sheet, cover, companion), labeled in a person's terms.
+  const call = (idx) => generateIllustration.mock.calls.find(c => c[3].spreadIndex === idx);
+  expect(call(0)[3].referencePack.map(r => r.kind)).toEqual(['characterSheet', 'cover']);
+  expect(call(0)[3].bible.companion).toBeNull();
+  const s3 = call(2)[3];
+  expect(s3.referencePack.map(r => r.kind)).toEqual(['characterSheet', 'cover', 'companion']);
+  expect(s3.referencePack[2].label).toContain('SECONDARY CHARACTER SHEET for "Farmer Bea"');
+  expect(s3.referencePack[2].label).toContain('the same face, apparent age, hair colour/style/length, skin tone, build, and the same complete outfit');
+  expect(s3.bible.companion).toEqual({ name: 'Farmer Bea', type: 'friendly adult farm guide', ref: 3, specText: BEA_SHEET.specText, human: true });
+  expect(call(2)[0]).toContain('Companion present: Farmer Bea, a friendly adult farm guide — exactly ONE of them');
+  // QA on spread 3 was checked against the sheet AND the spec, as a person.
+  const qa3 = checkSpreadRenderV2.mock.calls.find(c => c[1].label.includes(':s3:'))[1];
+  expect(qa3.companion).toEqual({ name: 'Farmer Bea', type: 'friendly adult farm guide', sheet: { base64: 'YmVh', mimeType: 'image/png' }, specText: BEA_SHEET.specText, human: true });
+  expect(checkSpreadRenderV2.mock.calls.find(c => c[1].label.includes(':s1:'))[1].companion).toBeNull();
+  // The companion contact sheet: spreads 3 (its crop) and 4 (FULL, no box), beside the companion sheet + spec, judged as a person.
+  const contact = checkCompanionContactSheet.mock.calls[0][0];
+  expect(contact.tiles.map(t => [t.spread, t.cropped])).toEqual([[3, true], [4, false]]);
+  expect(contact.companionSheet).toMatchObject({ name: 'Farmer Bea', type: 'friendly adult farm guide', specText: BEA_SHEET.specText, human: true });
+  expect(contact.companionSheet.buffer.toString('base64')).toBe('YmVh');
+  // The flagged spread re-rendered once with the companion-sheet-citing note (REFERENCE 3 in ITS pack).
+  expect(contactQa).toMatchObject({ pass: false, rerendered: [4], flagged: [expect.objectContaining({ spread: 4, defect: 'companion_rendering' })] });
+  const repair = generateIllustration.mock.calls.at(-1);
+  expect(repair[3].spreadIndex).toBe(3);
+  expect(repair[0]).toContain('broke companion consistency for "Farmer Bea". REPAIR companion_rendering ref=3');
+  // The marker records the companion box; the bible echo carries the spec and the person flag; the hash folds the sheet.
+  const marker3 = JSON.parse(uploadBuffer.mock.calls.find(c => c[1].includes('spread-3') && c[1].endsWith('.qa.json'))[0].toString());
+  expect(marker3.qa.companionBox).toEqual(box);
+  expect(bookBible.companion).toMatchObject({ name: 'Farmer Bea', hash: 'beahash', specText: BEA_SHEET.specText, human: true });
+});
+
+test('ce-19: the bible hash re-keys every render when the companion sheet or its spec changes', async () => {
+  getBibleProps.mockResolvedValueOnce({ props: [], companion: null, advisories: [] });
+  const none = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  getBibleProps.mockResolvedValueOnce({ props: [], companion: BEA_SHEET, advisories: [] });
+  const bea = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  getBibleProps.mockResolvedValueOnce({ props: [], companion: { ...BEA_SHEET, specHash: 'otherspec' }, advisories: [] });
+  const respec = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  expect(new Set([none.storyHash, bea.storyHash, respec.storyHash]).size).toBe(3);
 });

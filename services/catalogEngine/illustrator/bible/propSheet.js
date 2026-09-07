@@ -37,6 +37,21 @@
  * Fail-open by contract: props are decorative (ce-6) — any failure logs and
  * returns null (the prop renders as a plain noun with a `propSheet`
  * advisory), never fails a book. Kill-switch: CATALOG_PROP_SHEETS=0.
+ *
+ * SECONDARY CHARACTERS (ce-19): a HUMAN companion (Farmer Bea, Builder
+ * Sam — the catalog's two adult guides, and any person-typed companion an
+ * overlay patches in) gets a sheet too. Before ce-19 `isDrawableCompanion`
+ * EXCLUDED every human role (the renderer forbade inventing adult faces),
+ * so the two human-guide themes rendered their companion as a bare noun:
+ * no pixels, no spec, no `look_match` check, no set gate — a different
+ * farmer on every spread. The person path differs from the creature path
+ * only where a person's drift lives: the sheet prompt asks for one
+ * fictional PERSON full-body in two views (no child, no other people),
+ * the content check expects exactly that, and the spec is a CHARACTER
+ * spec (apparent age, build, skin tone, hair, face, outfit garment by
+ * garment, dominant hex colours, marks) rendered to one inert sentence.
+ * Kill-switch: CATALOG_HUMAN_COMPANION_SHEET=0 restores the noun-only
+ * behaviour for person-typed companions (creature sheets unaffected).
  */
 
 const pLimit = require('p-limit');
@@ -48,6 +63,7 @@ const { renderWorldCardBlock } = require('../../worldCards');
 const { STYLE_VERSION } = require('../../versions');
 const { fnv1a } = require('../../selection');
 const flags = require('../../flags');
+const { isHumanCompanionType, isChildCompanionType } = require('../../../shared/illustration/companionKind');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const VISION_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || GEMINI_QA_MODEL;
@@ -63,6 +79,11 @@ const SPEC_FIELD_MAX_CHARS = 60;
 const SPEC_MARK_MAX_CHARS = 80;
 const SPEC_COLOURS_MAX = 3;
 const SPEC_MARKS_MAX = 4;
+/** The character spec (ce-19) names more slots than an object's — a wider sentence cap, same trimming rule. */
+const CHARACTER_SPEC_TEXT_MAX_CHARS = 420;
+const CHARACTER_OUTFIT_MAX = 5;
+const CHARACTER_FACE_MAX = 3;
+const CHARACTER_MARKS_MAX = 3;
 
 /** Closed vocabularies — the only spec words that can ever reach a prompt. */
 const SIZE_VOCAB = ['tiny', 'handheld', 'large', 'child-sized', 'larger-than-child'];
@@ -76,6 +97,20 @@ const SIZE_WORDS = {
 };
 const KIND_VOCAB = ['toy', 'plush', 'food', 'vehicle', 'tool', 'book', 'clothing', 'plant', 'object', 'creature', 'character'];
 const KIND_DEFAULT = { prop: 'object', companion: 'character' };
+/** The character spec's closed vocabularies (ce-19) — the only age/build words that can reach a prompt. */
+const CHARACTER_KIND = 'person';
+const AGE_VOCAB = ['child', 'teen', 'young-adult', 'adult', 'middle-aged', 'elderly'];
+const AGE_DEFAULT = 'adult';
+const AGE_WORDS = {
+  child: 'a child',
+  teen: 'a teenager',
+  'young-adult': 'a young adult',
+  adult: 'an adult',
+  'middle-aged': 'a middle-aged adult',
+  elderly: 'an elderly adult',
+};
+const BUILD_VOCAB = ['slim', 'average', 'sturdy', 'round'];
+const BUILD_DEFAULT = 'average';
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 const CONTROL_RE = /[\u0000-\u001F\u007F]+/g;
 
@@ -207,26 +242,31 @@ function cleanCompanion(companion) {
 }
 
 /**
- * Human-role words: a companion whose type carries one is a PERSON, and the
- * renderer forbids inventing adult (or extra child) faces — such companions
- * never get a sheet. Conservative on purpose: a false negative renders the
- * companion as a noun (today's behavior); a false positive would pin an
- * invented human face on every spread.
+ * Is the theme companion a PERSON (its type names a human role — the
+ * shared companionKind regex, so the sheet, the renderer's COMPANION
+ * block, the QA and the contact gate all agree)?
+ * @param {{name: string, type: string}|null|undefined} companion catalog theme.companion
+ * @returns {boolean}
  */
-const HUMAN_TYPE_RE = /\b(adult|adults|grown[- ]?ups?|human|humans|person|people|man|men|woman|women|boy|boys|girl|girls|kid|kids|child|children|baby|babies|guide|teacher|farmer|builder|worker|ranger|keeper|driver|pilot|captain|sailor|chef|baker|doctor|nurse|librarian|coach|neighbou?r|villager|elder|uncle|aunt|grandma|grandpa|grandmother|grandfather|mother|father|mom|mum|dad|parent|parents|wizard|witch|knight|princess|prince|king|queen|astronaut|pirate|elf|elves|fairy|fairies)\b/i;
+function isHumanCompanion(companion) {
+  const cleaned = cleanCompanion(companion);
+  return !!cleaned && isHumanCompanionType(cleaned.type);
+}
 
 /**
- * Is the theme companion a drawable creature/character (a sheet may be
- * built) rather than a human? Requires a usable name AND type, and a type
- * that names no human role — humans are excluded because the renderer
- * forbids inventing adult faces.
+ * May a reference sheet be built for the theme companion? Requires a
+ * usable name AND type. Since ce-19 a PERSON companion qualifies too —
+ * it is the companion that drifts most (a face, a hairstyle, an outfit
+ * per render) and the one that was pinned by nothing — unless
+ * CATALOG_HUMAN_COMPANION_SHEET=0 restores the pre-ce-19 exclusion.
  * @param {{name: string, type: string}|null|undefined} companion catalog theme.companion
  * @returns {boolean}
  */
 function isDrawableCompanion(companion) {
   const cleaned = cleanCompanion(companion);
   if (!cleaned) return false;
-  return !HUMAN_TYPE_RE.test(cleaned.type);
+  if (isHumanCompanionType(cleaned.type)) return flags.humanCompanionSheetEnabled();
+  return true;
 }
 
 /** @param {*} themeId @returns {string|null} a path-safe theme id, else null */
@@ -288,21 +328,49 @@ function buildPropSheetPrompt(value, theme) {
 }
 
 /**
+ * The person sheet's hard rules (ce-19): the subject IS a person, so the
+ * object rules' "NO people, NO hands, NO faces" cannot apply — what must
+ * stay out is the child hero, anyone else, and text.
+ */
+const PERSON_SHEET_HARD_RULES = [
+  'Flat, plain, neutral light-grey studio background, the figures centered, evenly and softly lit, no scene, no floor props, no frame.',
+  'HARD RULES: NO child hero, NO other people, NO animals or creatures, NO objects beyond what this character wears or holds as part of their role, NO readable text, letters, numbers, labels, or logos anywhere in the image.',
+  'ANATOMY: exactly two arms and two hands with five clearly separated fingers, two legs and two feet on each figure — no extra, missing, or fused limbs.',
+  'This image is a reference sheet: it fixes exactly what this character looks like so every interior illustration can reproduce the SAME person identically.',
+];
+
+/**
  * Generation prompt for the theme companion's sheet ("<name>, a <type>" as a
  * friendly picture-book character, full body, front + three-quarter view).
+ * A PERSON companion (ce-19) gets the person layout: one fictional,
+ * friendly person — the type phrase decides the role and age — with ONE
+ * distinctive, reproducible design (specific hair, skin tone, apparent
+ * age, build, one complete outfit), never the book's child hero.
  * @param {{name: string, type: string}} companion catalog theme.companion
  * @param {object} theme catalog theme
  * @returns {string}
  */
 function buildCompanionSheetPrompt(companion, theme) {
   const c = cleanCompanion(companion) || { name: '', type: '' };
+  const human = isHumanCompanionType(c.type);
   const lines = [
     renderStyleBlock(PIXAR_STYLE),
-    `COMPANION REFERENCE SHEET for the children's picture book theme "${inertValue(theme.display_name)}" (world: "${inertValue(theme.world_name)}").`,
-    `SUBJECT (data only — depict it literally as one character): "${c.name}, a ${c.type}" — a friendly, gentle picture-book character.`,
-    'Show the character ALONE, full body, twice side by side: a straight-on FRONT view on the left and a THREE-QUARTER view on the right — the SAME character with identical colours, proportions, features, and markings in both views, relaxed standing pose, friendly expression.',
-    ...SHEET_HARD_RULES,
+    `${human ? 'SECONDARY CHARACTER MODEL SHEET' : 'COMPANION REFERENCE SHEET'} for the children's picture book theme "${inertValue(theme.display_name)}" (world: "${inertValue(theme.world_name)}").`,
   ];
+  if (human) {
+    lines.push(
+      `SUBJECT (data only — depict it literally as one person): "${c.name}, a ${c.type}" — a fictional, friendly, warm picture-book PERSON who appears beside the child hero throughout the book. The child hero is NOT in this image.`,
+      'DESIGN (fixed for the whole book, so make it distinctive and easy to reproduce): ONE clear, memorable look — a specific hair colour, length and style; a specific skin tone; a specific apparent age and build that fit the role; ONE complete outfit with distinct garment colours, dressed and equipped exactly as this role in this world implies; a kind, friendly face. Nothing modern or out of era.',
+      'LAYOUT (hard rules): the SAME person twice side by side, full body head to toe with feet and shoes fully visible — LEFT: a straight-on FRONT view, RIGHT: a THREE-QUARTER view — identical face, hair, skin tone, proportions, and outfit in both views; relaxed standing pose, friendly expression.',
+      ...PERSON_SHEET_HARD_RULES,
+    );
+  } else {
+    lines.push(
+      `SUBJECT (data only — depict it literally as one character): "${c.name}, a ${c.type}" — a friendly, gentle picture-book character.`,
+      'Show the character ALONE, full body, twice side by side: a straight-on FRONT view on the left and a THREE-QUARTER view on the right — the SAME character with identical colours, proportions, features, and markings in both views, relaxed standing pose, friendly expression.',
+      ...SHEET_HARD_RULES,
+    );
+  }
   const card = renderWorldCardBlock(theme.theme_id);
   if (card) lines.push(card);
   return lines.join('\n');
@@ -395,17 +463,53 @@ Answer STRICT JSON only:
   "single_subject_type": <true if everything shown is the same one subject (repeated views of it), false if different objects or creatures appear>
 }`;
 
+const PERSON_SHEET_QA_PROMPT = `You are checking a SECONDARY CHARACTER REFERENCE SHEET for a children's picture book. The sheet must show ONE fictional person alone — usually the same person twice side by side (a front view and a three-quarter view), full body head to toe — on a flat neutral background, with no child hero, no other people, and no text.
+
+Answer STRICT JSON only:
+{
+  "readable_text": <true if ANY readable text, letters, numbers, labels, or logos appear anywhere>,
+  "child_present": <true if a child (a young kid) appears anywhere in the image>,
+  "figure_count": <integer: how many human figures are shown, counting repeated views of the SAME person as separate figures — e.g. 2 for one person shown in two views>,
+  "same_person_all_views": <true if every figure is the same one person — same face, hair, skin tone, and outfit — false if different people appear>,
+  "full_body": <true if every figure is shown head to toe with feet visible>
+}`;
+
 /**
- * Content check on a generated sheet: no text, no people, one subject shown
- * once or twice (its two views). A validation INFRA failure (HTTP, malformed
- * verdict) accepts the sheet unchecked — fail-open, same as spread QA.
+ * Content check on a generated sheet. An OBJECT/creature sheet (the ce-9
+ * check): no text, no people, one subject shown once or twice (its two
+ * views). A PERSON sheet (ce-19): no text, no child hero, one person shown
+ * once or twice, the same person in every view, full body. A validation
+ * INFRA failure (HTTP, malformed verdict) accepts the sheet unchecked —
+ * fail-open, same as spread QA.
  * @param {Buffer} imageBuffer
- * @param {{label?: string}} [opts]
+ * @param {{label?: string, subject?: 'object'|'person', childSubject?: boolean}} [opts]
+ *   `childSubject`: the person-typed companion is itself a child, so a
+ *   child in the sheet is the subject, never a defect
  * @returns {Promise<{pass: boolean, defects: string[], qaUnavailable?: string}>}
  */
 async function checkSheet(imageBuffer, opts = {}) {
   const label = opts.label || 'propSheetQa';
+  const person = opts.subject === 'person';
   try {
+    if (person) {
+      const json = await visionJson(PERSON_SHEET_QA_PROMPT, imageBuffer, 256);
+      const bools = ['readable_text', 'child_present', 'same_person_all_views', 'full_body'];
+      const count = own(json, 'figure_count');
+      if (!json || typeof json !== 'object' || !bools.every(f => typeof own(json, f) === 'boolean') || !Number.isInteger(count)) {
+        console.warn(`[${label}] sheet QA returned a malformed verdict — accepting sheet unchecked`);
+        return { pass: true, defects: [], qaUnavailable: 'sheet QA returned a malformed verdict' };
+      }
+      // Fixed defect strings only — they are joined into the retry prompt.
+      const defects = [
+        own(json, 'readable_text') && 'readable text in the sheet',
+        own(json, 'child_present') && !opts.childSubject && 'a child in the sheet',
+        count < 1 && 'no person in the sheet',
+        count > 2 && 'more than one person in the sheet',
+        !own(json, 'same_person_all_views') && 'different people instead of one person in two views',
+        !own(json, 'full_body') && 'the person is not shown full body head to toe',
+      ].filter(Boolean);
+      return { pass: defects.length === 0, defects };
+    }
     const json = await visionJson(SHEET_QA_PROMPT, imageBuffer, 256);
     const bools = ['readable_text', 'people_present', 'single_subject_type'];
     const count = own(json, 'subject_count');
@@ -427,6 +531,12 @@ async function checkSheet(imageBuffer, opts = {}) {
     return { pass: true, defects: [], qaUnavailable: `sheet QA errored: ${err.message}` };
   }
 }
+
+/** The corrective retry line after a failed content check, per subject kind. */
+const SHEET_RETRY_NOTE = {
+  object: 'Show ONLY the one subject (front view and three-quarter view), NO people, NO other objects, and NO readable text of any kind.',
+  person: 'Show ONLY this one person (front view and three-quarter view, full body head to toe with feet visible), NO child, NO other people, NO animals, and NO readable text of any kind.',
+};
 
 const SPEC_PROMPT = `You are extracting the PROP SPEC for a children's picture book from its reference sheet (one subject, shown in one or two views). The spec pins EXACTLY what the subject looks like so an illustrator can reproduce it identically on every page. Describe ONLY what is visible; never describe the background.
 
@@ -516,16 +626,140 @@ function renderPropSpecText(spec) {
   return render([], []).slice(0, SPEC_TEXT_MAX_CHARS);
 }
 
+const CHARACTER_SPEC_PROMPT = `You are extracting the CHARACTER SPEC for a children's picture book from its reference sheet (one person, shown in one or two views). The spec pins EXACTLY what this character looks like so an illustrator can reproduce the SAME person identically on every page. Describe ONLY what is visible; never describe the background.
+
+Answer STRICT JSON only:
+{
+  "apparentAge": one of ${JSON.stringify(AGE_VOCAB)},
+  "build": one of ${JSON.stringify(BUILD_VOCAB)},
+  "skinTone": "<one short phrase, e.g. warm medium-brown>",
+  "hair": "<one short phrase: colour, length, and style, e.g. long grey hair in two braids>",
+  "face": ["<up to ${CHARACTER_FACE_MAX} short phrases for fixed facial features: glasses, beard, moustache, freckles, wrinkles, rosy cheeks, …>"],
+  "outfit": ["<up to ${CHARACTER_OUTFIT_MAX} short garment phrases, colour first, head to toe, e.g. cream linen shirt, blue denim overalls, brown leather boots, straw hat>"],
+  "colourHex": ["<up to ${SPEC_COLOURS_MAX} #rrggbb hex values for the most dominant outfit colours, most dominant first>"],
+  "distinguishingMarks": ["<up to ${CHARACTER_MARKS_MAX} short phrases: a badge, a tool belt, a red bandana, a walking stick, …>"]
+}`;
+
+/**
+ * Validate + sanitize a model (or stored) CHARACTER spec answer (ce-19)
+ * into the closed, inert shape — sanitizePropSpec's rules applied to a
+ * person's slots: every string cleaned and capped, every list deduped and
+ * capped, both enums defaulted, hex values validated, fixed keys only.
+ * `name` is never taken from the model. Null when nothing usable survives
+ * (a spec with neither hair nor a garment pins nothing).
+ * @param {*} json the parsed answer
+ * @param {{name: string}} identity
+ * @returns {{name: string, kind: 'person', apparentAge: string, build: string, skinTone: string,
+ *   hair: string, face: string[], outfit: string[], colourHex: string[], distinguishingMarks: string[]}|null}
+ */
+function sanitizeCharacterSpec(json, identity) {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
+  const name = inertValue(identity?.name);
+  if (!name) return null;
+  const ageRaw = cleanSpecText(own(json, 'apparentAge'), 20);
+  const apparentAge = ageRaw && AGE_VOCAB.includes(ageRaw.toLowerCase()) ? ageRaw.toLowerCase() : AGE_DEFAULT;
+  const buildRaw = cleanSpecText(own(json, 'build'), 20);
+  const build = buildRaw && BUILD_VOCAB.includes(buildRaw.toLowerCase()) ? buildRaw.toLowerCase() : BUILD_DEFAULT;
+  const skinTone = cleanSpecText(own(json, 'skinTone')) || '';
+  const hair = cleanSpecText(own(json, 'hair'), SPEC_MARK_MAX_CHARS) || '';
+  const face = cleanSpecList(own(json, 'face'), CHARACTER_FACE_MAX, SPEC_FIELD_MAX_CHARS);
+  const outfit = cleanSpecList(own(json, 'outfit'), CHARACTER_OUTFIT_MAX, SPEC_FIELD_MAX_CHARS);
+  if (!hair && outfit.length === 0) return null;
+  const hexRaw = own(json, 'colourHex');
+  const colourHex = [];
+  for (const h of Array.isArray(hexRaw) ? hexRaw : []) {
+    if (typeof h !== 'string') continue;
+    const v = h.trim().toLowerCase();
+    if (HEX_RE.test(v) && !colourHex.includes(v)) colourHex.push(v);
+    if (colourHex.length >= SPEC_COLOURS_MAX) break;
+  }
+  const distinguishingMarks = cleanSpecList(own(json, 'distinguishingMarks'), CHARACTER_MARKS_MAX, SPEC_MARK_MAX_CHARS);
+  return { name, kind: CHARACTER_KIND, apparentAge, build, skinTone, hair, face, outfit, colourHex, distinguishingMarks };
+}
+
+/**
+ * Render a sanitized CHARACTER spec into ONE inert sentence for the
+ * COMPANION block and the QA prompt, e.g. `Farmer Bea: an elderly adult of
+ * sturdy build, warm medium-brown skin, long grey hair in two braids;
+ * face: kind wrinkles, rosy cheeks; outfit: cream linen shirt, blue denim
+ * overalls, brown leather boots (#e8dcc0, #4a6a9a); red bandana.`
+ * Deterministic. Fits CHARACTER_SPEC_TEXT_MAX_CHARS whole: trailing marks,
+ * then face notes, then hex values, then trailing outfit items are dropped
+ * until it fits, and a final hard cap guards the rest.
+ * @param {object} spec a sanitizeCharacterSpec result
+ * @returns {string} '' when the spec carries no usable name
+ */
+function renderCharacterSpecText(spec) {
+  const name = inertValue(spec?.name);
+  if (!name) return '';
+  const age = AGE_WORDS[spec.apparentAge] || AGE_WORDS[AGE_DEFAULT];
+  const build = BUILD_VOCAB.includes(spec.build) ? spec.build : BUILD_DEFAULT;
+  const skinTone = cleanSpecText(spec.skinTone);
+  const hair = cleanSpecText(spec.hair, SPEC_MARK_MAX_CHARS);
+  const faceAll = cleanSpecList(spec.face, CHARACTER_FACE_MAX, SPEC_FIELD_MAX_CHARS);
+  const outfitAll = cleanSpecList(spec.outfit, CHARACTER_OUTFIT_MAX, SPEC_FIELD_MAX_CHARS);
+  const hexAll = (Array.isArray(spec.colourHex) ? spec.colourHex : [])
+    .filter(h => typeof h === 'string' && HEX_RE.test(h))
+    .map(h => h.toLowerCase())
+    .slice(0, SPEC_COLOURS_MAX);
+  const marksAll = cleanSpecList(spec.distinguishingMarks, CHARACTER_MARKS_MAX, SPEC_MARK_MAX_CHARS);
+  const render = (outfit, hex, face, marks) => {
+    const head = [`${name}: ${age} of ${build} build`];
+    if (skinTone) head.push(`${skinTone} skin`);
+    if (hair) head.push(hair);
+    const clauses = [head.join(', ')];
+    if (face.length > 0) clauses.push(`face: ${face.join(', ')}`);
+    if (outfit.length > 0) clauses.push(`outfit: ${outfit.join(', ')}${hex.length > 0 ? ` (${hex.join(', ')})` : ''}`);
+    if (marks.length > 0) clauses.push(marks.join(', '));
+    return `${clauses.join('; ')}.`;
+  };
+  // Drop order: marks (decoration) → face notes → hex → trailing garments;
+  // the head (age, build, skin, hair) and the first garments are the
+  // identity and always stay.
+  for (let keepOutfit = outfitAll.length; keepOutfit >= Math.min(1, outfitAll.length); keepOutfit -= 1) {
+    for (const hex of [hexAll, []]) {
+      for (let keepFace = faceAll.length; keepFace >= 0; keepFace -= 1) {
+        for (let keepMarks = marksAll.length; keepMarks >= 0; keepMarks -= 1) {
+          const text = render(outfitAll.slice(0, keepOutfit), hex, faceAll.slice(0, keepFace), marksAll.slice(0, keepMarks));
+          if (text.length <= CHARACTER_SPEC_TEXT_MAX_CHARS) return text;
+        }
+      }
+    }
+    if (outfitAll.length === 0) break;
+  }
+  return render([], [], [], []).slice(0, CHARACTER_SPEC_TEXT_MAX_CHARS);
+}
+
+/**
+ * Sanitize a spec answer by the identity's spec kind: the CHARACTER shape
+ * for a person (ce-19), the object shape for everything else.
+ * @param {*} json @param {{name: string, kind: string, specKind?: 'object'|'character'}} identity
+ * @returns {object|null}
+ */
+function sanitizeSpecFor(json, identity) {
+  return identity?.specKind === 'character' ? sanitizeCharacterSpec(json, identity) : sanitizePropSpec(json, identity);
+}
+
+/**
+ * Render a sanitized spec (either shape) into its inert sentence.
+ * @param {object} spec
+ * @returns {string}
+ */
+function renderSpecText(spec) {
+  return spec && spec.kind === CHARACTER_KIND ? renderCharacterSpecText(spec) : renderPropSpecText(spec);
+}
+
 /**
  * One vision read of the ELECTED sheet → sanitized spec. Throws when the
  * answer is unusable (the caller fails open with a cooldown).
  * @param {Buffer} sheetBuffer
- * @param {{name: string, kind: 'prop'|'companion'}} identity
+ * @param {{name: string, kind: 'prop'|'companion', specKind?: 'object'|'character'}} identity
  * @returns {Promise<object>}
  */
 async function deriveSpec(sheetBuffer, identity) {
-  const json = await visionJson(SPEC_PROMPT, sheetBuffer, 512);
-  const spec = sanitizePropSpec(json, identity);
+  const character = identity?.specKind === 'character';
+  const json = await visionJson(character ? CHARACTER_SPEC_PROMPT : SPEC_PROMPT, sheetBuffer, 512);
+  const spec = sanitizeSpecFor(json, identity);
   if (!spec) throw new Error('spec vision returned no usable spec');
   return spec;
 }
@@ -533,13 +767,13 @@ async function deriveSpec(sheetBuffer, identity) {
 /**
  * Parse a stored `.json` spec blob (data — re-sanitized through the same
  * validator).
- * @param {Buffer} buffer @param {{name: string, kind: string}} identity
+ * @param {Buffer} buffer @param {{name: string, kind: string, specKind?: string}} identity
  * @returns {object|null}
  */
 function parseStoredSpec(buffer, identity) {
   try {
     const blob = JSON.parse(buffer.toString('utf8'));
-    return sanitizePropSpec(own(blob, 'spec'), identity);
+    return sanitizeSpecFor(own(blob, 'spec'), identity);
   } catch {
     return null;
   }
@@ -547,12 +781,15 @@ function parseStoredSpec(buffer, identity) {
 
 /**
  * Assemble the resolved sheet record from elected bytes + elected spec.
- * @param {{key: string, kind: string, buffer: Buffer, storageKey: string, spec: object}} p
+ * A companion record also carries its catalog `type` and `human` (ce-19)
+ * so the prompt blocks, the QA and the contact gate phrase a person as a
+ * person without re-deriving it.
+ * @param {{key: string, kind: string, buffer: Buffer, storageKey: string, spec: object, type?: string|null, human?: boolean}} p
  * @returns {object}
  */
-function toSheet({ key, kind, buffer, storageKey, spec }) {
+function toSheet({ key, kind, buffer, storageKey, spec, type = null, human = false }) {
   const base64 = buffer.toString('base64');
-  const specText = renderPropSpecText(spec);
+  const specText = renderSpecText(spec);
   return {
     key,
     kind,
@@ -563,6 +800,7 @@ function toSheet({ key, kind, buffer, storageKey, spec }) {
     spec,
     specText,
     specHash: fnv1a(specText).toString(36),
+    ...(kind === 'companion' ? { type, human: !!human } : {}),
   };
 }
 
@@ -602,18 +840,22 @@ async function electSpec(electedBuffer, specPath, identity, imageHash, log) {
  * @param {string} p.key the record key (normalized value / companion name)
  * @param {string} p.pngPath elected image object
  * @param {string} p.prompt generation prompt
- * @param {{name: string, kind: string}} p.identity spec identity
+ * @param {{name: string, kind: string, specKind?: 'object'|'character'}} p.identity spec identity
+ * @param {'object'|'person'} [p.subject] what the content check expects (default object)
+ * @param {boolean} [p.childSubject] the person subject is itself a child
+ * @param {{type: string|null, human: boolean}} [p.companionMeta] carried onto a companion record
  * @param {object} [p.costTracker]
  * @param {(level: string, msg: string) => void} p.log
  * @returns {Promise<object|null>}
  */
-function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, costTracker, log }) {
+function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, subject = 'object', childSubject = false, companionMeta = null, costTracker, log }) {
   const hit = cacheGet(cacheKey);
   if (hit) return Promise.resolve(hit);
   if (inFailureCooldown(cacheKey)) return Promise.resolve(null);
   if (_inFlight.has(cacheKey)) return _inFlight.get(cacheKey);
   const label = `${kind} sheet '${key}'`;
   const specPath = specPathFor(pngPath);
+  const retryNote = SHEET_RETRY_NOTE[subject] || SHEET_RETRY_NOTE.object;
 
   const resolve = (async () => {
     try {
@@ -625,12 +867,12 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, costTrac
         // Enforce the subject-only invariant BEFORE the sheet can be elected
         // or cached: text, a person, or a second object in the sheet would
         // contaminate every spread that references it. One corrective retry.
-        let verdict = await checkSheet(buffer, { label: `propSheetQa:${key}` });
+        let verdict = await checkSheet(buffer, { label: `propSheetQa:${key}`, subject, childSubject });
         if (!verdict.pass) {
           log('warn', `${label} failed the content check (${verdict.defects.join('; ')}) — one corrective retry`);
-          buffer = await renderSheetImage(`${prompt}\nPREVIOUS ATTEMPT REJECTED — it contained: ${verdict.defects.join('; ')}. Show ONLY the one subject (front view and three-quarter view), NO people, NO other objects, and NO readable text of any kind.`);
+          buffer = await renderSheetImage(`${prompt}\nPREVIOUS ATTEMPT REJECTED — it contained: ${verdict.defects.join('; ')}. ${retryNote}`);
           if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
-          verdict = await checkSheet(buffer, { label: `propSheetQa:${key}:retry` });
+          verdict = await checkSheet(buffer, { label: `propSheetQa:${key}:retry`, subject, childSubject });
           if (!verdict.pass) {
             log('warn', `${label} still fails the content check (${verdict.defects.join('; ')}) — rendering without a sheet`);
             recordFailure(cacheKey);
@@ -669,7 +911,7 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, costTrac
         recordFailure(cacheKey);
         return null;
       }
-      const sheet = toSheet({ key, kind, buffer: elected, storageKey: pngPath, spec });
+      const sheet = toSheet({ key, kind, buffer: elected, storageKey: pngPath, spec, ...(companionMeta || {}) });
       cacheSet(cacheKey, sheet);
       return sheet;
     } catch (err) {
@@ -723,6 +965,7 @@ async function getPropSheet({ kind, value, companion, theme, costTracker, log = 
     if (kind === 'companion') {
       if (!isDrawableCompanion(companion)) return null;
       const c = cleanCompanion(companion);
+      const human = isHumanCompanionType(c.type);
       const prompt = buildCompanionSheetPrompt(c, theme);
       const promptHash = fnv1a(prompt).toString(36);
       return resolveSheet({
@@ -731,7 +974,13 @@ async function getPropSheet({ kind, value, companion, theme, costTracker, log = 
         key: c.name,
         pngPath: companionSheetPath(themeId, promptHash),
         prompt,
-        identity: { name: c.name, kind },
+        // A person gets the CHARACTER spec (age, build, skin, hair, face,
+        // outfit) — the words a person drifts in; a creature keeps the
+        // object spec (colours, material, size, markings).
+        identity: { name: c.name, kind, specKind: human ? 'character' : 'object' },
+        subject: human ? 'person' : 'object',
+        childSubject: human && isChildCompanionType(c.type),
+        companionMeta: { type: c.type, human },
         costTracker,
         log,
       });
@@ -810,8 +1059,11 @@ module.exports = {
   getPropSheet,
   getBibleProps,
   isDrawableCompanion,
+  isHumanCompanion,
   renderPropSpecText,
   sanitizePropSpec,
+  sanitizeCharacterSpec,
+  renderCharacterSpecText,
   buildPropSheetPrompt,
   buildCompanionSheetPrompt,
   normalizePropValue,
