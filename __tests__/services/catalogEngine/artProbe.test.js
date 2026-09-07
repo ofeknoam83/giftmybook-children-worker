@@ -1274,6 +1274,65 @@ describe('per-spread full-canvas lettering template', () => {
 });
 
 
+test('qa-13: the corrected lettering is RE-JUDGED — the shipped verdict describes the edited pixels, never the original render', async () => {
+  const { verifyImageText, repairImageText } = require('../../../services/illustrationGenerator');
+  const { uploadBuffer } = require('../../../services/gcsStorage');
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  const saved = new Map();
+  const fixed = Buffer.from('corrected-lettering');
+  const original = Buffer.from('original-typo');
+  const previous = process.env.CATALOG_TEXT_ANCHOR;
+  process.env.CATALOG_TEXT_ANCHOR = '0';
+  generateIllustration.mockClear(); repairImageText.mockClear();
+  // The judge answers by the PIXELS it is shown: the original render fails
+  // identity (the child is absent), the corrected pixels are clean.
+  const verdictFor = (opts) => {
+    const parts = JSON.parse(opts.body).contents[0].parts;
+    const image = parts.find(p => p.inline_data)?.inline_data?.data || '';
+    const prompt = parts[0].text;
+    const expected = prompt.match(/STORY TEXT THAT MUST APPEAR IN THE IMAGE:\n"([^"]*)"/)?.[1] || '';
+    return {
+      child_absent: image === original.toString('base64'), multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false,
+      readable_text: !!expected, visible_text: expected, companion: { present: true, look_match: true },
+      text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
+      text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false,
+      // A box on the footprint of this one-line manuscript (the ruler is not under test here).
+      text_bbox: { x: 0.1, y: 0.15, w: 0.04, h: 0.015 }, consistent: true, flagged: [],
+    };
+  };
+  const judged = [];
+  fetchWithTimeout.mockImplementation(async (url, opts) => {
+    const v = verdictFor(opts);
+    judged.push(JSON.parse(opts.body).contents[0].parts.find(p => p.inline_data)?.inline_data?.data || '');
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(v) }] } }] }) };
+  });
+  try {
+    downloadBuffer.mockImplementation(async key => { if (saved.has(key)) return saved.get(key); throw Object.assign(new Error('missing'), { code: 404 }); });
+    uploadBuffer.mockImplementation(async (buffer, key) => { saved.set(key, buffer); });
+    generateIllustration.mockImplementation(async (_scene, _ref, _style, opts) => { saved.set(opts.gcsPath, original); return 'https://saved.example/art.png'; });
+    repairImageText.mockResolvedValue(fixed);
+    verifyImageText.mockImplementation(async (buffer, text) => ({
+      ...await verifyManuscript(text, async () => buffer.equals(fixed) ? text : 'Spraed 1 text.'), textBox: { x: .6, y: .2, w: .3, h: .4 },
+    }));
+    const result = await renderStorySpreads(baseParams({ spreadNos: [1], textLayout: 'embedded', automaticTextRecovery: true }));
+    const r = result.results[0];
+    expect(r.buffer).toEqual(fixed);
+    expect(r.qa.textVerification.status).toBe('verified');
+    // The judge saw the corrected pixels, and its verdict is what ships:
+    // no 'child hero missing' carried over from the original render.
+    expect(judged).toContain(fixed.toString('base64'));
+    expect(r.blocking).toEqual([]);
+    expect(r.qa.defects).toEqual([]);
+    expect(generateIllustration).toHaveBeenCalledTimes(1);
+    expect(repairImageText).toHaveBeenCalledTimes(1);
+  } finally {
+    if (previous === undefined) delete process.env.CATALOG_TEXT_ANCHOR; else process.env.CATALOG_TEXT_ANCHOR = previous;
+    verifyImageText.mockImplementation((buffer, text) => verifyManuscript(text, async () => text));
+    uploadBuffer.mockResolvedValue(undefined);
+    fetchWithTimeout.mockRejectedValue(new Error('offline test'));
+  }
+});
+
 test('new books repair confirmed lettering on the existing candidate instead of generating the scene again', async () => {
   const { verifyImageText, repairImageText } = require('../../../services/illustrationGenerator');
   const { uploadBuffer } = require('../../../services/gcsStorage');

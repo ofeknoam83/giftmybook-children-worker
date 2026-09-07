@@ -228,6 +228,37 @@ test('a missing QA record is recovered by checking existing pixels, including sp
   expect(JSON.parse(objects.get(`${key}.qa.json`))).toMatchObject({ qaVersion: QA_VERSION, qa: { textVerification: { status: 'verified' } } });
 });
 
+test('qa-13: a repaired saved spread is RE-JUDGED and its new verdict (not the pre-edit one) is what the marker records', async () => {
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  const { checkSpreadRenderV2 } = require('../../../services/catalogEngine/illustrator/spreadQa');
+  allowTextEdits = true;
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  const fixed = Buffer.from('fixed-spread-7');
+  repairImageText.mockResolvedValue(fixed);
+  verifyImageText.mockImplementation(async (buffer, text) => ({
+    ...await verifyManuscript(text, async () => buffer.equals(bytes(7)) ? 'Paeg 7.' : text),
+    textBox: { x: .6, y: .2, w: .3, h: .4 },
+  }));
+  const identityBreak = 'identity break: the child does not match the character model sheet';
+  checkSpreadRenderV2.mockClear();
+  checkSpreadRenderV2.mockImplementation(async (buffer) => (buffer.equals(fixed)
+    ? { defects: [identityBreak], blocking: [identityBreak], advisory: [], pass: false, bbox: { x: 0.1, y: 0.1, w: 0.3, h: 0.6 } }
+    : { defects: [], blocking: [], advisory: [], pass: true }));
+  try {
+    const result = await illustrateStory({ ...params(), automaticTextRecovery: true });
+    expect(result.entries[6].spreadIllustrationBuffer).toEqual(fixed);
+    expect(checkSpreadRenderV2).toHaveBeenCalledWith(fixed, expect.objectContaining({ expectedText: expect.any(String) }));
+    const key = result.entries[6].spreadIllustrationStorageKey;
+    expect(JSON.parse(objects.get(`${key}.qa.json`))).toMatchObject({
+      unresolved: true, textRepaired: true,
+      qa: { blocking: [identityBreak], textVerification: { status: 'verified' }, bbox: { x: 0.1, y: 0.1, w: 0.3, h: 0.6 } },
+    });
+  } finally {
+    checkSpreadRenderV2.mockReset();
+    checkSpreadRenderV2.mockResolvedValue({ defects: [], blocking: [], advisory: [], pass: true });
+  }
+});
+
 test('production rebuild automatically fixes confirmed spelling on only the affected saved spread', async () => {
   const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
   allowTextEdits = true;

@@ -758,9 +758,23 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   the bbox heuristic runs only on the legacy guide/page-crop paths (its
   pixel share dropped from 20% to the measured 5%), and the ink set gate
   therefore compares real inks. Kill-switch `CATALOG_TEMPLATE_CONFORMANCE=0`.
-  QA_VERSION `qa-13`; STYLE_VERSION stays `ce-19` (no prompt change —
-  qa-12 markers re-check on replay, and only the pages the new checker
-  rejects re-render).
+  The same audit closed a third hole on the one path that DOES recreate
+  pixels without the reference pack: the automatic lettering recovery
+  (`textRecovery.js` → `repairImageText`, a reference-free Gemini edit of
+  the whole canvas whose text-column patch is pasted over the saved
+  render) replaced the buffer but kept the ORIGINAL render's verdict —
+  only its spelling status was updated — so identity, outfit, template
+  conformance, ink and the child bbox the contact gate crops from all
+  described pixels no judge had seen. A repaired page is now re-judged
+  (`checkSpreadRenderV2` on the corrected pixels, on the fresh path and
+  the reviewed rebuild alike; a checker outage keeps the old verdict with
+  a `spreadQa` advisory, never a silent pass), so a re-typeset or drifted
+  patch is caught like any other render. It did not fire on book
+  ace1cc29 (no recovery log lines, no composite seam in the shipped
+  pixels) — that spread was a single full-reference render the gates
+  failed to reject. QA_VERSION `qa-13`; STYLE_VERSION stays `ce-19` (no
+  prompt change — qa-12 markers re-check on replay, and only the pages
+  the new checker rejects re-render).
 
 - `coloring/` — **the coloring book (`cb-1`, 2026-09-07 —
   `docs/COLORING_BOOK_V2_PLAN.md`)**: companion scenes from the story world,
