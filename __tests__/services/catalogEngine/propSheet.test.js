@@ -24,6 +24,19 @@ const SPEC_JSON = {
   distinguishingMarks: ['one red ribbon at the neck', 'stitched smile'],
 };
 const SPEC_TEXT = 'teddy bear: a small handheld plush, made of soft plush fur, honey-brown and cream (#c68e4a, #f3e9d2), one red ribbon at the neck, stitched smile.';
+// ce-19: the PERSON companion path — its own content check and CHARACTER spec.
+const CLEAN_PERSON_QA = { readable_text: false, child_present: false, figure_count: 2, same_person_all_views: true, full_body: true };
+const CHARACTER_SPEC_JSON = {
+  apparentAge: 'elderly',
+  build: 'sturdy',
+  skinTone: 'warm medium-brown',
+  hair: 'long grey hair in two braids',
+  face: ['kind wrinkles', 'rosy cheeks'],
+  outfit: ['cream linen shirt', 'blue denim overalls', 'brown leather boots', 'straw hat'],
+  colourHex: ['#E8DCC0', '#4a6a9a'],
+  distinguishingMarks: ['red bandana'],
+};
+const CHARACTER_SPEC_TEXT = 'Farmer Bea: an elderly adult of sturdy build, warm medium-brown skin, long grey hair in two braids; face: kind wrinkles, rosy cheeks; outfit: cream linen shirt, blue denim overalls, brown leather boots, straw hat (#e8dcc0, #4a6a9a); red bandana.';
 
 let LOCAL_PNG;
 let WINNER_PNG;
@@ -44,22 +57,28 @@ const jsonResp = json => ({
 const promptOf = call => JSON.parse(call[1].body).contents[0].parts[0].text;
 const isQa = call => promptOf(call).startsWith('You are checking a REFERENCE SHEET');
 const isSpec = call => promptOf(call).startsWith('You are extracting the PROP SPEC');
+const isPersonQa = call => promptOf(call).startsWith('You are checking a SECONDARY CHARACTER REFERENCE SHEET');
+const isCharacterSpec = call => promptOf(call).startsWith('You are extracting the CHARACTER SPEC');
 const imageCalls = fetch => fetch.mock.calls.filter(c => c[0].includes('test-image-model'));
 const qaCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isQa(c));
 const specCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isSpec(c));
+const personQaCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isPersonQa(c));
+const characterSpecCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isCharacterSpec(c));
 
 /**
  * Default transport: the image model returns LOCAL_PNG, the sheet QA a
  * clean verdict, the spec read SPEC_JSON. Each piece can be a value or a
  * function (called per request) to script sequences.
  */
-function transport({ image, qa, spec } = {}) {
+function transport({ image, qa, personQa, spec, characterSpec } = {}) {
   const pick = (v, def) => (typeof v === 'function' ? v() : (v === undefined ? def : v));
   return async (url, opts) => {
     if (url.includes('test-image-model')) return imageResp(pick(image, LOCAL_PNG));
     const call = [url, opts];
     if (isQa(call)) return jsonResp(pick(qa, CLEAN_QA));
+    if (isPersonQa(call)) return jsonResp(pick(personQa, CLEAN_PERSON_QA));
     if (isSpec(call)) return jsonResp(pick(spec, SPEC_JSON));
+    if (isCharacterSpec(call)) return jsonResp(pick(characterSpec, CHARACTER_SPEC_JSON));
     throw new Error(`unexpected vision prompt: ${promptOf(call).slice(0, 40)}`);
   };
 }
@@ -91,6 +110,7 @@ const quiet = () => {};
 
 beforeEach(() => {
   delete process.env.CATALOG_PROP_SHEETS;
+  delete process.env.CATALOG_HUMAN_COMPANION_SHEET;
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 afterEach(() => {
@@ -478,23 +498,189 @@ describe('renderPropSpecText', () => {
   });
 });
 
-describe('isDrawableCompanion', () => {
-  test('is conservative: human roles are excluded, creatures/characters allowed, across the catalog', () => {
+describe('isDrawableCompanion / isHumanCompanion (ce-19)', () => {
+  test('every named companion is drawable — PERSON companions included — across the catalog', () => {
     const { mod } = fresh();
     const themes = Array.isArray(catalogJson.themes) ? catalogJson.themes : Object.values(catalogJson.themes || catalogJson);
     const drawable = Object.fromEntries(themes.map(t => [t.theme_id, mod.isDrawableCompanion(t.companion)]));
-    expect(drawable.farm).toBe(false); // friendly adult farm guide
-    expect(drawable.construction).toBe(false); // friendly adult site guide
+    const human = Object.fromEntries(themes.map(t => [t.theme_id, mod.isHumanCompanion(t.companion)]));
+    for (const t of themes) expect(drawable[t.theme_id]).toBe(true);
+    // The two adult guides are PEOPLE (person sheet + character spec); every other companion is a creature/character.
+    expect(human.farm).toBe(true); // friendly adult farm guide
+    expect(human.construction).toBe(true); // friendly adult site guide
     for (const id of ['dinosaur', 'space', 'under_the_sea', 'jungle', 'safari', 'enchanted_forest', 'pirate', 'dream', 'christmas', 'thanksgiving']) {
-      expect(drawable[id]).toBe(true);
+      expect(human[id]).toBe(false);
     }
-    expect(mod.isDrawableCompanion({ name: 'Old Tom', type: 'kindly old fisherman guide' })).toBe(false);
-    expect(mod.isDrawableCompanion({ name: 'Merla', type: 'forest witch' })).toBe(false);
-    expect(mod.isDrawableCompanion({ name: 'Bo', type: 'little boy' })).toBe(false);
+    expect(mod.isDrawableCompanion({ name: 'Old Tom', type: 'kindly old fisherman guide' })).toBe(true);
+    expect(mod.isHumanCompanion({ name: 'Old Tom', type: 'kindly old fisherman guide' })).toBe(true);
+    expect(mod.isHumanCompanion({ name: 'Merla', type: 'forest witch' })).toBe(true);
+    expect(mod.isHumanCompanion({ name: 'Bo', type: 'little boy' })).toBe(true);
+    expect(mod.isHumanCompanion({ name: 'Zip', type: 'tiny helper robot' })).toBe(false);
     expect(mod.isDrawableCompanion({ name: 'Zip', type: 'tiny helper robot' })).toBe(true);
+    // Unusable naming is never drawable (and never human).
     expect(mod.isDrawableCompanion(null)).toBe(false);
     expect(mod.isDrawableCompanion({ name: 'X' })).toBe(false);
     expect(mod.isDrawableCompanion({ name: '', type: 'young otter' })).toBe(false);
+    expect(mod.isHumanCompanion(null)).toBe(false);
+    expect(mod.isHumanCompanion({ name: 'X' })).toBe(false);
+  });
+
+  test('CATALOG_HUMAN_COMPANION_SHEET=0 restores the pre-ce-19 exclusion for PERSON companions only', () => {
+    process.env.CATALOG_HUMAN_COMPANION_SHEET = '0';
+    const { mod } = fresh();
+    expect(mod.isDrawableCompanion(FARM.companion)).toBe(false);
+    expect(mod.isHumanCompanion(FARM.companion)).toBe(true); // still a person — just not sheeted
+    expect(mod.isDrawableCompanion(DINO.companion)).toBe(true);
+  });
+});
+
+describe('PERSON companion sheet (ce-19)', () => {
+  test('a human companion gets a SECONDARY CHARACTER sheet: person prompt, person content check, CHARACTER spec, human record', async () => {
+    const { mod, fetch, gcs, fnv1a } = fresh();
+    const costTracker = { addImageGeneration: jest.fn() };
+    const sheet = await mod.getPropSheet({ kind: 'companion', companion: FARM.companion, theme: FARM, costTracker, log: quiet });
+    expect(sheet).toMatchObject({ kind: 'companion', key: 'Farmer Bea', type: 'friendly adult farm guide', human: true, mimeType: 'image/png', specText: CHARACTER_SPEC_TEXT });
+    expect(sheet.storageKey).toMatch(/^catalog-assets\/companion-sheets\/ce-\d+\/farm-[0-9a-z]+\.png$/);
+    expect(sheet.specHash).toBe(fnv1a(CHARACTER_SPEC_TEXT).toString(36));
+    // The spec is the CHARACTER shape: closed enums, cleaned slots, lowercased hex, the pinned name.
+    expect(sheet.spec).toEqual({
+      name: 'Farmer Bea',
+      kind: 'person',
+      apparentAge: 'elderly',
+      build: 'sturdy',
+      skinTone: 'warm medium-brown',
+      hair: 'long grey hair in two braids',
+      face: ['kind wrinkles', 'rosy cheeks'],
+      outfit: ['cream linen shirt', 'blue denim overalls', 'brown leather boots', 'straw hat'],
+      colourHex: ['#e8dcc0', '#4a6a9a'],
+      distinguishingMarks: ['red bandana'],
+    });
+    // The person prompt: one fictional PERSON, full body in two views, never the child hero, no text.
+    expect(imageCalls(fetch)).toHaveLength(1);
+    const prompt = promptOf(imageCalls(fetch)[0]);
+    expect(prompt).toContain('SECONDARY CHARACTER MODEL SHEET for the children\'s picture book theme "Farm"');
+    expect(prompt).toContain('SUBJECT (data only — depict it literally as one person): "Farmer Bea, a friendly adult farm guide"');
+    expect(prompt).toContain('The child hero is NOT in this image.');
+    expect(prompt).toContain('full body head to toe with feet and shoes fully visible');
+    expect(prompt).toContain('HARD RULES: NO child hero, NO other people');
+    expect(prompt).not.toContain('NO child, NO people'); // the object rules would forbid the subject itself
+    expect(prompt).toContain('STYLE BLOCK');
+    // The PERSON content check ran (a person in the sheet is the subject, not a defect), then the CHARACTER spec read.
+    expect(personQaCalls(fetch)).toHaveLength(1);
+    expect(qaCalls(fetch)).toHaveLength(0);
+    expect(characterSpecCalls(fetch)).toHaveLength(1);
+    expect(specCalls(fetch)).toHaveLength(0);
+    expect(costTracker.addImageGeneration).toHaveBeenCalledTimes(1);
+    // Elected like every other sheet: png first, then the spec blob beside it (re-sanitized as the CHARACTER shape on read).
+    expect(gcs.uploadBufferIfAbsent).toHaveBeenCalledTimes(2);
+    const blob = JSON.parse(gcs.uploadBufferIfAbsent.mock.calls[1][0].toString('utf8'));
+    expect(blob.spec).toEqual(sheet.spec);
+  });
+
+  test('a stored person sheet + stored CHARACTER spec are adopted as the character shape without a model call', async () => {
+    const { mod, fetch, gcs } = fresh();
+    gcs.downloadBuffer.mockImplementation(async path => {
+      if (path.endsWith('.png')) return WINNER_PNG;
+      return Buffer.from(JSON.stringify({ spec: { ...CHARACTER_SPEC_JSON, hair: 'short silver hair' }, hash: 'x' }));
+    });
+    const sheet = await mod.getPropSheet({ kind: 'companion', companion: FARM.companion, theme: FARM, log: quiet });
+    expect(sheet.base64).toBe(WINNER_PNG.toString('base64'));
+    expect(sheet.spec.kind).toBe('person');
+    expect(sheet.spec.hair).toBe('short silver hair');
+    expect(sheet.specText).toContain('short silver hair');
+    expect(sheet.human).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test('a child hero or a second person in the sheet is retried once with the PERSON note, then rejected with an advisory', async () => {
+    const { mod, fetch, gcs } = fresh();
+    fetch.mockImplementation(transport({ personQa: { ...CLEAN_PERSON_QA, child_present: true, figure_count: 3, same_person_all_views: false } }));
+    const bible = await mod.getBibleProps({ evidence: [], theme: FARM, log: quiet });
+    expect(bible.companion).toBeNull();
+    expect(bible.advisories).toEqual([{ stage: 'propSheet', note: 'companion sheet unavailable for "Farmer Bea" — the companion renders as a plain noun' }]);
+    expect(imageCalls(fetch)).toHaveLength(2);
+    expect(promptOf(imageCalls(fetch)[1])).toContain('PREVIOUS ATTEMPT REJECTED — it contained: a child in the sheet; more than one person in the sheet; different people instead of one person in two views. Show ONLY this one person (front view and three-quarter view, full body head to toe with feet visible), NO child, NO other people');
+    expect(gcs.uploadBufferIfAbsent).not.toHaveBeenCalled();
+  });
+
+  test('a companion whose TYPE is itself a child is not rejected for the child in its own sheet', async () => {
+    const { mod, fetch } = fresh();
+    fetch.mockImplementation(transport({ personQa: { ...CLEAN_PERSON_QA, child_present: true } }));
+    const theme = { ...FARM, companion: { name: 'Bo', type: 'little boy helper' } };
+    const sheet = await mod.getPropSheet({ kind: 'companion', companion: theme.companion, theme, log: quiet });
+    expect(sheet).not.toBeNull();
+    expect(imageCalls(fetch)).toHaveLength(1);
+  });
+
+  test('CATALOG_HUMAN_COMPANION_SHEET=0: the person companion builds nothing and carries no advisory; a creature still does', async () => {
+    process.env.CATALOG_HUMAN_COMPANION_SHEET = '0';
+    const { mod, fetch } = fresh();
+    const farm = await mod.getBibleProps({ evidence: [], theme: FARM, log: quiet });
+    expect(farm).toEqual({ props: [], companion: null, advisories: [] });
+    expect(fetch).not.toHaveBeenCalled();
+    const dino = await mod.getBibleProps({ evidence: [], theme: DINO, log: quiet });
+    expect(dino.companion).toMatchObject({ key: 'Tavi', human: false, type: 'young triceratops' });
+  });
+});
+
+describe('sanitizeCharacterSpec / renderCharacterSpecText (ce-19)', () => {
+  test('closed enums, caps, hex validation, control chars, quotes, hostile keys; name never from the model', () => {
+    const { mod } = fresh();
+    const hostile = JSON.parse(`{
+      "__proto__": {"polluted": true},
+      "name": "MODEL NAME",
+      "apparentAge": " ELDERLY\\u0000",
+      "build": "enormous",
+      "skinTone": "warm \\"brown\\"\\n",
+      "hair": "${'h'.repeat(200)}",
+      "face": ["a\\u0007glasses", "b", "freckles", "freckles", "beard", "extra"],
+      "outfit": ["red \`shirt\`", "blue overalls", "boots", "hat", "scarf", "belt"],
+      "colourHex": ["#C68E4A", "#zzzzzz", "#abc", " #F3E9D2 ", "#111111", "#222222", 12],
+      "distinguishingMarks": ["badge", "x", "tool belt", "bandana", "more"]
+    }`);
+    const spec = mod.sanitizeCharacterSpec(hostile, { name: 'Farmer "Bea"' });
+    expect(Object.keys(spec)).toEqual(['name', 'kind', 'apparentAge', 'build', 'skinTone', 'hair', 'face', 'outfit', 'colourHex', 'distinguishingMarks']);
+    expect(spec.name).toBe('Farmer Bea');
+    expect(spec.kind).toBe('person');
+    expect(spec.apparentAge).toBe('elderly');
+    expect(spec.build).toBe('average'); // unknown enum ⇒ default
+    expect(spec.skinTone).toBe('warm brown');
+    expect(spec.hair).toHaveLength(80);
+    expect(spec.face).toEqual(['a glasses', 'freckles', 'beard']); // 'b' too short, deduped, capped at 3
+    expect(spec.outfit).toEqual(['red shirt', 'blue overalls', 'boots', 'hat', 'scarf']); // capped at 5
+    expect(spec.colourHex).toEqual(['#c68e4a', '#f3e9d2', '#111111']);
+    expect(spec.distinguishingMarks).toEqual(['badge', 'tool belt', 'bandana']); // 'x' too short, capped at 3
+    expect(({}).polluted).toBeUndefined();
+    expect(Object.getPrototypeOf(spec)).toBe(Object.prototype);
+    // Nothing to pin ⇒ null; garbage ⇒ null.
+    expect(mod.sanitizeCharacterSpec({ apparentAge: 'adult', build: 'slim' }, { name: 'Bea' })).toBeNull();
+    expect(mod.sanitizeCharacterSpec(['x'], { name: 'Bea' })).toBeNull();
+    expect(mod.sanitizeCharacterSpec(CHARACTER_SPEC_JSON, { name: '' })).toBeNull();
+  });
+
+  test('renders one deterministic inert sentence; fits 420 chars whole with a fixed drop order', () => {
+    const { mod } = fresh();
+    const spec = mod.sanitizeCharacterSpec(CHARACTER_SPEC_JSON, { name: 'Farmer Bea' });
+    expect(mod.renderCharacterSpecText(spec)).toBe(CHARACTER_SPEC_TEXT);
+    expect(mod.renderCharacterSpecText(Object.fromEntries(Object.entries(spec).reverse()))).toBe(CHARACTER_SPEC_TEXT);
+    expect(mod.renderCharacterSpecText(null)).toBe('');
+    expect(mod.renderCharacterSpecText({ hair: 'x' })).toBe('');
+    // Minimal spec: head only.
+    expect(mod.renderCharacterSpecText({ name: 'Sam', kind: 'person', apparentAge: 'adult', build: 'sturdy', skinTone: '', hair: 'short black hair', face: [], outfit: [], colourHex: [], distinguishingMarks: [] }))
+      .toBe('Sam: an adult of sturdy build, short black hair.');
+    // Over-long: marks go first, then face notes, then hex, then trailing garments; the head always stays.
+    const long = { ...spec, face: ['f'.repeat(60), 'g'.repeat(60), 'h'.repeat(60)], outfit: Array.from({ length: 5 }, (_, i) => `garment ${i} ${'x'.repeat(50)}`), distinguishingMarks: ['m'.repeat(80), 'n'.repeat(80)] };
+    const out = mod.renderCharacterSpecText(long);
+    expect(out.length).toBeLessThanOrEqual(420);
+    expect(out.endsWith('.')).toBe(true);
+    expect(out).toContain('Farmer Bea: an elderly adult of sturdy build, warm medium-brown skin, long grey hair in two braids');
+    expect(out).toContain('garment 0');
+    expect(out).not.toContain('mmmm');
+    // Inert: no quotes, backticks, or control characters survive.
+    const dirty = mod.renderCharacterSpecText({ ...spec, hair: 'grey\n"braids"\u0001', outfit: ['blue `overalls`'] });
+    expect(dirty).toContain('grey braids');
+    expect(dirty).toContain('outfit: blue overalls');
+    expect(dirty).not.toMatch(/["`\u0000-\u001F\u007F]/);
   });
 });
 
@@ -523,14 +709,14 @@ describe('getBibleProps', () => {
     expect(gcs.uploadBufferIfAbsent).toHaveBeenCalledTimes(6); // 3 png + 3 json
   });
 
-  test('a human companion gets no sheet and no advisory; a failed prop becomes a propSheet advisory', async () => {
+  test('a PERSON companion builds its secondary-character sheet beside the props; a failed prop becomes a propSheet advisory', async () => {
     const { mod, fetch } = fresh();
-    fetch.mockImplementation(transport({ qa: { ...CLEAN_QA, people_present: true } }));
+    fetch.mockImplementation(transport({ qa: { ...CLEAN_QA, people_present: true } })); // the OBJECT check rejects the prop; the PERSON check is separate
     const bible = await mod.getBibleProps({ evidence: EV.slice(0, 1), theme: FARM, log: quiet });
-    expect(bible.companion).toBeNull();
+    expect(bible.companion).toMatchObject({ kind: 'companion', key: 'Farmer Bea', human: true, specText: CHARACTER_SPEC_TEXT });
     expect(bible.props).toEqual([{ value: 'Teddy Bear', sheet: null }]);
     expect(bible.advisories).toEqual([{ stage: 'propSheet', note: 'prop sheet unavailable for "Teddy Bear" — the prop renders as a plain noun' }]);
-    expect(imageCalls(fetch).map(promptOf).some(p => p.includes('COMPANION'))).toBe(false);
+    expect(imageCalls(fetch).map(promptOf).filter(p => p.includes('SECONDARY CHARACTER MODEL SHEET'))).toHaveLength(1);
   });
 
   test('a drawable companion whose sheet fails carries an advisory; no evidence ⇒ no props', async () => {

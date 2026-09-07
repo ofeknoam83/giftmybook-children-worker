@@ -120,6 +120,14 @@ function escapeRegExp(s) {
  * story — and when the child shares the companion's name (a child called
  * Nova, Pip, Maple…) the story text cannot tell them apart, so only the
  * beat text counts, exactly as before ce-11.
+ * The masks are WHOLE-WORD (ce-19): the first version split the text on
+ * the raw mask string, and the farm theme's display name "Farm" is a
+ * substring of "Farmer" — every "Farmer Bea" became "er Bea" before the
+ * name was looked for, so on the farm theme the companion signal never
+ * fired at all (no companion line, no sheet in the pack, no QA companion
+ * check on any spread — the beat's ACTION line was the only thing that
+ * ever drew her). A mask that is itself a whole word of the companion's
+ * name is skipped, since masking it would damage the name.
  * @param {object} beat
  * @param {string} spreadText the spread's manuscript text
  * @param {object} companion {name, type}
@@ -132,14 +140,15 @@ function companionOnSpread(beat, spreadText, companion, ctx = {}) {
   const childName = String(ctx.childName || '').trim();
   const collides = !!childName && childName.toLowerCase() === name.toLowerCase();
   let hay = `${beat?.beat || ''}\n${collides ? '' : (spreadText || '')}`;
-  for (const mask of [ctx.theme?.world_name, ctx.theme?.display_name]) {
-    const m = String(mask || '').trim();
-    if (m && m.toLowerCase() !== name.toLowerCase()) hay = hay.split(m).join('\n');
-  }
   // Unicode lookarounds, not \b: companion naming is overlay-patchable and
   // \b is ASCII-only — an accented name ("José") would never match at all.
   const bounded = (term, flags) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term)}(?![\\p{L}\\p{N}])`, flags);
-  if (bounded(companion.name, 'u').test(hay)) return true;
+  for (const mask of [ctx.theme?.world_name, ctx.theme?.display_name]) {
+    const m = String(mask || '').trim();
+    if (!m || bounded(m, 'iu').test(name)) continue;
+    hay = hay.replace(bounded(m, 'gu'), '\n');
+  }
+  if (bounded(name, 'u').test(hay)) return true;
   const type = String(companion.type || '').trim();
   return !!type && bounded(type, 'iu').test(hay);
 }
@@ -168,7 +177,10 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
   lines.push(`ACTION (paint exactly this moment): ${beat.beat}`);
   lines.push(`The child ${profile.name} (age ${profile.age}) is the active protagonist — exactly ONE instance of ${profile.name} in the scene, matching the reference character's face, hair, and outfit.`);
   if (companionOnSpread(beat, spreadText, theme.companion, { theme, childName: profile?.name })) {
-    lines.push(`Companion present: ${theme.companion.name}, a ${theme.companion.type} — friendly and warm, secondary to the child.`);
+    // ce-19: exactly ONE of them — a stateless render happily draws the
+    // named guide twice (or a look-alike helper beside them); the COMPANION
+    // block and its reference sheet pin WHO, this line pins HOW MANY.
+    lines.push(`Companion present: ${theme.companion.name}, a ${theme.companion.type} — exactly ONE of them, drawn as the COMPANION reference, friendly and warm, secondary to the child.`);
   }
   if (spreadText) {
     lines.push(embedText

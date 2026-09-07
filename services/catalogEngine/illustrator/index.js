@@ -42,7 +42,7 @@ const { buildShotPlan, renderShotDirective } = require('./shotPlan');
 const { buildBookBible, buildReferencePack, buildPromptBible, summarizeBible, propSheetFor } = require('./bible');
 const { candidateKey, scoreCandidate, isClean, pickBest, compareCandidates, residualBlocking, hasDriftDefect, typographyAnchorRejection } = require('./select');
 const metrics = require('./metrics');
-const { checkCharacterContactSheet, checkPropContactSheet, contactRepairNote } = require('./contactSheet');
+const { checkCharacterContactSheet, checkPropContactSheet, checkCompanionContactSheet, contactRepairNote } = require('./contactSheet');
 const { normalizePropValue } = require('./bible/propSheet');
 const { EMOTIONS, EMOTION_CUES } = require('./emotionPlan');
 const { renderWorldCardBlock } = require('../worldCards');
@@ -405,8 +405,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       // comfort object is continuity decoration (absence is advisory).
       return { name, specText: sheet ? sheet.specText || null : null, sheet: sheet ? { base64: sheet.base64, mimeType: sheet.mimeType || 'image/png' } : null, expected: declaredProps.includes(name) ? 'required' : 'carried' };
     }),
+    // ce-19: the companion is checked against its sheet AND its pinned spec
+    // sentence, as a person when it is one (the same signal that built the
+    // sheet and phrased the COMPANION block).
     companion: companionPresent && theme.companion && theme.companion.name
-      ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null }
+      ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null, specText: bible.companion ? bible.companion.specText || null : null, human: bible.companion ? !!bible.companion.human : false }
       : null,
     beat: beat ? beat.beat : null,
     emotion: promptBible.emotion ? { emotion: promptBible.emotion.emotion, intensity: promptBible.emotion.intensity, cue: EMOTION_CUES[promptBible.emotion.emotion] || null } : null,
@@ -427,7 +430,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     typographyRef: Number.isInteger(refs.typographyRef) ? refs.typographyRef : null,
     inkHex: qaOpts.inkHex,
     props: qaOpts.props.map(p => ({ name: p.name, specText: p.specText, ref: refs.props[p.name] || null })),
-    companion: qaOpts.companion ? { name: qaOpts.companion.name, ref: refs.companionRef } : null,
+    companion: qaOpts.companion ? { name: qaOpts.companion.name, ref: refs.companionRef, specText: qaOpts.companion.specText, human: qaOpts.companion.human } : null,
     beat: qaOpts.beat,
     emotion: qaOpts.emotion,
   });
@@ -477,6 +480,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           qa: marker.qa || null,
           bbox: marker.qa?.bbox || null,
           propBoxes: Array.isArray(marker.qa?.propBoxes) ? marker.qa.propBoxes : [],
+          companionBox: marker.qa?.companionBox || null,
+          companionExpected: companionPresent,
         };
       } catch (markerErr) {
         // No marker (crash between upload and check), a marker for other
@@ -684,7 +689,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           advisories, tuningTag,
           renderHash: renderContentHash(buffer),
           qaVersion: QA_VERSION,
-          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], textInk: best.qa.textInk || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
+          qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], companionBox: best.qa.companionBox || null, textInk: best.qa.textInk || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
           // Residual findings remain attached to the canonical best artwork,
           // including after automatic completion and subsequent cache replay.
           ...(blocking.length > 0 ? { unresolved: true } : {}),
@@ -711,6 +716,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     qa: best.qa || null,
     bbox: best.qa ? best.qa.bbox || null : null,
     propBoxes: best.qa && Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [],
+    // ce-19: the companion's judged box + whether this spread expects the
+    // companion at all — the companion contact gate tiles exactly those.
+    companionBox: best.qa ? best.qa.companionBox || null : null,
+    companionExpected: companionPresent,
     crop: best.metrics ? best.metrics.crop || null : null,
   };
 }
@@ -1028,6 +1037,33 @@ async function runContactSheetGate({ results, bible, evidence = [], rerender, on
       }
     }
 
+    // ce-19: the COMPANION contact sheet — every spread that expected the
+    // companion, its crop from the structured verdict's companion bbox
+    // (the whole spread only as a named fallback), beside the companion
+    // sheet. This is the set-level view the per-spread check cannot have:
+    // two spreads that each pass `look_match` on their own can still show
+    // two different farmers side by side.
+    if (bible.companion && bible.companion.base64) {
+      const tiles = [];
+      for (const r of rendered.filter(x => x.companionExpected)) {
+        const crop = r.companionBox ? await metrics.cropBbox(r.buffer, r.companionBox, { pad: 0.08 }).catch(() => null) : null;
+        tiles.push({ spread: r.spread, buffer: crop || r.buffer, cropped: !!crop });
+      }
+      if (tiles.length >= 2) {
+        const v = await checkCompanionContactSheet({
+          tiles,
+          companionSheet: { buffer: Buffer.from(bible.companion.base64, 'base64'), specText: bible.companion.specText || null, name: bible.companion.key, type: bible.companion.type || null, human: !!bible.companion.human },
+          label: 'contactQa:companion',
+        });
+        if (v && v.qaUnavailable) unavailable = unavailable || v.qaUnavailable;
+        if (v && !v.qaUnavailable) {
+          for (const f of v.flagged) {
+            if (!flagged.some(x => x.spread === f.spread)) flagged.push({ ...f, defect: 'companion_rendering' });
+          }
+        }
+      }
+    }
+
     // Deterministic outliers (opt-in metrics): a child crop far from the
     // set's median embedding is flagged as a character break too.
     if (flags.identityMetricsEnabled()) {
@@ -1055,7 +1091,12 @@ async function runContactSheetGate({ results, bible, evidence = [], rerender, on
       // (the pinned instruction, never model text).
       noteFor: f => (f.defect === 'prop_rendering'
         ? (refs) => `SET CONSISTENCY REPAIR — compared with the book's other spreads, this render broke prop consistency for "${inertPropValue(f.prop) || 'the prop'}". ${contactRepairNote('prop_rendering', { referenceIndex: propReferenceIndex(refs, f.prop) })} Re-render the SAME scene and action; fix ONLY the prop.`
-        : worldRepairNote('character_rendering')),
+        // ce-19: a companion repair cites the companion sheet's index in the
+        // RE-RENDER's own reference pack (the pinned instruction, never
+        // model text).
+        : f.defect === 'companion_rendering'
+          ? (refs) => `SET CONSISTENCY REPAIR — compared with the book's other spreads, this render broke companion consistency for "${inertPropValue(bible.companion && bible.companion.key) || 'the companion'}". ${contactRepairNote('companion_rendering', { referenceIndex: refs.companionRef })} Re-render the SAME scene and action; fix ONLY the companion.`
+          : worldRepairNote('character_rendering')),
       onProgress, log,
     });
     return { pass: false, checked: rendered.length, flagged, rerendered, ...(unavailable ? { unavailable } : {}) };

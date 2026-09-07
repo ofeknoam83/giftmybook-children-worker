@@ -75,19 +75,21 @@ const CONTROL_RE = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\uFEFF]+/g;
  * Closed vocabulary of set-break classes the contact-sheet gate can act on.
  * The child sheet only ever yields `character_rendering` (the world gate's
  * own class, so one repair note serves both gates); the props sheet only
- * ever yields `prop_rendering`.
+ * ever yields `prop_rendering`; the companion sheet (ce-19) only ever
+ * yields `companion_rendering`.
  */
-const CONTACT_DEFECTS = new Set(['character_rendering', 'prop_rendering']);
+const CONTACT_DEFECTS = new Set(['character_rendering', 'prop_rendering', 'companion_rendering']);
 
 /**
- * FIXED corrective instructions per contact defect. `<n>` in the prop
- * sentence is the reference-pack index of the prop sheet the render
+ * FIXED corrective instructions per contact defect. `<n>` in the prop and
+ * companion sentences is the reference-pack index of the sheet the render
  * attaches — substituted by `contactRepairNote` from a caller-pinned
  * integer, never from model output.
  */
 const CONTACT_REPAIR_INSTRUCTIONS = {
   character_rendering: 'Render the child EXACTLY as the reference character and the book\'s other spreads: the same apparent age, the same face and body proportions, the same stylization level, the same outfit, and the same hair.',
   prop_rendering: 'Draw the prop EXACTLY as REFERENCE <n> shows it — the same object, colours, material and size as on the book\'s other spreads; keep the scene otherwise identical.',
+  companion_rendering: 'Draw the companion EXACTLY as REFERENCE <n> shows it — the SAME character as on the book\'s other spreads: the same face, apparent age, hair colour/style/length, skin tone, build and proportions, the same colours and markings, and the same complete outfit; exactly ONE of them; keep the scene otherwise identical.',
 };
 
 // Transport-failure cooldown, keyed by vision model: after an HTTP 5xx/429
@@ -343,6 +345,39 @@ ${answerShape()}`;
 }
 
 /**
+ * Prompt for the companion contact sheet (ce-19). The companion's name,
+ * type and spec are data quoted inertly; a PERSON companion is compared
+ * in a person's terms (face, age, hair, skin, build, outfit), a creature
+ * in a creature's (kind, colours, proportions, markings); full-spread
+ * tiles (no crop was available) are named so the judge looks for the
+ * companion within the scene instead of comparing whole pictures.
+ * @param {{spreads: number[], fullSpreads: number[], columns: number, name: string|null, type: string|null, specText: string|null, human: boolean}} o
+ * @returns {string}
+ */
+function companionPrompt(o) {
+  const named = o.name ? ` ("${o.name}"${o.type ? `, a ${o.type}` : ''})` : '';
+  const spec = o.specText
+    ? `\nCOMPANION SPEC (data — describes the REFERENCE companion): "${o.specText}"`
+    : '';
+  const full = o.fullSpreads.length > 0
+    ? `\nNOTE: tile(s) SPREAD ${o.fullSpreads.join(' (FULL), SPREAD ')} (FULL) show the WHOLE spread illustration because no companion crop was available — find the companion within the scene (never the child hero) and judge ONLY the companion, never the rest of the picture. If the companion cannot be found in such a tile, do NOT flag it.`
+    : '';
+  const compare = o.human
+    ? 'the same person: the same face, the same apparent age, the same hair (colour, length, style), the same skin tone, the same build and body proportions, and the same complete outfit — the same garments in the same colours'
+    : 'the same character design: the same kind of creature or character and shape, the same colours, the same proportions, and the same distinguishing marks or markings';
+  const flag = o.human
+    ? 'a different face, a different hairstyle or hair colour, a different skin tone, a clearly different apparent age or build, or a garment that is missing, replaced, or a clearly different colour'
+    : 'a different creature or character, clearly different colours or proportions, or missing/changed markings';
+  return `You are checking COMPANION CONSISTENCY across ONE children's picture book. The attached image is a CONTACT SHEET: a grid of labelled tiles, ${o.columns} per row, read left-to-right then top-to-bottom. The FIRST tile, labelled "${REFERENCE_LABEL}", is the book's reference sheet for its ONE recurring companion character${named}. Every other tile, labelled "SPREAD n" (spreads ${o.spreads.join(', ')}), shows that same companion as drawn on that spread.
+
+Every tile shows the SAME companion from the SAME book — never the child hero. Compare EACH spread tile's companion to the ${REFERENCE_LABEL} tile on ${compare}.${spec}${full}
+
+DO NOT flag differences in pose, expression, action, camera distance or angle, lighting, or cropping — those are supposed to differ. Flag a tile ONLY when its companion CLEARLY differs from the REFERENCE: ${flag}. A tile where the companion is not visible is NOT flagged. The ${REFERENCE_LABEL} tile itself is never flagged.
+
+${answerShape()}`;
+}
+
+/**
  * Validate a parsed verdict into the closed result shape. Only spreads in
  * the check can be flagged; hallucinated numbers drop; duplicates collapse
  * to the first entry; the note is control-stripped, capped, and stays
@@ -503,11 +538,47 @@ async function checkPropContactSheet(o = {}) {
 }
 
 /**
+ * Companion contact sheet check (ce-19): the companion crops (or whole
+ * spreads, flagged `cropped: false`, when no crop was available) vs the
+ * companion sheet — the set-level check the ce-9 plan promised ("companion
+ * tiles") and never built. Two spreads that each pass their own
+ * per-spread `look_match` can still show two different farmers; this is
+ * the gate that sees them side by side.
+ * @param {{tiles: Array<{spread: number, buffer: Buffer, cropped?: boolean}>, companionSheet: {buffer: Buffer, specText?: string|null, name?: string|null, type?: string|null, human?: boolean}, label?: string}} o
+ * @returns {Promise<{pass: boolean, flagged: Array<{spread: number, defect: 'companion_rendering', note: string}>, checked: number, qaUnavailable?: string}|null>}
+ *   null when fewer than 2 decodable tiles or under CATALOG_CONTACT_QA=0.
+ */
+async function checkCompanionContactSheet(o = {}) {
+  const label = o.label || 'contactQa:companion';
+  const name = inertText(own(o.companionSheet, 'name'), PROP_NAME_MAX_CHARS);
+  const type = inertText(own(o.companionSheet, 'type'), PROP_NAME_MAX_CHARS);
+  const specText = inertText(own(o.companionSheet, 'specText'), SPEC_TEXT_MAX_CHARS);
+  const human = own(o.companionSheet, 'human') === true;
+  return runContactCheck({
+    label,
+    tiles: o.tiles,
+    reference: o.companionSheet,
+    defect: 'companion_rendering',
+    missingReference: 'companion sheet reference unavailable',
+    promptFor: tiles => companionPrompt({
+      spreads: tiles.map(t => t.spread),
+      fullSpreads: tiles.filter(t => !t.cropped).map(t => t.spread),
+      columns: DEFAULT_COLUMNS,
+      name,
+      type,
+      specText,
+      human,
+    }),
+  });
+}
+
+/**
  * Corrective prompt sentence for a contact defect, built ONLY from the
  * closed vocabulary: an unknown defect maps to `character_rendering`'s
- * generic sentence; the prop sentence's `<n>` takes the caller-pinned
- * reference-pack index (a positive integer) or, without one, the words
- * "the PROP SHEET". Never model output.
+ * generic sentence; the prop and companion sentences' `<n>` takes the
+ * caller-pinned reference-pack index (a positive integer) or, without
+ * one, the words "the PROP SHEET" / "the COMPANION SHEET". Never model
+ * output.
  * @param {string} defect one of CONTACT_DEFECTS
  * @param {{referenceIndex?: number}} [opts]
  * @returns {string}
@@ -515,9 +586,10 @@ async function checkPropContactSheet(o = {}) {
 function contactRepairNote(defect, opts = {}) {
   const key = CONTACT_DEFECTS.has(defect) ? defect : 'character_rendering';
   const base = CONTACT_REPAIR_INSTRUCTIONS[key];
-  if (key !== 'prop_rendering') return base;
+  if (key === 'character_rendering') return base;
   const idx = Number.isInteger(opts.referenceIndex) && opts.referenceIndex > 0 ? String(opts.referenceIndex) : null;
-  return base.replace('REFERENCE <n>', idx ? `REFERENCE ${idx}` : 'the PROP SHEET');
+  const fallback = key === 'companion_rendering' ? 'the COMPANION SHEET' : 'the PROP SHEET';
+  return base.replace('REFERENCE <n>', idx ? `REFERENCE ${idx}` : fallback);
 }
 
 /**
@@ -533,6 +605,7 @@ module.exports = {
   buildContactSheet,
   checkCharacterContactSheet,
   checkPropContactSheet,
+  checkCompanionContactSheet,
   contactRepairNote,
   contactSheetHash,
   sanitizeLabel,

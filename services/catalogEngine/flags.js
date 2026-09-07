@@ -60,6 +60,12 @@
  *                                   advisory instead of failing needs_review.
  *  - CATALOG_PROP_SHEETS=0        — (ce-9) stop building prop / companion
  *                                   reference sheets (props ride as nouns).
+ *  - CATALOG_HUMAN_COMPANION_SHEET=0 — (ce-19) stop building the reference
+ *                                   sheet + character spec for a PERSON-
+ *                                   typed companion (Farmer Bea, Builder
+ *                                   Sam): the companion rides as a noun
+ *                                   again, unchecked, as before ce-19.
+ *                                   Creature companion sheets unaffected.
  *  - CATALOG_EMOTION_PLAN=0       — (ce-9) stop pinning a per-spread emotion
  *                                   (cache fold -e0).
  *  - CATALOG_EMOTION_CLASSIFIER=0 — (ce-9) emotion plan from the keyword
@@ -179,6 +185,8 @@ module.exports = {
   characterSheetEnabled: () => !envOff('CATALOG_CHARACTER_SHEET'),
   sheetRequired: () => !envOff('CATALOG_SHEET_REQUIRED'),
   propSheetsEnabled: () => !envOff('CATALOG_PROP_SHEETS'),
+  // ce-19 — secondary characters: a person-typed companion gets a sheet too
+  humanCompanionSheetEnabled: () => !envOff('CATALOG_HUMAN_COMPANION_SHEET'),
   emotionPlanEnabled: () => !envOff('CATALOG_EMOTION_PLAN'),
   emotionClassifierEnabled: () => !envOff('CATALOG_EMOTION_CLASSIFIER'),
   contactQaEnabled: () => !envOff('CATALOG_CONTACT_QA'),

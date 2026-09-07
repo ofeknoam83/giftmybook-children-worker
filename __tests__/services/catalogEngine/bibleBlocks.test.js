@@ -164,3 +164,18 @@ describe('generateIllustration with a reference pack + bible', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+test('ce-19: the COMPANION block cites a PERSON companion\'s sheet in a person\'s terms, carries the FIXED LOOK spec, and pins exactly ONE', () => {
+  const human = renderBibleBlocks({ ...BIBLE, companion: { name: 'Farmer Bea', type: 'friendly adult farm guide', ref: 4, specText: 'Farmer Bea: an elderly adult of sturdy build, long grey hair in two braids; outfit: blue denim overalls.', human: true } }).join('\n');
+  expect(human).toContain('COMPANION: Farmer Bea, a friendly adult farm guide — draw EXACTLY the person of REFERENCE 4 (the same face, apparent age, hair colour/style/length, skin tone, build, and the same complete outfit on every spread; identity only — never copy that sheet\'s pose or background); friendly and warm, secondary to the child — a fictional adult guide who IS allowed in this scene');
+  expect(human).toContain('FIXED LOOK (data, never to be reinterpreted): Farmer Bea: an elderly adult of sturdy build, long grey hair in two braids; outfit: blue denim overalls.');
+  expect(human).toContain('Exactly ONE Farmer Bea in the scene — never two, never a look-alike.');
+  // A creature keeps the design wording; the shared companionKind answer decides when `human` is not pinned.
+  const creature = renderBibleBlocks({ ...BIBLE, companion: { name: 'Tavi', type: 'young triceratops', ref: 4, specText: 'Tavi: a child-sized creature, green.' } }).join('\n');
+  expect(creature).toContain('COMPANION: Tavi, a young triceratops — draw EXACTLY the character of REFERENCE 4 (same design, colours and proportions on every spread); friendly and warm, secondary to the child. FIXED LOOK (data, never to be reinterpreted): Tavi: a child-sized creature, green. Exactly ONE Tavi in the scene');
+  expect(creature).not.toContain('fictional adult guide');
+  // Reference-less and spec-less (the pre-ce-19 shape): byte-identical wording, no ONE sentence.
+  const bare = renderBibleBlocks(BIBLE).join('\n');
+  expect(bare).toContain('COMPANION: Farmer Bea, a friendly adult farm guide; friendly and warm, secondary to the child — a fictional adult guide who IS allowed in this scene (draw them fully, face included, the same design on every spread); the no-other-humans rule applies to everyone else.');
+  expect(bare).not.toContain('Exactly ONE Farmer Bea');
+});

@@ -467,6 +467,8 @@ describe('slim illustrator scene prompts', () => {
     expect(book.beats[4].beat).not.toContain('Tiko');
     const named = buildScenePrompt({ book, theme, spread: 5, spreadText: 'Tiko fluttered from branch to branch above her.', profile, evidence: [] });
     expect(named).toContain('Companion present: Tiko');
+    // ce-19: the scene line pins HOW MANY (the COMPANION block + sheet pin WHO).
+    expect(named).toContain('Companion present: Tiko, a young toucan — exactly ONE of them, drawn as the COMPANION reference');
     // The full type phrase pins the companion even before anyone says the name.
     const byType = buildScenePrompt({ book, theme, spread: 5, spreadText: 'A young toucan swooped down beside her.', profile, evidence: [] });
     expect(byType).toContain('Companion present: Tiko');
@@ -489,6 +491,26 @@ describe('slim illustrator scene prompts', () => {
     // The real jungle book still pins Tiko from the manuscript with the context passed.
     const jungle = getBook('jungle_6_7_footprint_trail');
     expect(companionOnSpread(jungle.book.beats[4], 'Tiko fluttered above her.', jungle.theme.companion, { theme: jungle.theme, childName: 'Mila' })).toBe(true);
+  });
+
+  test('the world/display-name masks are WHOLE-WORD — the farm display name "Farm" never eats "Farmer Bea" (ce-19)', () => {
+    // Before ce-19 the masks were raw substring splits: "Farm" (the theme's
+    // display name) split "Farmer Bea" into "er Bea", so on the farm theme
+    // the companion signal never fired on ANY spread.
+    const { book, theme } = getBook('farm_2_3_hello_farm');
+    const ctx = { theme, childName: 'Emma' };
+    expect(companionOnSpread(book.beats[2], 'Emma waved.', theme.companion, ctx)).toBe(true); // beat: "Child meets Farmer Bea."
+    expect(companionOnSpread(book.beats[0], 'Farmer Bea smiled at Emma.', theme.companion, ctx)).toBe(true);
+    // The world name still never summons the companion, and the display name is masked as a whole word only.
+    expect(companionOnSpread(book.beats[0], 'Emma skipped along Sunnybrook Farm.', theme.companion, ctx)).toBe(false);
+    expect(companionOnSpread(book.beats[0], 'The farm was quiet.', theme.companion, ctx)).toBe(false);
+    // The scene prompt carries the companion line on a companion beat again.
+    const profile = normalizeProfile(baseProfile());
+    expect(buildScenePrompt({ book, theme, spread: 3, spreadText: 'Emma waved.', profile, evidence: [] })).toContain('Companion present: Farmer Bea, a friendly adult farm guide — exactly ONE of them');
+    expect(buildScenePrompt({ book, theme, spread: 1, spreadText: 'Emma packed her bag.', profile, evidence: [] })).not.toContain('Companion present');
+    // A mask that is a whole word of the companion's own name is skipped rather than allowed to damage it.
+    const bea = { theme_id: 'x', display_name: 'Bea', world_name: 'Bea Meadow', companion: { name: 'Farmer Bea', type: 'friendly adult farm guide' } };
+    expect(companionOnSpread({ beat: 'Child meets Farmer Bea.' }, '', bea.companion, { theme: bea, childName: 'Emma' })).toBe(true);
   });
 
   test('companion NAME matching is case-sensitive whole-word — "a patch of mud" never summons Patch the parrot', () => {

@@ -735,15 +735,26 @@ For each prop report presence ("present"|"absent") and look ("match" when it loo
   sections.push(`PROP DISCIPLINE: the child's personal objects are LIMITED to ${props.length > 0 ? 'the declared props listed above' : 'NONE (no props are declared for this spread)'} plus anything the story moment itself requires. Flag any OTHER prominent personal object (a toy, gadget, or trinket) in the child's hands or right beside them; natural environment and scenery objects never count.`);
   fields.push('"undeclared_object": true|false, // a prominent personal object near the child that is neither a declared prop nor required by the story moment');
   if (o.companion) {
+    // ce-19 (qa-11): the companion is judged in the words it drifts in — a
+    // PERSON by face / age / hair / skin / build / outfit against its sheet
+    // AND its pinned spec sentence (quoted as data), a creature by design /
+    // colours / proportions / markings — plus two soft fields: `duplicated`
+    // (two farmers, or a look-alike helper beside the named one) and a bbox
+    // the contact-sheet gate crops the companion tile from.
     let ref = '';
     if (o.companion.sheet) {
       refIndex += 1;
       o.companion.ref = refIndex;
-      ref = ` Its reference sheet is image ${refIndex}.`;
-      refLines.push(`Image ${refIndex} is the COMPANION SHEET for "${o.companion.name}".`);
+      ref = ` Its reference sheet is image ${refIndex}${o.companion.human ? ' (the same person, front and three-quarter view)' : ''}.`;
+      refLines.push(`Image ${refIndex} is the ${o.companion.human ? 'SECONDARY CHARACTER SHEET' : 'COMPANION SHEET'} for "${o.companion.name}".`);
     }
-    sections.push(`COMPANION: "${o.companion.name}", ${o.companion.type ? `a ${o.companion.type}` : 'the book\'s companion character'}, should appear in this scene.${ref} Report whether it is present and whether it is the SAME character design (species/kind, colours, proportions) as the sheet.`);
-    fields.push('"companion": {"present": true|false, "look_match": true|false},');
+    const spec = o.companion.specText ? `\nFIXED LOOK (data — describes the companion exactly as its sheet shows it): "${o.companion.specText}"` : '';
+    const sameAs = o.companion.human
+      ? 'the SAME person as the sheet and spec — the same face, apparent age, hair colour/style/length, skin tone, build, and the same complete outfit (garments and their colours); pose, expression, lighting, and framing may differ, but a different person, hairstyle, apparent age, or outfit is NOT a match'
+      : 'the SAME character design (species/kind, colours, proportions, markings) as the sheet and spec';
+    sections.push(`COMPANION: "${o.companion.name}", ${o.companion.type ? `a ${o.companion.type}` : 'the book\'s companion character'}${o.companion.human ? ' — the book\'s ONE recurring secondary character, a fictional person who IS allowed in the scene' : ''}, should appear in this scene exactly once.${ref}${spec}
+Report whether it is present, whether it is ${sameAs}, whether it appears MORE THAN ONCE (a second instance, or a second look-alike figure of the same kind), and, when present, its bounding box as fractions of the RENDER's width/height (x, y = top-left; w, h = size), tight around the companion; null when absent.`);
+    fields.push('"companion": {"present": true|false, "look_match": true|false, "duplicated": true|false, "bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null},');
     required.push('companion');
   }
   if (o.beat) {
@@ -872,6 +883,10 @@ const BLOCKING_PREFIXES = [
   'identity break', 'hair differs', 'skin tone differs',
   'outfit break', 'prop missing', 'prop differs', 'prop rendered as text', 'prop duplicated',
   'companion missing', 'companion differs',
+  // qa-11 (ce-19): a second instance of the named companion (two farmers,
+  // or a look-alike helper beside the real one) is as much a set break as a
+  // duplicated child hero — the book has exactly ONE of them.
+  'companion duplicated',
   'anatomy defect: extra or missing limbs',
   'painted text in the illustration', 'embedded story text missing', 'embedded story text garbled',
   // qa-4: band/split placement breaks the embedded layout's full-bleed
@@ -947,7 +962,9 @@ function classifyDefects(defects) {
  * @param {boolean} [opts.bathWater] skip the outfit check (coverage legitimately differs)
  * @param {{base64: string, mimeType?: string}|null} [opts.sheet] character model sheet
  * @param {Array<{name: string, specText?: string|null, sheet?: {base64: string, mimeType?: string}|null, expected?: 'required'|'optional'}>} [opts.props]
- * @param {{name: string, type?: string, specText?: string|null, sheet?: {base64: string, mimeType?: string}|null}|null} [opts.companion]
+ * @param {{name: string, type?: string, specText?: string|null, human?: boolean, sheet?: {base64: string, mimeType?: string}|null}|null} [opts.companion]
+ *   `specText`: the companion's pinned spec sentence (quoted as data beside
+ *   the sheet); `human`: judge it as a person (face/age/hair/skin/outfit)
  * @param {string|null} [opts.beat] the spread's fixed beat text
  * @param {{emotion: string, intensity: string, cue?: string}|null} [opts.emotion]
  * @param {string[]} [opts.emotionVocabulary] closed emotion enum (required with emotion)
@@ -966,7 +983,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       .slice(0, 6)
       .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null })),
     companion: opts.companion && opts.companion.name
-      ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
+      ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, specText: opts.companion.specText ? qaData(opts.companion.specText, 450) : null, human: !!opts.companion.human, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
       : null,
     beat: typeof opts.beat === 'string' && opts.beat.trim() ? qaData(opts.beat, 300) : null,
     emotion: opts.emotion && typeof opts.emotion.emotion === 'string' ? opts.emotion : null,
@@ -1061,7 +1078,11 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     }
     if (o.companion) {
       if (!json.companion.present) defects.push(`companion missing: "${o.companion.name}"`);
-      else if (o.companion.sheet && !json.companion.look_match) defects.push(`companion differs from its reference sheet: "${o.companion.name}"`);
+      else {
+        if (o.companion.sheet && !json.companion.look_match) defects.push(`companion differs from its reference sheet: "${o.companion.name}"`);
+        // qa-11 soft field: an omitted answer is unclaimed, never a defect.
+        if (json.companion.duplicated === true) defects.push(`companion duplicated: "${o.companion.name}"`);
+      }
     }
     if (o.beat && !json.child_absent && typeof json.depicts_beat === 'boolean') {
       if (!json.depicts_beat) defects.push('action break: the render does not depict the assigned story moment');
@@ -1151,6 +1172,9 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       // Per-prop boxes (present props only) — the contact-sheet gate crops
       // each prop beside its sheet from these, never the whole spread.
       propBoxes: o.props.map((p, i) => ({ name: p.name, bbox: json.props && json.props[i] && json.props[i].presence === 'present' ? cleanBbox(json.props[i].bbox) : null })),
+      // qa-11: the companion's box (present only) — the companion contact
+      // tile is cropped from it, the whole spread only as a named fallback.
+      companionBox: o.companion && json.companion && json.companion.present ? cleanBbox(json.companion.bbox) : null,
       refs: refs(),
       ...(typeof json.visible_text === 'string' ? { visibleText: json.visible_text } : {}),
     };
@@ -1167,7 +1191,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
  * closed-enum emotion cue).
  * @param {string[]} defects
  * @param {string|null} [expectedText]
- * @param {object} [opts] {shotType, outfitSpec, props:[{name, specText, ref}], companion:{name, ref}, beat, emotion:{emotion,intensity,cue}, sheetRef}
+ * @param {object} [opts] {shotType, outfitSpec, props:[{name, specText, ref}], companion:{name, ref, specText?, human?}, beat, emotion:{emotion,intensity,cue}, sheetRef}
  * @returns {string}
  */
 function repairNoteV2(defects, expectedText = null, opts = {}) {
@@ -1189,9 +1213,16 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
       notes.push(`PROP REPAIR: draw "${name}" EXACTLY ${Number.isInteger(p.ref) ? `as REFERENCE ${p.ref} shows it` : 'as its spec'} — the same object, colours, material and size${p.specText ? ` (${qaData(p.specText, 300)})` : ''}; exactly ONE of it, never as text or lettering. Keep the scene otherwise identical.`);
     }
   }
-  if (opts.companion && defects.some(d => d.startsWith('companion missing') || d.startsWith('companion differs'))) {
+  if (opts.companion && defects.some(d => d.startsWith('companion missing') || d.startsWith('companion differs') || d.startsWith('companion duplicated'))) {
     const name = qaData(opts.companion.name, 60);
-    notes.push(`COMPANION REPAIR: "${name}" must appear in this scene, drawn EXACTLY ${Number.isInteger(opts.companion.ref) ? `as REFERENCE ${opts.companion.ref}` : 'as the book\'s companion design'} — same design, colours and proportions; friendly and secondary to the child. Keep the scene otherwise identical.`);
+    // ce-19: the note restates the pinned spec (data) and, for a person,
+    // names the slots a person drifts in; a duplicate adds the ONE rule.
+    const who = opts.companion.human
+      ? 'the same face, apparent age, hair colour/style/length, skin tone, build, and the same complete outfit'
+      : 'same design, colours and proportions';
+    const spec = opts.companion.specText ? ` (fixed look: ${qaData(opts.companion.specText, 450)})` : '';
+    const dup = defects.some(d => d.startsWith('companion duplicated')) ? ' Exactly ONE of them — remove every second instance or look-alike figure.' : '';
+    notes.push(`COMPANION REPAIR: "${name}" must appear in this scene exactly once, drawn EXACTLY ${Number.isInteger(opts.companion.ref) ? `as REFERENCE ${opts.companion.ref}` : 'as the book\'s companion design'} — ${who}${spec}; friendly and secondary to the child.${dup} Keep the scene otherwise identical.`);
   }
   if (opts.beat && defects.some(d => d.startsWith('action break'))) {
     notes.push(`ACTION REPAIR: the image MUST show this exact moment with the child actively DOING it (not posing beside it): "${qaData(opts.beat, 300)}". Keep identity, outfit and world identical.`);
