@@ -272,7 +272,22 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   full-body front / three-quarter / back in the complete outfit, feet
   visible, two head insets, flat grey background, no text — best-of-N
   candidates (`CATALOG_SHEET_CANDIDATES`, default 3) each QA'd + likeness-
-  judged against the cover, elected per anchor path in GCS
+  judged — against the cover AND, since 2026-09-07 (`ce-21`), against the
+  child's PHOTO: the photo rides the sheet render UPRIGHT (EXIF applied)
+  plus as a tight FACE CROP (`bible/faceCrop.js`: one strict-JSON face
+  locate + sharp, fail-open to the raw photo) under a likeness-first
+  prompt ("where the approved character and the photo disagree about the
+  face, the PHOTO wins"), the judge scores `photo_likeness` on face shape /
+  eyes / brows / nose / mouth / hair / skin / marks ignoring style and
+  outfit, and the election prefers it (cover likeness is the photo-less
+  fallback); `photoLikeness` rides the result, the `.json` sidecar and the
+  `bookBible.characterSheet` callbacks, an elected sheet below 0.5 carries
+  a stage `characterSheet` advisory, and `CATALOG_SHEET_PHOTO_LIKENESS_MIN`
+  (0-1, default 0 = off) rejects candidates below a floor so a set with no
+  recognizable child fails `identity_kit_failed` instead of pinning a
+  stranger — before this every hop after the cover was verified against
+  the previous hop only, so a cover that had drifted from the child was
+  reproduced faithfully book-wide — elected per anchor path in GCS
   (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
   `.json`). Every strict-JSON judge call in the illustrator (sheet, prop,
   spread, world, plate, contact, outfit) builds its generationConfig with
@@ -1027,6 +1042,11 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_SHEET_REQUIRED=0` — (ce-9) a book whose sheet cannot be built
   renders sheet-less with a stage `characterSheet` advisory instead of
   failing `identity_kit_failed`.
+- `CATALOG_SHEET_PHOTO_LIKENESS_MIN=0.x` — (ce-21) reject a character-sheet
+  candidate whose judged likeness to the child's PHOTO scores below this
+  (0-1; default 0 = the score elects the winner and rides `photoLikeness`,
+  never rejects). A set with no candidate above the floor fails
+  `identity_kit_failed`.
 - `CATALOG_PROP_SHEETS=0` — (ce-9) no prop / companion sheets (props ride
   as quoted nouns only).
 - `CATALOG_HUMAN_COMPANION_SHEET=0` — (ce-19) no SECONDARY CHARACTER sheet
