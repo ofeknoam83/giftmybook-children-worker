@@ -551,10 +551,10 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   restored to the key, the finding stays advisory).
 
   **Next (proposal, 2026-09-07): `docs/ILLUSTRATION_QUALITY_PLAN.md`** —
-  measure first (an illustration run report + a golden set), the prompt
-  diet (`ce-19`), ink-keyed text measurement + a stronger judge (`qa-11`),
-  the mood plan + a pinned human-companion spec (`ce-20`), and the
-  parent-approved character sheet. Nothing from it is code yet.
+  the render path only: measure first (an illustration run report + a
+  golden set), the prompt and reference-pack diet (`ce-19`), ink-keyed
+  text measurement + a stronger judge (`qa-11`), the mood plan + a pinned
+  human-companion spec (`ce-20`). Nothing from it is code yet.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
