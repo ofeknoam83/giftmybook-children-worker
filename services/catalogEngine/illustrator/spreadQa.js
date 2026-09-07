@@ -806,6 +806,20 @@ Report whether it is present, whether it is ${sameAs}, whether it appears MORE T
   // advisory-class: a lone hidden face shades selection, never fails a book).
   sections.push('FACE VISIBILITY: the child\'s face should be at least partly visible in the framing. Report whether the child is rendered fully from behind with NO part of the face visible.');
   fields.push('"face_fully_hidden": true|false, // the child is seen fully from behind — no part of the face is visible');
+  // qa-14 (ce-20): the WHOLE body. A kneeling child whose lower legs and
+  // feet were swallowed by the ground — the body ending at the hem of her
+  // shorts — passed every field of this verdict: the CLEANLINESS count
+  // below found two legs, and nothing asked whether the body the POSE needs
+  // is actually there. Two STRICT, blocking-class fields: the body ends
+  // INSIDE the image where the pose needs more of it (cropping by the image
+  // edge is legitimate framing), and a limb bent or twisted past what a
+  // child's joints can do (the other leg failure the same book showed).
+  sections.push('BODY COMPLETENESS: the child\'s body must be COMPLETE and physically grounded for its pose. A kneeling, crouching, sitting or bending child must show the knees AND the lower legs or feet on the ground beside or behind them; a standing child stands on both feet. Report the body as TRUNCATED when it ends INSIDE the image — legs, lower legs or feet absent where the pose needs them, the body stopping at a hem, waist or knees, sinking into or merging with the ground, sand, grass, water or an object, or floating above the ground. A body cut only by the image EDGE (the framing of a medium shot or close-up) is NOT truncated. Separately, report an IMPOSSIBLE LIMB POSE when any arm or leg is bent, twisted or reversed in a way a real child\'s joints cannot be, is far too long or short for the body, looks rubbery or boneless, or a foot or hand points the wrong way for its limb.');
+  fields.push(
+    '"body_truncated": true|false,  // the body ends INSIDE the image where the pose needs more of it: no lower legs/feet on a kneeling or sitting child, the body stops at a hem/waist/knees, sunk into or merged with the ground, or floating — NOT a body cut by the image edge',
+    '"limb_pose_impossible": true|false, // an arm or leg bent, twisted or reversed past what a real child\'s joints allow, far too long/short, rubbery, or a foot/hand pointing the wrong way',
+  );
+  required.push('body_truncated', 'limb_pose_impossible');
   sections.push('CHILD BOUNDING BOX: give the child hero\'s bounding box in the RENDER as fractions of the image width/height (x, y of the top-left corner; w, h), or null when the child is absent.');
   fields.push('"child_bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null,');
   sections.push('CLEANLINESS: count limbs (exactly two arms, two hands with five fingers, two legs), check hands/fingers, faces (no doubled or melted features), and look for any stray lettering, signage, logos, or pseudo-alphabet/alien script painted anywhere.');
@@ -920,6 +934,12 @@ const BLOCKING_PREFIXES = [
   // duplicated child hero — the book has exactly ONE of them.
   'companion duplicated',
   'anatomy defect: extra or missing limbs',
+  // qa-14 (ce-20): a body that ends inside the image where the pose needs
+  // more of it (a kneeling child with no lower legs or feet — swallowed by
+  // the ground) and a limb bent past what a child's joints allow are
+  // print-destroying anatomy like a third arm, never a shading advisory.
+  'anatomy defect: body incomplete',
+  'anatomy defect: impossible limb pose',
   'painted text in the illustration', 'embedded story text missing', 'embedded story text garbled',
   // qa-4: band/split placement breaks the embedded layout's full-bleed
   // contract as surely as garbled text does — one white-panel spread in an
@@ -959,6 +979,10 @@ const BLOCKING_PREFIXES = [
   // The 'drifts' band (advisory) shades selection only.
   'embedded story text departs from the drawn lettering template',
 ];
+
+/** qa-14 (ce-20) fixed defect strings for the whole-body fields (never model text). */
+const BODY_INCOMPLETE_DEFECT = 'anatomy defect: body incomplete (legs, lower legs or feet missing where the pose needs them, the body ending at a hem or waist, or sunk into the ground)';
+const LIMB_POSE_DEFECT = 'anatomy defect: impossible limb pose (an arm or leg bent, twisted, reversed or proportioned past what a child\'s joints allow)';
 
 /** qa-13 fixed defect strings for the template measurement (never model text). */
 const TEMPLATE_DEPARTS_DEFECT = 'embedded story text departs from the drawn lettering template (re-typeset: moved, enlarged, centred or restyled instead of kept in place)';
@@ -1192,6 +1216,10 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     if (o.shotType && json.shot_type_mismatch) defects.push(`composition break: does not read as the assigned ${o.shotType} shot`);
     // ce-10 soft fields: an omitted answer is unclaimed, never a defect.
     if (json.face_fully_hidden === true && !json.child_absent) defects.push('face hidden: the child is rendered fully from behind');
+    // qa-14: the whole body — strict fields, suppressed with an absent child
+    // like the face finding (there is no body to complete).
+    if (json.body_truncated === true && !json.child_absent) defects.push(BODY_INCOMPLETE_DEFECT);
+    if (json.limb_pose_impossible === true && !json.child_absent) defects.push(LIMB_POSE_DEFECT);
     if (json.undeclared_object === true) defects.push('undeclared personal object in the scene');
     if (json.extra_limbs === true) defects.push('anatomy defect: extra or missing limbs');
     if (json.hand_defects === true) defects.push('anatomy defect: hands or fingers');
@@ -1367,8 +1395,16 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   if (defects.some(d => d.startsWith('undeclared personal object'))) {
     notes.push('PROP DISCIPLINE REPAIR: remove every personal object (toy, gadget, trinket) that is not a declared prop of this book or required by the story moment — the child carries ONLY what the scene names. Keep the scene otherwise identical.');
   }
-  if (defects.some(d => d.startsWith('anatomy defect'))) {
+  if (defects.some(d => d.startsWith('anatomy defect: extra or missing limbs') || d.startsWith('anatomy defect: hands') || d.startsWith('anatomy defect: face'))) {
     notes.push('ANATOMY REPAIR: the child has EXACTLY two arms and two hands with five clearly separated fingers each, two legs, one face with correctly placed features — no extra, missing, floating or duplicated limbs, no fused fingers. Keep the scene otherwise identical.');
+  }
+  // qa-14 (ce-20): the whole-body notes name the POSE the body must be
+  // complete for, not a count — the count was right on the legless render.
+  if (defects.some(d => d.startsWith('anatomy defect: body incomplete'))) {
+    notes.push('BODY REPAIR: draw the child\'s WHOLE body for this pose — a kneeling, crouching or sitting child shows the knees AND the lower legs and feet on the ground beside or behind them (choose an angle that keeps them in view); the body never ends at a hem, waist or knees, never sinks into or merges with the ground, and never floats. Only the image edge or a real object in the scene may hide part of the body, and then it must read as hidden, not missing. Keep the scene otherwise identical.');
+  }
+  if (defects.some(d => d.startsWith('anatomy defect: impossible limb pose'))) {
+    notes.push('LIMB REPAIR: every arm and leg bends only the way a real child\'s joints allow — knees and elbows at natural angles, feet pointing where the shins lead, hands where the wrists lead, natural lengths and thickness; no twisted, reversed, rubbery or over-long limbs. Keep the scene otherwise identical.');
   }
   if (defects.some(d => d.startsWith('stray lettering') || d.startsWith('pseudo-script'))) {
     notes.push('LETTERING REPAIR: remove ALL stray letters, words, logos, signage and letter-like or alien glyphs from the artwork (signs carry pictograms only). Keep the scene otherwise identical.');
@@ -1376,5 +1412,5 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   return notes.length > 0 ? `${base} ${notes.join(' ')}` : base;
 }
 
-module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, TEMPLATE_DEPARTS_DEFECT, TEMPLATE_DRIFTS_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };
+module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, TEMPLATE_DEPARTS_DEFECT, TEMPLATE_DRIFTS_DEFECT, BODY_INCOMPLETE_DEFECT, LIMB_POSE_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };
 

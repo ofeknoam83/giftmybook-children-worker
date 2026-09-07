@@ -13,7 +13,7 @@ jest.mock('../../../services/illustrationGenerator', () => ({
 }));
 
 const { fetchWithTimeout } = require('../../../services/illustrationGenerator');
-const { checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, OUTFIT_SLOTS } = require('../../../services/catalogEngine/illustrator/spreadQa');
+const { checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, OUTFIT_SLOTS, BODY_INCOMPLETE_DEFECT, LIMB_POSE_DEFECT } = require('../../../services/catalogEngine/illustrator/spreadQa');
 
 const IMG = Buffer.from('png-bytes');
 const SHEET = { base64: 'c2hlZXQ=', mimeType: 'image/png' };
@@ -21,7 +21,7 @@ const PROP = { base64: 'cHJvcA==', mimeType: 'image/png' };
 const EMOTIONS = ['joy', 'wonder', 'curiosity', 'determination', 'worry', 'calm', 'surprise', 'pride', 'tenderness', 'silly'];
 
 const cleanVerdict = (over = {}) => ({
-  readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false,
+  readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false,
   same_child: true, hair_match: true, skin_tone_match: true, age_reads_as_child: true,
   outfit: { top: 'match', bottom: 'match', footwear: 'not_visible', outerwear: 'not_visible', accessories: 'match' },
   props: [{ name: 'teddy bear', presence: 'present', look: 'match', duplicated: false, as_text: false }],
@@ -120,7 +120,7 @@ test('a verdict missing a STRICT field (outfit slots) is malformed → qaUnavail
   expect(r1.qaUnavailable).toMatch(/malformed/);
   expect(r1.pass).toBe(true);
 
-  const v1Shaped = { readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false };
+  const v1Shaped = { readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false };
   fetchWithTimeout.mockResolvedValueOnce(answer(v1Shaped));
   const r2 = await checkSpreadRenderV2(IMG, { label: 't', beat: 'x', emotion: { emotion: 'joy', intensity: 'soft' }, emotionVocabulary: EMOTIONS });
   expect(r2.qaUnavailable).toBeUndefined();
@@ -784,5 +784,60 @@ describe('qa-13: the drawn lettering template is HELD TO — measured, and the i
     expect(note).toContain('REFERENCE IMAGE 1 is the EDIT BASE');
     expect(note).toContain('Never re-typeset, move, centre, enlarge, reflow, restyle or recolour the lettering');
     expect(repairNote([`${TEMPLATE_DRIFTS_DEFECT} (60%)`], TEXT, {})).toContain('the lettering template is the EDIT BASE');
+  });
+});
+
+describe('qa-14 (ce-20): the WHOLE body is judged, not counted — a truncated body or an impossible limb pose is BLOCKING', () => {
+  test('the prompt carries a BODY COMPLETENESS section and asks both fields; both are STRICT', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict()));
+    const r = await checkSpreadRenderV2(IMG, fullOpts());
+    expect(r.pass).toBe(true);
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('BODY COMPLETENESS:');
+    expect(prompt).toContain('lower legs or feet on the ground beside or behind them');
+    expect(prompt).toContain('A body cut only by the image EDGE');
+    expect(prompt).toContain('"body_truncated": true|false');
+    expect(prompt).toContain('"limb_pose_impossible": true|false');
+    // A verdict missing either field is malformed — fail-open, never a silent pass.
+    for (const field of ['body_truncated', 'limb_pose_impossible']) {
+      const v = cleanVerdict();
+      delete v[field];
+      fetchWithTimeout.mockResolvedValueOnce(answer(v));
+      const r2 = await checkSpreadRenderV2(IMG, fullOpts());
+      expect(r2.qaUnavailable).toBeTruthy();
+      expect(r2.blocking).toEqual([]);
+    }
+  });
+
+  test('a kneeling child with no lower legs or feet (the body ending at the hem) is BLOCKING with a fixed string and a BODY REPAIR note', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ body_truncated: true })));
+    const r = await checkSpreadRenderV2(IMG, fullOpts());
+    expect(r.pass).toBe(false);
+    expect(r.blocking).toEqual([BODY_INCOMPLETE_DEFECT]);
+    expect(BODY_INCOMPLETE_DEFECT).toMatch(/^anatomy defect: body incomplete/);
+    const note = repairNoteV2(r.blocking, null, {});
+    expect(note).toContain('BODY REPAIR: draw the child\'s WHOLE body for this pose');
+    expect(note).toContain('lower legs and feet on the ground beside or behind them');
+    expect(note).not.toContain('ANATOMY REPAIR'); // the count note is for the count defects only
+  });
+
+  test('a twisted or reversed limb is BLOCKING with its own LIMB REPAIR note; the legacy count defects keep the ANATOMY note', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ limb_pose_impossible: true, extra_limbs: true, hand_defects: true })));
+    const r = await checkSpreadRenderV2(IMG, fullOpts());
+    expect(r.blocking).toEqual(expect.arrayContaining([LIMB_POSE_DEFECT, 'anatomy defect: extra or missing limbs']));
+    expect(r.advisory).toContain('anatomy defect: hands or fingers');
+    expect(classifyDefects([BODY_INCOMPLETE_DEFECT, LIMB_POSE_DEFECT, 'anatomy defect: hands or fingers']))
+      .toEqual({ blocking: [BODY_INCOMPLETE_DEFECT, LIMB_POSE_DEFECT], advisory: ['anatomy defect: hands or fingers'] });
+    const note = repairNoteV2(r.blocking, null, {});
+    expect(note).toContain('LIMB REPAIR: every arm and leg bends only the way a real child\'s joints allow');
+    expect(note).toContain('ANATOMY REPAIR');
+  });
+
+  test('an absent child suppresses both findings (there is no body to complete)', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ child_absent: true, body_truncated: true, limb_pose_impossible: true })));
+    const r = await checkSpreadRenderV2(IMG, fullOpts());
+    expect(r.blocking).toEqual(['child hero missing from the scene']);
+    expect(r.defects).not.toContain(BODY_INCOMPLETE_DEFECT);
+    expect(r.defects).not.toContain(LIMB_POSE_DEFECT);
   });
 });

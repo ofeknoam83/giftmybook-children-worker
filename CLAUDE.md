@@ -775,6 +775,33 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   failed to reject. QA_VERSION `qa-13`; STYLE_VERSION stays `ce-19` (no
   prompt change — qa-12 markers re-check on replay, and only the pages
   the new checker rejects re-render).
+  **The whole body (`ce-20` / `qa-14`, 2026-09-07)**: a savanna book's
+  kneeling child shipped with her body ending at the hem of her shorts —
+  no lower legs, no feet, the ground plane swallowing them — and a sibling
+  spread bent the other leg past what a knee can do. Every rule and every
+  QA field was satisfied, because both only ever COUNTED limbs (the
+  ANATOMY rule's "2 legs, 2 feet", the checklist's LEG COUNT, the
+  verdict's `extra_limbs`): a legless kneeling figure has two legs by any
+  count. (1) The render prompt's ANATOMY rule now states the body is
+  COMPLETE for its pose and GROUNDED — a kneeling/crouching/sitting/
+  bending child shows the knees AND the lower legs and feet on the ground
+  beside or behind them ("choose an angle that keeps them in view"), never
+  ending at a hem/waist/knees, never sunk into or merged with the ground,
+  never floating; only the image edge or a real scene object may hide part
+  of the body, and then it reads as hidden, not missing — and JOINTED like
+  a real child's (no twisted, reversed, rubbery or over-long limbs); the
+  checklist's LEG COUNT became LEGS AND FEET, and every shot-plan
+  directive carries a fixed BODY line beside FACE (the shot type decides
+  what the FRAME crops; whatever it shows is whole). (2) QA v2 gains two
+  STRICT blocking-class fields with their own fixed defect strings and
+  repair notes: `body_truncated` (`anatomy defect: body incomplete …`,
+  BODY REPAIR — the body ends INSIDE the image where the pose needs more of
+  it; a body cut by the image EDGE is framing, not truncation) and
+  `limb_pose_impossible` (`anatomy defect: impossible limb pose …`, LIMB
+  REPAIR); both suppressed with an absent child. The legacy count fields
+  are unchanged (`extra_limbs` blocking; hands/face advisory). The app's
+  Art Bench rubric names the same two failures under Technical
+  cleanliness (rubric v3). STYLE_VERSION `ce-20`, QA_VERSION `qa-14`.
 
 - `coloring/` — **the coloring book (`cb-1`, 2026-09-07 —
   `docs/COLORING_BOOK_V2_PLAN.md`)**: companion scenes from the story world,

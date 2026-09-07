@@ -694,6 +694,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(charCountRule);
   parts.push(``);
   parts.push(`2. ANATOMY: The child has exactly TWO arms, TWO hands (with 5 fingers each), TWO legs, TWO feet. No extra limbs. No missing limbs. Count them before finishing: 2 arms, 2 hands, 2 legs, 2 feet.`);
+  // ce-20: the count was never the whole rule. A kneeling child rendered
+  // with the body ending at the hem of her shorts — no lower legs, no feet,
+  // the ground plane swallowing them — had two legs by every count and
+  // shipped. The body is COMPLETE for its pose, GROUNDED, and jointed like
+  // a real child's; the spread QA (qa-14) judges the same two things.
+  parts.push(`   WHOLE BODY, GROUNDED: every part of the body this pose and framing would show is drawn. A kneeling, crouching, sitting or bending child shows the knees AND the lower legs and feet on the ground beside or behind them — choose an angle that keeps them in view; a standing child stands on both feet. The body NEVER ends at a hem, waist or knees, NEVER sinks into or merges with the ground, sand, grass, water or an object, and NEVER floats. Only the image edge or a real object in the scene may hide part of the body, and then it must read as hidden, not missing.`);
+  parts.push(`   NATURAL JOINTS: every arm and leg bends only the way a real child's joints allow — knees and elbows at natural angles, feet pointing where the shins lead, hands where the wrists lead, natural lengths and thickness; no twisted, reversed, rubbery or over-long limbs.`);
   parts.push(``);
   parts.push(`3. COMPOSITION: This is ONE single moment in time. NOT a comic strip. NOT a sequence. NOT a before/after. NOT multiple panels. ONE scene, ONE viewpoint, ONE moment.`);
   parts.push(``);
@@ -978,9 +985,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`1. CHILD COUNT: exactly 1 child visible in the scene. \u2713`);
   parts.push(`2. ARM COUNT: exactly 2 arms on the child. \u2713`);
   parts.push(`3. HAND COUNT: exactly 2 hands, each with exactly 5 fingers. \u2713`);
-  parts.push(`4. LEG COUNT: exactly 2 legs. \u2713`);
+  parts.push(`4. LEGS AND FEET: exactly 2 legs, drawn down to the feet (hidden only by the image edge or a real object) \u2014 a kneeling or sitting child's lower legs and feet rest on the ground beside or behind them, never cut off by the ground. \u2713`);
   parts.push(`5. NO FLOATING: all held objects are gripped; all resting objects are on surfaces. \u2713`);
-  parts.push(`6. CORRECT SCALE: the child's head, body, and limbs are in normal human proportion. \u2713`);
+  parts.push(`6. CORRECT SCALE: the child's head, body, and limbs are in normal human proportion, and every joint bends naturally. \u2713`);
   parts.push(`7. NO DUPLICATES: the child does not appear twice; no reflections showing the child's face. \u2713`);
   parts.push(
     bathWaterScene

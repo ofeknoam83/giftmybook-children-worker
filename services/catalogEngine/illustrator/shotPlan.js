@@ -194,6 +194,10 @@ function renderShotDirective(entry) {
     // fights the assigned shot type (an overhead view is neither front,
     // three-quarter, nor profile, yet legitimately shows the face).
     '- FACE: keep the child\'s face at least partly visible in this framing — never render the child fully from behind with the face hidden.',
+    // ce-20: the shot type decides what the FRAME crops; whatever it shows
+    // must be whole. A kneeling child rendered legless — the lower legs
+    // swallowed by the ground plane — obeyed every line above.
+    '- BODY: whatever this framing shows of the child is drawn COMPLETE and grounded — a kneeling, crouching or sitting child shows the lower legs and feet on the ground beside or behind them; the body never ends at a hem or knees, never sinks into the ground, never floats. Only the image edge or a real scene object may hide part of it.',
   ];
   if (entry.placement) {
     lines.push(`- PLACEMENT: position the child in the ${entry.placement === 'left-third' ? 'LEFT' : 'RIGHT'} third of the frame.`);

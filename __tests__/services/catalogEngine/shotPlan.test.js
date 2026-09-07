@@ -158,3 +158,14 @@ test('staging vocabulary is camera/orientation/framing ONLY — never motion or 
     }
   }
 });
+
+test('every directive pins the whole-body rule beside the face rule (ce-20)', () => {
+  const plan = plan12();
+  for (const s of ALL_SPREADS) {
+    const text = renderShotDirective(plan[s]);
+    expect(text).toContain('- BODY: whatever this framing shows of the child is drawn COMPLETE and grounded');
+    expect(text).toContain('lower legs and feet on the ground beside or behind them');
+    // The BODY line sits directly after FACE, before any placement/text-side line.
+    expect(text.indexOf('- BODY:')).toBeGreaterThan(text.indexOf('- FACE:'));
+  }
+});

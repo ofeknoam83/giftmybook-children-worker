@@ -289,7 +289,7 @@ describe('bounded spread-QA repair loop (CATALOG_SPREAD_QA_MAX_REPAIRS)', () => 
             text: JSON.stringify({
               // shot_type_mismatch is required since ce-8 (the shot plan is
               // ON by default, so every render carries an assigned shot).
-              readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false, ...over,
+              readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false, shot_type_mismatch: false, ...over,
             }),
           }],
         },
@@ -384,7 +384,7 @@ describe('per-spread force re-render (rerenderSpreads)', () => {
     advisories: [], tuningTag: 'none', renderHash: fnv1a(bytes.toString('base64')).toString(36),
   }));
   const cleanSpreadVerdict = JSON.stringify({
-    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false,
+    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false, shot_type_mismatch: false,
   });
   const geminiText = text => ({
     ok: true,
@@ -672,7 +672,7 @@ describe('shot plan rides the render path (ce-8)', () => {
   // companion field is REQUIRED on that spread — a verdict without it is
   // malformed (unchecked), never a pass or a fail.
   const cleanVerdict = JSON.stringify({
-    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false,
+    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false, shot_type_mismatch: false,
     companion: { present: true, look_match: true },
   });
   const geminiText = text => ({
@@ -807,7 +807,7 @@ describe('shot plan rides the render path (ce-8)', () => {
         return geminiText(JSON.stringify({ consistent: false, flagged: [{ spread: 3, defect: 'palette_lighting', note: 'colder palette' }] }));
       }
       spreadQaCalls += 1;
-      if (spreadQaCalls > 2) return geminiText(JSON.stringify({ readable_text: false, child_absent: true, multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false, companion: { present: true, look_match: true } }));
+      if (spreadQaCalls > 2) return geminiText(JSON.stringify({ readable_text: false, child_absent: true, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false, shot_type_mismatch: false, companion: { present: true, look_match: true } }));
       return geminiText(cleanVerdict);
     });
     const { worldQa, results, unresolved } = await renderStorySpreads(baseParams({ spreadNos: [1, 3], spreads: [1, 3] }));
@@ -848,7 +848,7 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
   const measuredVerdict = (textBbox = { x: 0.1, y: 0.15, w: 0.04, h: 0.015 }) => async (url, opts) => {
     const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
     const expected = prompt.match(/STORY TEXT THAT MUST APPEAR IN THE IMAGE:\n"([^"]*)"/)?.[1] || '';
-    const verdict = { child_absent: false, multiple_children: false, flat_or_photo_style: false,
+    const verdict = { child_absent: false, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false,
       readable_text: !!expected, visible_text: expected, companion: { present: true, look_match: true },
       text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false,
       text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false,
@@ -1206,7 +1206,7 @@ describe('per-spread full-canvas lettering template', () => {
     fetchWithTimeout.mockImplementation(async (url, opts) => {
       const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
       const expected = prompt.match(/STORY TEXT THAT MUST APPEAR IN THE IMAGE:\n"([^"]*)"/)?.[1] || '';
-      const verdict = { child_absent: false, multiple_children: false, flat_or_photo_style: false,
+      const verdict = { child_absent: false, multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false,
         readable_text: !!expected, visible_text: expected, companion: { present: true, look_match: true },
         text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
         text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false,
@@ -1292,7 +1292,7 @@ test('qa-13: the corrected lettering is RE-JUDGED — the shipped verdict descri
     const prompt = parts[0].text;
     const expected = prompt.match(/STORY TEXT THAT MUST APPEAR IN THE IMAGE:\n"([^"]*)"/)?.[1] || '';
     return {
-      child_absent: image === original.toString('base64'), multiple_children: false, flat_or_photo_style: false, shot_type_mismatch: false,
+      child_absent: image === original.toString('base64'), multiple_children: false, flat_or_photo_style: false, body_truncated: false, limb_pose_impossible: false, shot_type_mismatch: false,
       readable_text: !!expected, visible_text: expected, companion: { present: true, look_match: true },
       text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
       text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false,
