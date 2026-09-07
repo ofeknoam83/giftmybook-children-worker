@@ -870,7 +870,12 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `/generate-book` also bakes the 4-style upsell spread into the interior
   (non-blocking, 4-min cap; `upsellCovers` on the completion callback)
 - Kept: `/finalize-book` (legacy layout), `/rebuild-cover-pdf`,
-  `/generate-coloring-book` + coloring endpoints, `/comics/*`,
+  `/generate-coloring-book` + coloring endpoints (**REDESIGN PLANNED, cb-1** —
+  `docs/COLORING_BOOK_V2_PLAN.md` deletes this implementation outright and
+  replaces it with `/v13/generate-coloring-book`: companion scenes authored
+  from the catalog, identity through the Book Bible as line-art sheets,
+  measured line art, verified pages; app half in the standalone repo's
+  `docs/COLORING_BOOK_V2_APP_WIRING.md`), `/comics/*`,
   `/manage-checkpoint`, `/upload-*`, `/refresh-url`, health checks.
 - 410 stubs: `/regenerate-illustration`, `/generate-style-variant`,
   `/get-spread-data`. Game endpoints are deleted (404).
