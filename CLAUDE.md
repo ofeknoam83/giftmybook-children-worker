@@ -951,6 +951,10 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_VIDEO_CLIP_MAX_REPAIRS` (1 since gv-2, 0-4),
   `CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS` (480), `CATALOG_VIDEO_MAX_CLIP_SECONDS`
   (30 since gv-2 — the per-film generation budget),
+  `CATALOG_VIDEO_TEXT_GATE_RETRIES` (2, 0-6 — extra text-free renders the
+  film may spend when an embedded book's start frame still carries painted
+  lettering: the same spread FRESH first, then the nearest untried spread
+  as a substitute; 0 fails on the first hit),
   `CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1` (OPT-IN), `CATALOG_VIDEO_MUSIC`
   (`none`), `FFMPEG_PATH`. Bump `VIDEO_VERSION` (versions.js, `gv-2`) on
   any change to the film plan, the still-selection scoring, the brief
@@ -1104,7 +1108,19 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   so there is nothing text-free to choose from: the story-arc trio
   (`pickStorySpreads`, kept only for this) is re-rendered text-free through
   `renderStorySpreads` under the `half` layout (its `wide-plain` key) and
-  gated by the same judge afterwards. Provider adapters (`video/providers/`
+  gated by the same judge afterwards. That gate RECOVERS (2026-09-07): a
+  "text-free" render can still carry in-world lettering the beat invites
+  (a moon map labelled "CRATER 1 CRATER 2"), the illustrator ships it
+  with the blocking finding on record (ship-on-exhaustion), and before the
+  fix the film failed `video_text_visible` on the first hit — and a
+  re-dispatch replayed the same lettered bytes from the cache for ever.
+  Now a rejected frame is re-rendered FRESH (`rerenderSpreads`) first,
+  then `alternateSpread` substitutes the nearest untried spread for its
+  role, within `CATALOG_VIDEO_TEXT_GATE_RETRIES` (default 2) extra
+  renders; the illustrator's own `painted text` blocking finding rejects a
+  frame whatever the still judge says (a judge outage never passes it);
+  `textGate[]` on the failure lists every lettered attempt, and each
+  recovery rides a stage `video` advisory. Provider adapters (`video/providers/`
   — Replicate's `kwaivgi/kling-v3-video` by default on the existing
   `REPLICATE_API_TOKEN`; the app's body-injected copy is the fallback),
   N candidates per take (`CATALOG_VIDEO_CLIP_CANDIDATES`, default 1) each

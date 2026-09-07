@@ -131,6 +131,24 @@ function pickStorySpreads(available, emotionPlan) {
 }
 
 /**
+ * The substitute for a start frame the text gate rejected (pure): the
+ * untried spread nearest to the failed one, so the replacement keeps the
+ * failed spread's ROLE in the arc (an opening stays near the opening, a
+ * resolution near the end); ties go to the earlier spread. Null when every
+ * available spread has been tried.
+ * @param {number} failed the rejected spread
+ * @param {number[]} available spread numbers with renders
+ * @param {Iterable<number>} tried spreads already rendered for the film
+ * @returns {number|null}
+ */
+function alternateSpread(failed, available, tried) {
+  const used = new Set(tried || []);
+  const pool = [...new Set((available || []).filter(n => Number.isInteger(n) && n >= 1 && n <= 12 && n !== failed && !used.has(n)))];
+  pool.sort((a, b) => Math.abs(a - failed) - Math.abs(b - failed) || a - b);
+  return pool.length > 0 ? pool[0] : null;
+}
+
+/**
  * Build the film plan: one continuous take through the picked scenes.
  * @param {object} p
  * @param {number[]} p.scenes picked spreads (story order is enforced here)
@@ -188,6 +206,7 @@ function buildFilmPlan(p) {
 module.exports = {
   buildFilmPlan,
   pickStorySpreads,
+  alternateSpread,
   angleForShot,
   moveInto,
   actWindows,

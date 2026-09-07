@@ -163,6 +163,14 @@
  *  - CATALOG_VIDEO_MAX_CLIP_SECONDS=N — (gv-1) generated seconds allowed per film,
  *                                   candidates and repairs included (0-600,
  *                                   default 30 since gv-2: one 10 s take, one repair).
+ *  - CATALOG_VIDEO_TEXT_GATE_RETRIES=N — (gv-2) extra text-free renders the
+ *                                   film may spend when an EMBEDDED book's
+ *                                   start frame still carries painted
+ *                                   lettering (map labels, signage): first
+ *                                   the same spread rendered FRESH, then the
+ *                                   nearest untried spread as a substitute
+ *                                   (0-6, default 2). 0 fails
+ *                                   `video_text_visible` on the first hit.
  *  - CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1 — (gv-1, OPT-IN) stitch a segment whose
  *                                   BLOCKING defects survived every candidate
  *                                   and repair (advisory) instead of failing
@@ -274,6 +282,7 @@ module.exports = {
   videoClipTimeoutSeconds: () => envInt('CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS', 480, 60, 1800),
   videoMaxClipSeconds: () => envInt('CATALOG_VIDEO_MAX_CLIP_SECONDS', 30, 0, 600),
   videoShipOnExhaustion: () => envOn('CATALOG_VIDEO_SHIP_ON_EXHAUSTION'),
+  videoTextGateRetries: () => envInt('CATALOG_VIDEO_TEXT_GATE_RETRIES', 2, 0, 6),
   videoMusic: () => String(process.env.CATALOG_VIDEO_MUSIC || 'none').trim() || 'none',
   // cb-1 — the coloring book (docs/COLORING_BOOK_V2_PLAN.md §5.4). Every
   // switch is a kill-switch (on by default) except the explicit opt-ins.

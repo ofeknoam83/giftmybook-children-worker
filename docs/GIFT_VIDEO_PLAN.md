@@ -335,6 +335,16 @@ the blur-fill already applied so the model animates a 16:9 frame (default; open 
 Every start frame passes the strict-JSON transcription gate (`{text_present, transcript}`):
 text on a spread → blocking `video_text_visible`; text on the cover → segment dropped +
 advisory; checker outage → advisory and proceed (sources are text-free by contract).
+**Recovery (2026-09-07, dispatch gv_1788803092138):** a text-free re-render can still carry
+in-world lettering the beat invites (a moon map labelled "CRATER 1 CRATER 2"), and since #297
+the illustrator ships such a spread with its blocking `painted text` finding on record; the
+film used to fail on the first hit and a re-dispatch replayed the lettered bytes from the
+`wide-plain` key for ever. A rejected embedded start frame now re-renders FRESH first
+(`rerenderSpreads`), then the nearest untried spread substitutes for its role
+(`plan.js` `alternateSpread`), within `CATALOG_VIDEO_TEXT_GATE_RETRIES` (default 2) extra
+renders; the illustrator's own blocking finding rejects a frame whatever the judge says, the
+failure's `textGate[]` lists every lettered attempt, and each recovery is a stage `video`
+advisory.
 
 ### 4.4 Generation: candidates, concurrency, the provider layer (`video/providers/`)
 
