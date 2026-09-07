@@ -204,7 +204,11 @@ const PROMPT_TEMPLATE_VERSION = '1.4.0'; // 1.4.0: repair prompt fixes a missing
 // spread renders from, so this changes the child on every page; sheets are
 // elected per anchor under this version — ce-20 sheets and renders must
 // never replay as ce-21.
-const STYLE_VERSION = 'ce-21';
+// ce-22 (2026-09-08): the approved cover defines the character. Sheets render
+// from the cover alone and must pass explicit cover identity/outfit checks
+// and a minimum likeness score. Photo resemblance is advisory at this stage.
+// Do not replay ce-21 photo-led sheets or their dependent renders.
+const STYLE_VERSION = 'ce-22';
 
 // Prompt-only revision, logged on fresh spread requests. Keep the render cache
 // namespace stable so deploying this direction never regenerates saved artwork.
