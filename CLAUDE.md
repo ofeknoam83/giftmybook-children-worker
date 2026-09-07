@@ -476,7 +476,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   page exists to elect, QA v2 exposes `textSizeRatio` and `select.js`
   charges `textSizeExcess` (-40 × the excess over the footprint) so the
   smaller painted block wins between otherwise-equal candidates, the ruler
-  tightens to ≥ 1.5× blocking / ≥ 1.25× advisory (`qa-8`; the `oversized`
+  tightens to ≥ 1.5× blocking / ≥ 1.25× advisory (`qa-8`; relaxed to ≥ 4× /
+  ≥ 2× by #295 because the judged bbox estimates a footprint, not a font
+  size; the `oversized`
   advisory shades selection only — `needsRepair` no longer spends repair
   renders on it, the judged bbox being too rough on small blocks), and
   `CATALOG_EMBEDDED_IMAGE_SIZE` (OPT-IN, `1K`|`2K`|`4K`) requests a larger
@@ -548,6 +550,12 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   defects than the flagged render is never adopted (the shipped bytes are
   restored to the key, the finding stays advisory).
 
+  **Next (proposal, 2026-09-07): `docs/ILLUSTRATION_QUALITY_PLAN.md`** —
+  the render path only: measure first (an illustration run report + a
+  golden set), the prompt and reference-pack diet (`ce-19`), ink-keyed
+  text measurement + a stronger judge (`qa-11`), the mood plan + a pinned
+  human-companion spec (`ce-20`). Nothing from it is code yet.
+
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
 The full V1.3 behavior ships out of the box — fit ranking, deep
@@ -585,11 +593,17 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   render key when disabled, so anchored and anchor-less renders never
   replay each other).
 - `CATALOG_TEXT_ANCHOR_CANDIDATES=N` — (ce-16) candidates rendered for the
-  typography anchor page (default 3, clamped 1-4); the whole book copies
+  typography anchor page (default 1 since #295, clamped 1-4); the whole book copies
   the elected page's type size.
 - `CATALOG_EMBEDDED_IMAGE_SIZE=2K` — (ce-16, OPT-IN) request this output
   size (`1K`|`2K`|`4K`) on embedded renders; a model that rejects the field
   renders at its default. Cache-keyed (`-is{size}`).
+- `CATALOG_TYPOGRAPHY_GUIDE=0` / `CATALOG_TYPOGRAPHY_TEMPLATE=0` — (#304-#308)
+  stop attaching the typeset Playfair Display size-and-ink guide / the
+  full-spread lettering template (the render's EDIT BASE — the manuscript
+  is pre-typeset as pixels and Gemini paints the scene around the glyphs;
+  embedded renders request 4K while it is on; the book's ink is chosen
+  once from the cover's median luminance, `typographyGuide.js`).
 - `CATALOG_TEXT_INK_QA=0` — (ce-18) stop measuring the painted text's INK
   colour: no per-spread ink defect and no book-level ink gate (the pinned
   ink still rides every prompt).
@@ -606,8 +620,9 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_EMOTION_CLASSIFIER=0` keeps the keyword table only.
 - `CATALOG_CONTACT_QA=0` — (ce-9) skip the contact-sheet set gate and its
   corrective re-renders (independent of `CATALOG_WORLD_QA`).
-- `CATALOG_SHIP_ON_EXHAUSTION=1` — (ce-9, OPT-IN) ship blocking residuals
-  with an advisory instead of failing `consistency_unresolved`.
+- `CATALOG_SHIP_ON_EXHAUSTION=0` — (ce-9; default ON since #294/#295) stop
+  shipping blocking residuals with an advisory and fail the book
+  `consistency_unresolved` instead (the hard gate for diagnostic runs).
 - `CATALOG_IDENTITY_METRICS=1` — (ce-9, OPT-IN) embedding identity score +
   set outliers (`CATALOG_EMBEDDING_BACKEND`, default `vertex`).
 - `CATALOG_UPSELL_OUTFIT_LOCK=0` — (ce-9) upsell covers dress freely again.
@@ -622,8 +637,11 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1` (OPT-IN), `CATALOG_VIDEO_MUSIC`
   (`none`), `FFMPEG_PATH`. Bump `VIDEO_VERSION` (versions.js, `gv-1`) on
   any change to the film plan, the brief template or the stitch graph.
-- Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 2, clamped 1-3),
-  `CATALOG_DRIFT_MAX_REPAIRS` (default 2, clamped 0-4),
+- Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 1 since #295, clamped
+  1-3), `CATALOG_DRIFT_MAX_REPAIRS` (default 0 since #295, clamped 0-4),
+  `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3, clamped 1-12 — the hard cap
+  on automatic renders per spread across the base pass, repairs, text
+  recovery and every set gate),
   `CATALOG_CONTACT_MAX_RERENDERS` (default 3), `CATALOG_SHEET_CANDIDATES`
   (default 3, clamped 1-4), `CATALOG_RENDER_CONCURRENCY` (default 6,
   clamped 1-8 — spreads rendered in parallel, each fanning out into
@@ -637,7 +655,7 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
   `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`),
   `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3),
-  `CATALOG_SPREAD_QA_MAX_REPAIRS` (default 2, clamped 0-4).
+  `CATALOG_SPREAD_QA_MAX_REPAIRS` (default 1 since #295, clamped 0-4).
 
 ## Endpoints
 
