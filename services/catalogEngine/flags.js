@@ -106,8 +106,14 @@
  *                                   typography anchor page (1-4, default 1):
  *                                   the whole book copies the elected page's
  *                                   type size, with no extra rolls by default.
+ *  - CATALOG_TYPOGRAPHY_GUIDE=0   — stop drawing the book's lettering
+ *                                   (Playfair Display Regular, one numeric
+ *                                   size per age tier, ONE dark ink) as a
+ *                                   reference image; embedded spreads fall
+ *                                   back to the ce-15 page-crop anchor.
  *  - CATALOG_TYPOGRAPHY_TEMPLATE=0 — disable the approved readable full-spread
- *                                   manuscript template for new books.
+ *                                   manuscript template for new books (the
+ *                                   sample-column guide rides instead).
  *                                   Default is ON with 4K output.
  *                                   Retries retain saved artwork and size.
  *  - CATALOG_EMBEDDED_IMAGE_SIZE=2K — (ce-16, OPT-IN) request this output

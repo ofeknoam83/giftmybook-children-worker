@@ -18,22 +18,22 @@ function guideFont() {
   return font;
 }
 
-async function chooseBookTextInk(reference) {
-  try {
-    const source = Buffer.isBuffer(reference) ? reference : Buffer.from(reference.base64, 'base64');
-    const { data } = await sharp(source).rotate().resize(32, 32, { fit: 'fill' }).toColourspace('srgb').removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    const values = [];
-    for (let i = 0; i < data.length; i += 3) values.push(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]);
-    values.sort((a, b) => a - b);
-    // ONE decision from the approved cover, not a per-spread recolor. The
-    // median discounts title lettering and isolated moon/flower highlights.
-    return values[Math.floor(values.length / 2)] < 115 ? 'light' : 'dark';
-  } catch { return 'dark'; }
-}
+// ONE ink for every book (2026-09-07): the cover-luminance ink switch
+// (dark cover ⇒ ivory glyphs) is gone — see resolveBookTextRules. The
+// glyph fill below is always the book ink, the hairline always pale.
 
-async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread = false, side = 'left', typographyScale = 1 }) {
+/**
+ * Draw the lettering reference: the book's one typeface (Playfair Display
+ * Regular), one numeric size per age tier, one ink, left-aligned rows.
+ * `fullSpread` draws THIS spread's manuscript on the entire 16:9 canvas in
+ * its assigned column (the edit base every render completes); otherwise a
+ * sample column at the same scale (the legacy guide).
+ * @param {{childAge?: number|string|null, text?: string, fullSpread?: boolean, side?: 'left'|'right', typographyScale?: 1|1.5}} params
+ * @returns {Promise<object>} the reference (base64 PNG + its pinned facts)
+ */
+async function createTypographyGuide({ childAge, text, fullSpread = false, side = 'left', typographyScale = 1 }) {
   const height = fullSpread ? 3072 : GUIDE_HEIGHT;
-  const rules = resolveTypographyGuideRules(childAge, ink, fullSpread ? typographyScale : 1);
+  const rules = resolveTypographyGuideRules(childAge, fullSpread ? typographyScale : 1);
   const f = guideFont();
   const capPercent = rules.capHeightPercent;
   const capHeight = height * capPercent / 100;
@@ -53,7 +53,7 @@ async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread 
       const pos = run.positions[j];
       const tx = cursor + pos.xOffset * scale;
       const ty = y + capHeight + i * linePitch - pos.yOffset * scale;
-      paths.push(`<path d="${glyph.path.toSVG()}" transform="translate(${tx} ${ty}) scale(${scale} ${-scale})" fill="${rules.fontColorHex}" stroke="${ink === 'light' ? '#2A1C12' : '#fff9ef'}" stroke-width="${0.4 / scale}" paint-order="stroke fill"/>`);
+      paths.push(`<path d="${glyph.path.toSVG()}" transform="translate(${tx} ${ty}) scale(${scale} ${-scale})" fill="${rules.fontColorHex}" stroke="#fff9ef" stroke-width="${0.4 / scale}" paint-order="stroke fill"/>`);
       cursor += pos.xAdvance * scale;
     });
   });
@@ -61,7 +61,7 @@ async function createTypographyGuide({ childAge, ink = 'dark', text, fullSpread 
   const bytes = await sharp(Buffer.from(svg)).png().toBuffer();
   const hash = createHash('sha256').update(fullSpread ? 'typography-template-v2' : 'typography-guide-v1').update(bytes).digest('hex').slice(0, 16);
   return { kind: fullSpread ? 'template' : 'guide', spread: 0, side: fullSpread ? side : 'left', base64: bytes.toString('base64'), mimeType: 'image/png', hash,
-    ink, inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true,
+    inkHex: rules.fontColorHex, capHeightPercent: capPercent, pinned: true,
     ...(fullSpread ? { lines, width, height, typographyScale: typographyScale === 1.5 ? 1.5 : 1 } : {}) };
 }
 
@@ -85,4 +85,39 @@ async function canUseTypographyGuide({ enabled, reviewedOnly, forceRerender, leg
 // to Gemini; no glyphs are composited onto the returned illustration.
 const createTypographyTemplate = options => createTypographyGuide({ ...options, fullSpread: true });
 
-module.exports = { createTypographyTemplate, canUseTypographyGuide, createTypographyGuide, chooseBookTextInk, GUIDE_HEIGHT, GUIDE_WIDTH };
+/** Plain paper ground the judge copy is flattened onto (never sent to the image model). */
+const JUDGE_PAPER = '#F5F0E6';
+
+/**
+ * The LETTERING REFERENCE the spread QA judges the painted text AGAINST
+ * (qa-12): the same glyphs as the reference above, flattened onto a plain
+ * paper ground — the template itself is transparent, and dark glyphs on an
+ * alpha channel vanish once a vision model composites them onto black —
+ * and scaled to a judge-sized height (the type stays legible: at 1536 px a
+ * 1.425% cap height is ~22 px). It is a QA input only: never attached to
+ * an image call, never an overlay on the output. Fail-open null.
+ * @param {{base64: string}|null} reference createTypographyGuide/Template output
+ * @param {{height?: number}} [opts]
+ * @returns {Promise<{base64: string, mimeType: 'image/png', side: string|null, capHeightPercent: number|null, inkHex: string|null}|null>}
+ */
+async function letteringJudgeImage(reference, { height = 1536 } = {}) {
+  if (!reference || typeof reference.base64 !== 'string' || !reference.base64) return null;
+  try {
+    const bytes = await sharp(Buffer.from(reference.base64, 'base64'))
+      .flatten({ background: JUDGE_PAPER })
+      .resize({ height, kernel: 'lanczos3', withoutEnlargement: true })
+      .png()
+      .toBuffer();
+    return {
+      base64: bytes.toString('base64'),
+      mimeType: 'image/png',
+      side: reference.side === 'right' ? 'right' : (reference.side === 'left' ? 'left' : null),
+      capHeightPercent: Number.isFinite(reference.capHeightPercent) ? reference.capHeightPercent : null,
+      inkHex: typeof reference.inkHex === 'string' ? reference.inkHex : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { createTypographyTemplate, canUseTypographyGuide, createTypographyGuide, letteringJudgeImage, GUIDE_HEIGHT, GUIDE_WIDTH, JUDGE_PAPER };

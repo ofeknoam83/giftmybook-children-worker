@@ -852,6 +852,7 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
       readable_text: !!expected, visible_text: expected, companion: { present: true, look_match: true },
       text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false,
       text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false,
+      text_typeface_mismatch: false, text_not_left_aligned: false,
       text_bbox: textBbox, consistent: true, flagged: [] };
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(verdict) }] } }] }) };
   };
@@ -861,15 +862,21 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     fetchWithTimeout.mockReset().mockRejectedValue(new Error('offline test'));
   });
 
-  test.each([null, { x: 0.1, y: 0.15, w: 0.12, h: 0.045 }])('an unmeasured or moderately oversized first page is kept without copying it or spending extra renders (%j)', async bbox => {
+  // 'Spread 1 text.' under the age-2 tier is a 6.3% × 2.1% block; this bbox
+  // measures ≈1.4× — the advisory band (qa-12 blocks from 1.5×), so the
+  // page ships but is never copied as the book's reference.
+  test.each([null, { x: 0.1, y: 0.15, w: 0.088, h: 0.029 }])('an unmeasured or moderately oversized first page is kept without copying it or spending extra renders (%j)', async bbox => {
     fetchWithTimeout.mockImplementation(measuredVerdict(bbox));
     generateIllustration.mockClear(); electTypographyAnchor.mockClear();
     const { results, typographyAnchorUsed, advisories } = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' }));
     expect(results).toHaveLength(3);
     expect(results.every(r => r.buffer && r.blocking.length === 0)).toBe(true);
     expect(results[0].qa.qaUnavailable).toBeUndefined();
-    if (bbox) expect(results[0].qa.textSizeRatio).toBeGreaterThan(1.5);
-    else expect(results[0].qa.textSizeRatio).toBeNull();
+    if (bbox) {
+      expect(results[0].qa.textSizeRatio).toBeGreaterThan(1.25);
+      expect(results[0].qa.textSizeRatio).toBeLessThan(1.5);
+      expect(results[0].qa.advisory).toEqual([expect.stringContaining('embedded story text oversized')]);
+    } else expect(results[0].qa.textSizeRatio).toBeNull();
     expect(generateIllustration).toHaveBeenCalledTimes(3);
     expect(electTypographyAnchor).not.toHaveBeenCalled();
     expect(typographyAnchorUsed).toBe('none');
@@ -932,8 +939,12 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(scene).toContain('NEVER blur, fog, soften, darken, lighten, desaturate, or empty it');
     // ce-18: the fill is dark ink, so the legibility edge is a PALE hairline —
     // this hint rides every embedded scene and must not contradict the spec.
-    expect(scene).toContain('their own thin, tight contrasting hairline');
+    expect(scene).toContain('their own thin, tight pale hairline');
     expect(scene).toContain('not from treating the background or changing the book’s ink');
+    // 2026-09-07: ONE dark ink needs LIGHT ground — the column is the
+    // scene's lighter calm area, never a lighter fill.
+    expect(scene).toContain('naturally simpler AND LIGHTER areas');
+    expect(scene).toContain('in SMALL DARK cocoa-brown book type');
     expect(scene).not.toContain('thin dark outline');
     expect(scene).not.toContain('gentle depth haze');
     expect(opts.safeFallbackSuffix).toContain('COMPOSITION FOR PRINT (TEXT COLUMN)');
@@ -1093,7 +1104,7 @@ describe('generated small-type guide', () => {
     expect(refs.every(Boolean)).toBe(true);
     expect(new Set(refs.map(r => r.base64)).size).toBe(1);
     expect(refs[0].label).toContain('TYPOGRAPHY SIZE AND INK GUIDE');
-    expect(options.every(o => o.embedText === true && o.bookTextInk === 'dark' && o.typographyGuide === true)).toBe(true);
+    expect(options.every(o => o.embedText === true && o.bookTextInk === undefined && o.typographyGuide === true)).toBe(true);
     expect(options.every(o => /-ta/.test(o.gcsPath))).toBe(true);
     expect(result.typographyAnchorUsed).toMatch(/^guide\./);
   });
@@ -1150,7 +1161,7 @@ describe('per-spread full-canvas lettering template', () => {
     const params = baseParams({ spreadNos: [1, 3], spreads: [1, 3], textLayout: 'embedded' });
     const fresh = await renderStorySpreads(params);
     const firstOpts = generateIllustration.mock.calls[0][3];
-    const compact = await createTypographyTemplate({ childAge: PROFILE.age, ink: firstOpts.bookTextInk,
+    const compact = await createTypographyTemplate({ childAge: PROFILE.age,
       text: params.story.spreads[0].text, side: firstOpts.textSide, typographyScale: 1 });
     const oldKeys = fresh.results.map(r => r.storageKey.replace(/-ta[^/]+\/spread-/, `-ta${compact.hash.slice(0, 8)}/spread-`));
     const saved = Buffer.from('existing-compact-artwork');
@@ -1178,7 +1189,7 @@ describe('per-spread full-canvas lettering template', () => {
     await renderStorySpreads(params);
     for (const call of generateIllustration.mock.calls) {
       const opts = call[3];
-      const rules = resolveTypographyGuideRules(6, opts.bookTextInk, 1.5);
+      const rules = resolveTypographyGuideRules(6, 1.5);
       const block = expectedTextBlock(opts.pageText, rules);
       const prompt = buildCharacterPrompt('A forest path.', 'pixar_premium', PROFILE.name, opts.pageText, null, null, null, null, opts);
       expect(prompt).toContain('cap height 1.425%');

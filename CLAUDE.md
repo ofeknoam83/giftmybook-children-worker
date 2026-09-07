@@ -330,7 +330,7 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   crop, garment-region colour ΔE vs the spec's `colourHex`, safe-zone /
   off-centre / shot-size rules, and (opt-in `CATALOG_IDENTITY_METRICS=1`,
   Vertex multimodal embeddings) an identity similarity score + set outliers.
-  **Selection:** each spread renders `CATALOG_RENDER_CANDIDATES` (default 2)
+  **Selection:** each spread renders `CATALOG_RENDER_CANDIDATES` (default 1 since #295, clamped 1-3)
   candidates concurrently beside the shipped key (`spread-N.<aspect>.cK.png`
   for the base pass, `.rPcK.png` for repair pass P — every scored candidate
   keeps its OWN bytes, so a rejected repair never overwrites better pixels
@@ -346,7 +346,10 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   whose defects are known); drift-class defects draw on
   `CATALOG_DRIFT_MAX_REPAIRS` beyond the general budget. A carried comfort
   object that is not visible is ADVISORY (`carried prop not visible`);
-  a declared evidence prop missing is BLOCKING. **Set gates:** the ce-5
+  a declared evidence prop missing is BLOCKING. Every automatic candidate
+  — base, repair, set-gate re-render, lettering recovery — draws on ONE
+  per-spread budget, `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3, #295).
+  **Set gates:** the ce-5
   world gate is unchanged; the **contact-
   sheet gate** (`contactSheet.js`, `runContactSheetGate`, kill-switch
   `CATALOG_CONTACT_QA=0`) tiles the child
@@ -357,11 +360,13 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   structured verdict's per-prop bbox crops (`propBoxes`, kept on the
   marker), the whole spread only as a named fallback, and a prop repair
   cites the prop sheet's index in the re-render's own pack. **Ship policy:** advisory
-  residuals ship with advisories; BLOCKING residuals fail the book
-  `consistency_unresolved` with `unresolved: [{spread, defects,
-  candidates:[{storageKey, url, score}]}]` + `bookBible` on the failure
-  callback (opt-in `CATALOG_SHIP_ON_EXHAUSTION=1` ships them with a stage
-  `shipPolicy` advisory); the `.qa.json` marker records `qaVersion`
+  residuals ship with advisories; BLOCKING residuals that survive the
+  budget SHIP with the best candidate and their findings on record (since
+  #297 `CATALOG_SHIP_ON_EXHAUSTION` is ON by default — "finish with the
+  best existing candidate"; set it to `0` for a diagnostic run that must
+  fail the book `consistency_unresolved` with `unresolved: [{spread,
+  defects, candidates:[{storageKey, url, score}]}]` + `bookBible` on the
+  failure callback); the `.qa.json` marker records `qaVersion`
   (`QA_VERSION`, versions.js) and an `unresolved` flag, so a replay under a
   newer checker — or of an unresolved render — re-checks instead of
   trusting it (the one exception: a render the opt-in switch shipped is
@@ -615,6 +620,77 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   re-elect). Kill-switch `CATALOG_HUMAN_COMPANION_SHEET=0` (person
   companions back to nouns; creature sheets unaffected). STYLE_VERSION
   `ce-19`, QA_VERSION `qa-11`.
+  **The drawn lettering (2026-09-06, #304/#305/#308 — no STYLE_VERSION
+  bump)**: embedded text is no longer typeset by prompt alone. For a new
+  embedded book `illustrator/typographyGuide.js` DRAWS the lettering with
+  the real font (`fonts/PlayfairDisplay.ttf` via fontkit → SVG → PNG):
+  `createTypographyTemplate` renders THIS spread's manuscript on the
+  ENTIRE transparent 16:9 canvas in its shot-plan column — Playfair
+  Display Regular, the "readable" 1.5× size (`resolveTypographyGuideRules`
+  `capHeightPercent` 1.425 % of the height / line pitch 2.85 % on the 3–8
+  tier, 1.65 % / 3.15 % under 3 and over 8 — ≈ 14 pt / 16 pt on the
+  printed 8.5" page), `wrapSentenceLines` rows (every sentence starts a
+  row, 5–7 words per row, ONE empty row between sentences), left-aligned
+  at the column's edge — and the render receives it as the FIRST image, the
+  `EDIT BASE` ("complete the illustration around and behind those glyphs";
+  `buildReferenceParts` sorts it first without renumbering the identity
+  slots), at 4K (`imageSize`, the per-glyph pixels small type needs). The
+  template's content hash is the embedded namespace (`-ta{hash8}`, the
+  ce-15 fold), `canUseTypographyGuide` keeps a partially rendered book on
+  its paid-for namespace (legacy page-anchor, sample-column guide, compact
+  1× template) on ordinary retries and only `forceRerender` upgrades it,
+  and callbacks echo `typographyAnchorUsed` as `template.{hash8}` /
+  `guide.{hash8}`. Kill-switches `CATALOG_TYPOGRAPHY_GUIDE=0` (back to the
+  ce-15 page-crop anchor) and `CATALOG_TYPOGRAPHY_TEMPLATE=0` (the sample
+  column guide instead of the full-spread template). `textRecovery.js`
+  (#310/#313) repairs a misspelt saved page by a bounded local edit
+  (`repairImageText`) rather than a fresh render, under the shared
+  `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3).
+  **ONE typography spec (2026-09-07, `qa-12`)**: an underwater book
+  shipped page A in small dark left-aligned Playfair over the reef and
+  page B as WHITE, BOLD, ROUNDED SANS-SERIF, CENTRED rows twice the
+  template's size with a thick dark contour — the subtitle look — and
+  every qa-11 field page B was asked passed. Three causes, all fixed.
+  (1) #304 chose the book's ink from the COVER's median luminance (dark
+  cover ⇒ ivory `#FFF4DE` glyphs with a cocoa hairline) — asking an image
+  model for light text with an outline is what summons bold centred
+  sans-serif (the ce-18 finding, repeated), and the same story could flip
+  ink between a probe anchored on one cover and a book on another. The ink
+  is ONE for every book again: `#2A1C12` deep cocoa-brown, the family the
+  caption/half pages already print in (`resolveBookTextRules(childAge)`
+  and `resolveTypographyGuideRules(childAge, scale)` take no ink; the
+  cover-luminance chooser is deleted). Legibility on a dark scene comes
+  from COMPOSITION, not the fill: the TEXT COLUMN hint
+  (`renderTextColumnHint`) now asks for the scene's naturally LIGHTER
+  calm area — sky, mist, sunlit water, pale sand, a lit surface — the way
+  printed picture books set dark type over sky, so the model never has a
+  legibility reason to invert. (2) The size ruler had been relaxed on
+  2026-09-05 (#295) to 4× blocking / 2× advisory, so a block at TWICE its
+  footprint shipped as an advisory; it is back at the ce-16 values (1.5× /
+  1.25×) — with the drawn template the footprint is exact, a correct
+  render measures ≈ 1.0×, and `needsRepair` still never spends renders on
+  the advisory band. (3) Nothing judged the FACE or the ALIGNMENT of a
+  uniformly wrong block (`text_style_inconsistent` only ever caught a
+  block mixing styles within itself; the left-margin clause hid inside
+  the advisory misalignment field). QA v2 gains two REQUIRED fields with
+  embedded text — `text_typeface_mismatch` (bold, sans-serif, rounded,
+  handwritten, italic, or outlined/glowing display lettering instead of
+  plain regular-weight book serif) and `text_not_left_aligned` (centred,
+  right-aligned, or no shared left margin) — both BLOCKING with their own
+  repair notes (`TEXT_TYPEFACE_DEFECT` / `TEXT_ALIGNMENT_DEFECT`), a
+  TYPOGRAPHY section that states the sentence gap is by design, and the
+  spread's own drawn template attached as the LETTERING REFERENCE image
+  (`letteringJudgeImage`: the transparent template flattened onto paper
+  and scaled to 1536 px — dark glyphs on an alpha channel vanish on a
+  black composite; built lazily once per spread, never sent to the image
+  model); the `EDIT BASE` and FONT rules now forbid restyling the drawn
+  glyphs (weight, face, alignment, any contour) in the model's own words.
+  STYLE_VERSION stays `ce-19` on purpose: a formerly-ivory book's template
+  bytes change, so it re-keys by itself; a dark-ink book's template is
+  byte-identical, so its good pages replay and only the pages qa-12
+  rejects re-render. The app-side Art Bench judge and the typography
+  rubric (`illustrationJudge.js`, `illustrationTuning.js` there) name the
+  same face and ink.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -653,8 +729,15 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   render key when disabled, so anchored and anchor-less renders never
   replay each other).
 - `CATALOG_TEXT_ANCHOR_CANDIDATES=N` — (ce-16) candidates rendered for the
-  typography anchor page (default 3, clamped 1-4); the whole book copies
-  the elected page's type size.
+  typography anchor page (default 1 since #295, clamped 1-4); the whole
+  book copies the elected page's type size. Moot when the drawn lettering
+  template rides (the default): the template is the reference.
+- `CATALOG_TYPOGRAPHY_GUIDE=0` — (#304) stop drawing the book's lettering
+  (Playfair Display Regular, one numeric size per age tier, ONE cocoa ink)
+  as a reference image; embedded spreads fall back to the ce-15 page-crop
+  anchor. `CATALOG_TYPOGRAPHY_TEMPLATE=0` — (#308) the sample-column guide
+  instead of the full-spread manuscript template (new books only; a
+  partially rendered book keeps its namespace).
 - `CATALOG_EMBEDDED_IMAGE_SIZE=2K` — (ce-16, OPT-IN) request this output
   size (`1K`|`2K`|`4K`) on embedded renders; a model that rejects the field
   renders at its default. Cache-keyed (`-is{size}`).
@@ -678,8 +761,9 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_EMOTION_CLASSIFIER=0` keeps the keyword table only.
 - `CATALOG_CONTACT_QA=0` — (ce-9) skip the contact-sheet set gate and its
   corrective re-renders (independent of `CATALOG_WORLD_QA`).
-- `CATALOG_SHIP_ON_EXHAUSTION=1` — (ce-9, OPT-IN) ship blocking residuals
-  with an advisory instead of failing `consistency_unresolved`.
+- `CATALOG_SHIP_ON_EXHAUSTION=0` — (ce-9; ON by default since #297) opt
+  OUT of shipping blocking residuals with the best candidate: fail the
+  book `consistency_unresolved` instead (diagnostic runs).
 - `CATALOG_IDENTITY_METRICS=1` — (ce-9, OPT-IN) embedding identity score +
   set outliers (`CATALOG_EMBEDDING_BACKEND`, default `vertex`).
 - `CATALOG_UPSELL_OUTFIT_LOCK=0` — (ce-9) upsell covers dress freely again.
@@ -698,8 +782,10 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   (`none`), `FFMPEG_PATH`. Bump `VIDEO_VERSION` (versions.js, `gv-2`) on
   any change to the film plan, the still-selection scoring, the brief
   template or the stitch graph.
-- Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 2, clamped 1-3),
-  `CATALOG_DRIFT_MAX_REPAIRS` (default 2, clamped 0-4),
+- Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 1, clamped 1-3),
+  `CATALOG_DRIFT_MAX_REPAIRS` (default 0, clamped 0-4),
+  `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3, clamped 1-12 — every
+  automatic candidate a spread may buy per run across all gates),
   `CATALOG_CONTACT_MAX_RERENDERS` (default 3), `CATALOG_SHEET_CANDIDATES`
   (default 3, clamped 1-4), `CATALOG_RENDER_CONCURRENCY` (default 6,
   clamped 1-8 — spreads rendered in parallel, each fanning out into

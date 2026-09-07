@@ -174,6 +174,15 @@ const PROMPT_TEMPLATE_VERSION = '1.4.0'; // 1.4.0: repair prompt fixes a missing
 // The bible hash folds the new sheet/spec on the two themes, and the
 // COMPANION block text changed for every companion book — ce-18 renders
 // must never replay as ce-19.
+// 2026-09-07 — ONE TYPOGRAPHY SPEC, no STYLE_VERSION bump. Every embedded
+// render's key already folds the drawn lettering template's content hash
+// (`-ta{hash8}`, illustrator/index.js) — the template IS the embedded
+// namespace. Pinning one ink for every book (the per-cover ivory switch is
+// gone) changes the template bytes of a formerly-ivory book, so it re-keys
+// on its own; a dark-ink book's template is byte-identical, so its good
+// pages replay and only the pages the qa-12 checker rejects re-render.
+// Bumping this constant would re-render every caption/half/embedded book
+// in flight for a prompt change that touches embedded text only.
 const STYLE_VERSION = 'ce-19';
 
 // Prompt-only revision, logged on fresh spread requests. Keep the render cache
@@ -244,7 +253,22 @@ const SCENE_INTEGRATION_VERSION = 'si-1';
  * its tiles from. Markers written under qa-10 never judged a human
  * companion's look at all — replays re-check.
  */
-const QA_VERSION = 'qa-11';
+/**
+ * qa-12 (2026-09-07): the book's ONE lettering is judged. The verdict gains
+ * two REQUIRED fields with embedded text — `text_typeface_mismatch` (bold,
+ * sans-serif, rounded, handwritten, italic, or outlined/glowing display
+ * lettering instead of plain regular-weight book serif) and
+ * `text_not_left_aligned` (a centred or ragged-left block) — both BLOCKING;
+ * the spread's drawn lettering template rides the check as the LETTERING
+ * REFERENCE image; and the size ruler is restored to 1.5× blocking / 1.25×
+ * advisory (the 2026-09-05 4×/2× relaxation let a subtitle-scale block
+ * ship as an advisory). One spread of an underwater book shipped as white,
+ * bold, rounded sans-serif, centred, twice its footprint, with a thick
+ * contour, beside a page in small dark left-aligned Playfair — and every
+ * qa-11 field it was asked passed. Markers written under qa-11 never
+ * judged the face or the alignment — replays re-check.
+ */
+const QA_VERSION = 'qa-12';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

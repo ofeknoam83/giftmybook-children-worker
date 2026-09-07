@@ -570,6 +570,8 @@ async function checkWorldPlate(imageBuffer, opts = {}) {
  */
 function repairNote(defects, expectedText = null, opts = {}) {
   const notes = [];
+  // The book's lettering reference in the render's own pack, when one rides.
+  const typoRefCite = Number.isInteger(opts.typographyRef) && opts.typographyRef > 0 ? ` — exactly the lettering of REFERENCE IMAGE ${opts.typographyRef}` : '';
   for (const d of defects) {
     if (d.includes('painted text')) notes.push('ABSOLUTELY NO text, letters, numbers, signage, or lettering anywhere in the image.');
     if (d.includes('story text missing') || d.includes('story text garbled') || d.includes('story text does not match')) {
@@ -594,10 +596,13 @@ function repairNote(defects, expectedText = null, opts = {}) {
     }
     if (d.startsWith('embedded story text ink colour differs')) {
       const ink = typeof opts.inkHex === 'string' ? opts.inkHex : null;
-      const lightInk = ink?.toUpperCase() === '#FFF4DE';
-      notes.push(lightInk
-        ? `The story text was painted in the WRONG COLOUR. Repaint the same words in the book's ONE fixed warm ivory ink (hex #FFF4DE), matching the typography guide. Never switch to dark ink or recolour it for this scene. Use only a thin, tight dark cocoa hairline around each glyph for contrast. No panel, glow or background patch. Fix ONLY the text colour; keep the scene otherwise identical.`
-        : `The story text was painted in the WRONG COLOUR. Repaint the same words in the book's ONE fixed ink${ink ? `: deep warm cocoa-brown, almost black (hex ${ink})` : ''} — never white, ivory, cream, or any pale fill, and never a colour picked to suit this scene's palette. Keep it legible with a thin, tight pale hairline hugging each letter, not by inverting the fill. Fix ONLY the text colour; keep the scene otherwise identical.`);
+      notes.push(`The story text was painted in the WRONG COLOUR. Repaint the same words in the book's ONE fixed ink${ink ? `: deep warm cocoa-brown, almost black (hex ${ink})` : ''} — never white, ivory, cream, or any pale fill, and never a colour picked to suit this scene's palette${typoRefCite}. Keep it legible by placing the block over the scene's lighter calm area and with a thin, tight pale hairline hugging each letter, not by inverting the fill. Fix ONLY the text colour; keep the scene otherwise identical.`);
+    }
+    if (d.startsWith('embedded story text typeface differs')) {
+      notes.push(`The story text was painted in the WRONG LETTERING. Repaint the SAME words with the SAME line breaks as plain REGULAR-weight book serif (Playfair Display Regular — upright, filled letterforms)${typoRefCite}: never bold or heavy, never sans-serif, rounded, bubbly, handwritten, brush, marker, comic, italic or subtitle lettering, and NOTHING drawn around the glyphs — no outline, stroke, contour, double stroke, glow or drop shadow. Fix ONLY the lettering style; keep the scene otherwise identical.`);
+    }
+    if (d.startsWith('embedded story text not left-aligned')) {
+      notes.push(`The story text rows were CENTRED (or not left-aligned). Repaint the SAME rows LEFT-ALIGNED to one shared straight left margin — every row beginning at the EXACT same horizontal position, with a ragged right edge${typoRefCite}. Fix ONLY the alignment; keep the scene otherwise identical.`);
     }
     if (d.includes('lines misaligned')) {
       notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin — every line beginning at the EXACT same horizontal position — with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');
@@ -665,7 +670,7 @@ function buildSpreadQaPromptV2(o) {
   const layoutIntro = o.expectedText
     ? `You are checking one interior illustration of a children's picture book (the RENDER, the first image). The book's ONE child hero must appear exactly once; the story text below MUST be painted into the artwork, crisp and readable; the medium must be premium 3D CGI (a modern animated feature film still), never flat 2D, watercolor, or a photograph.
 
-The text must be ONE block on ONE side of the image (left or right), painted directly over the artwork — never split across both sides, never on a blank/solid/lightened band. The scenery behind and around the text must be as sharp, bright, and detailed as the rest of the image: a blurred, fogged, softened, darkened, lightened, desaturated, or emptied area behind the text is a soft panel and a placement defect. This image prints as TWO facing book pages: the vertical centerline is the physical page FOLD, and any word crossing it is cut in half in print — text touching the middle tenth of the image width (roughly 45% to 55%) is a placement defect. It must look professionally TYPESET: straight, level lines, left-aligned to one shared margin (every line beginning at the EXACT same horizontal position), even spacing, ONE font, ONE size, ONE colour.
+The text must be ONE block on ONE side of the image (left or right), painted directly over the artwork — never split across both sides, never on a blank/solid/lightened band. The scenery behind and around the text must be as sharp, bright, and detailed as the rest of the image: a blurred, fogged, softened, darkened, lightened, desaturated, or emptied area behind the text is a soft panel and a placement defect. This image prints as TWO facing book pages: the vertical centerline is the physical page FOLD, and any word crossing it is cut in half in print — text touching the middle tenth of the image width (roughly 45% to 55%) is a placement defect. It must look professionally TYPESET: straight, level lines, left-aligned to one shared margin (every line beginning at the EXACT same horizontal position), one constant line pitch — one completely EMPTY row between sentences is by design and is NOT uneven spacing — ONE font, ONE size, ONE colour.
 
 STORY TEXT THAT MUST APPEAR IN THE IMAGE:
 "${o.expectedText}"`
@@ -680,10 +685,16 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
       '"text_backdrop_treated": true|false, // the area behind/around the painted text is blurred, fogged, softened, darkened, lightened, desaturated, or emptied compared with the rest of the image (a soft panel)',
       '"text_in_center_gutter": true|false, // any word or letter of the painted text touches the middle tenth of the image width (the page fold, roughly 45%-55%)',
       '"text_bbox": {"x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1}, // tight bounding box around ALL the painted story text, fractions of the image (null if none)',
-      '"text_lines_misaligned": true|false,',
-      '"text_style_inconsistent": true|false,',
+      '"text_lines_misaligned": true|false, // any row is tilted, arched or wavy, or the line pitch visibly varies between rows (the single empty row between sentences is NOT a variation)',
+      '"text_style_inconsistent": true|false, // the block mixes more than one typeface, size, weight or fill colour within itself',
+      // qa-12: the book's ONE lettering, judged (a uniformly WRONG face or
+      // a CENTRED block scored a clean pass before — `text_style_inconsistent`
+      // only ever caught a block mixing styles within itself, and the
+      // left-margin clause hid inside the advisory misalignment field).
+      '"text_typeface_mismatch": true|false, // the painted text is NOT plain regular-weight book serif with filled letterforms: bold or heavy, sans-serif, rounded/bubbly, handwritten/brush/marker, italic, comic or subtitle-style lettering, or glyphs that are outlined, hollow, double-stroked, glowing or drop-shadowed',
+      '"text_not_left_aligned": true|false, // the rows are centred, right-aligned, or do not all begin at one shared straight left margin',
     );
-    required.push('text_split_both_sides', 'text_on_band', 'text_backdrop_treated', 'text_in_center_gutter', 'text_lines_misaligned', 'text_style_inconsistent');
+    required.push('text_split_both_sides', 'text_on_band', 'text_backdrop_treated', 'text_in_center_gutter', 'text_lines_misaligned', 'text_style_inconsistent', 'text_typeface_mismatch', 'text_not_left_aligned');
   } else {
     fields.push('"readable_text": true|false,   // any readable words, letters, or numbers painted in the RENDER');
   }
@@ -756,6 +767,20 @@ For each prop report presence ("present"|"absent") and look ("match" when it loo
 Report whether it is present, whether it is ${sameAs}, whether it appears MORE THAN ONCE (a second instance, or a second look-alike figure of the same kind), and, when present, its bounding box as fractions of the RENDER's width/height (x, y = top-left; w, h = size), tight around the companion; null when absent.`);
     fields.push('"companion": {"present": true|false, "look_match": true|false, "duplicated": true|false, "bbox": {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0} | null},');
     required.push('companion');
+  }
+  if (o.expectedText) {
+    // qa-12: the TYPOGRAPHY section — the book's one lettering stated in
+    // the judge's terms and, when the book's lettering is drawn (the
+    // typography template/guide), the drawn glyphs attached as the ground
+    // truth to compare the painted type against.
+    let ref = '';
+    if (o.letteringReference) {
+      refIndex += 1;
+      o.letteringRef = refIndex;
+      refLines.push(`Image ${refIndex} is the LETTERING REFERENCE: this spread's story text drawn in the book's one fixed typeface, weight, size, ink and left-aligned column on a plain paper ground. It is the ground truth for how the painted TYPE must look; its paper ground and blank space are not part of the render and must not be compared.`);
+      ref = ` Compare the painted text with the LETTERING REFERENCE (image ${refIndex}): the same typeface and weight, the same plain filled letterforms, the same dark ink, the same left-aligned rows.`;
+    }
+    sections.push(`TYPOGRAPHY: the painted story text must be plain REGULAR-weight book serif lettering (a classic upright serif such as Playfair Display or Georgia, filled letterforms, nothing drawn around them) in ONE dark cocoa-brown ink, every row LEFT-ALIGNED to one shared straight left margin with a ragged right edge, at one constant line pitch — one completely EMPTY row between sentences is by design.${ref} Report a typeface mismatch when the lettering is bold or heavy, sans-serif, rounded or bubbly, handwritten, brush, marker or comic lettering, italic, subtitle-style, or outlined/hollow/double-stroked/glowing/shadowed; report not-left-aligned rows when the block is centred, right-aligned, or its rows do not share one straight left margin.`);
   }
   if (o.beat) {
     sections.push(`ACTION: this spread must depict THIS story moment (quoted as data): "${o.beat}". Report whether the RENDER depicts that moment (the right activity in the right setting) and whether the child is the ACTIVE agent of it (doing it, not posing beside it).`);
@@ -913,11 +938,30 @@ const BLOCKING_PREFIXES = [
   // and a residual never ships — and, critically, a wrong-ink page can
   // never be elected as the book's typography anchor.
   'embedded story text ink colour differs',
+  // qa-12: the book's ONE lettering — a uniformly wrong typeface/weight
+  // (the bold rounded sans-with-a-contour "subtitle" look) or a centred
+  // block reads as a different book beside its left-aligned serif siblings
+  // exactly as a wrong ink does. Blocking-class: it sinks in selection and
+  // steers the repair loop; the ce-4 tilt/wave/pitch finding stays advisory.
+  'embedded story text typeface differs',
+  'embedded story text not left-aligned',
 ];
 
-/** Allow normal wrapping/bbox variation; reserve blocking for >=4x footprint. */
-const TEXT_TOO_LARGE_RATIO = 4;
-const TEXT_OVERSIZED_RATIO = 2;
+/** qa-12 fixed defect strings for the two lettering fields (never model text). */
+const TEXT_TYPEFACE_DEFECT = 'embedded story text typeface differs from the book\'s lettering (bold, sans-serif, rounded, handwritten, italic, or outlined display lettering instead of plain regular-weight book serif)';
+const TEXT_ALIGNMENT_DEFECT = 'embedded story text not left-aligned (centred, right-aligned, or rows without one shared left margin)';
+
+/**
+ * The size ruler (qa-7/qa-8, restored qa-12). The 2026-09-05 relaxation to
+ * 4×/2× ("allow normal wrapping/bbox variation") let a block painted at
+ * TWICE its footprint — subtitle scale, the exact defect the footprint was
+ * built to catch — ship as a mere advisory. With the drawn template the
+ * footprint is exact (its rows ARE the expected rows), a correct render
+ * measures ≈1.0×, and the judged bbox's roughness is well inside 1.5×.
+ * `needsRepair` still never spends renders on the advisory band.
+ */
+const TEXT_TOO_LARGE_RATIO = 1.5;
+const TEXT_OVERSIZED_RATIO = 1.25;
 
 /**
  * How many times larger than its footprint the painted block is — the max
@@ -986,6 +1030,13 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, specText: opts.companion.specText ? qaData(opts.companion.specText, 450) : null, human: !!opts.companion.human, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
       : null,
     beat: typeof opts.beat === 'string' && opts.beat.trim() ? qaData(opts.beat, 300) : null,
+    // qa-12: the drawn lettering (typographyGuide.js letteringJudgeImage) the
+    // painted text is compared against; absent ⇒ the TYPOGRAPHY section is
+    // judged from its written spec alone.
+    letteringReference: opts.letteringReference && typeof opts.letteringReference.base64 === 'string' && opts.letteringReference.base64
+      ? { base64: opts.letteringReference.base64, mimeType: opts.letteringReference.mimeType || 'image/png' }
+      : null,
+    letteringRef: null,
     emotion: opts.emotion && typeof opts.emotion.emotion === 'string' ? opts.emotion : null,
     emotionVocabulary: Array.isArray(opts.emotionVocabulary) ? opts.emotionVocabulary.filter(e => /^[a-z]+$/.test(e)) : [],
     // qa-10 (ce-18): the book's pinned ink hex — the target the painted
@@ -1012,6 +1063,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     if (o.sheet) images.push(o.sheet);
     for (const p of o.props) if (p.sheet) images.push(p.sheet);
     if (o.companion && o.companion.sheet) images.push(o.companion.sheet);
+    if (o.expectedText && o.letteringReference) images.push(o.letteringReference);
     for (const r of images) parts.push({ inline_data: { mimeType: r.mimeType || 'image/png', data: r.base64 } });
     const apiKey = getNextApiKey();
     const resp = await fetchWithTimeout(
@@ -1130,6 +1182,11 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         else if (sizeRatio != null && sizeRatio >= TEXT_OVERSIZED_RATIO) defects.push(`embedded story text oversized (about ${sizeRatio}× the book's fixed size)`);
         if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
         if (json.text_style_inconsistent) defects.push('embedded story text mixes fonts, sizes, or colors');
+        // qa-12: the book's ONE lettering — a uniformly wrong face (bold
+        // rounded sans with a contour: the subtitle look) or a centred block
+        // is as much a set break as a wrong ink, and used to score clean.
+        if (json.text_typeface_mismatch) defects.push(TEXT_TYPEFACE_DEFECT);
+        if (json.text_not_left_aligned) defects.push(TEXT_ALIGNMENT_DEFECT);
         // qa-10: the INK colour, measured from the pixels inside the judged
         // bbox (metrics.textInkColour) and held to the book's pinned hex.
         // `text_style_inconsistent` only ever caught a block that mixes
@@ -1245,5 +1302,5 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   return notes.length > 0 ? `${base} ${notes.join(' ')}` : base;
 }
 
-module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, OUTFIT_SLOTS, BLOCKING_PREFIXES };
+module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };
 

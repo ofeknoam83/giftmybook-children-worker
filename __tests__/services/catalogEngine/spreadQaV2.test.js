@@ -197,7 +197,7 @@ test('the props field is STRICT: a shorter list, an untyped flag, or a reordered
 
 test('with embedded text expected, a readable_text:true verdict without a transcript is malformed; a transcript is compared', async () => {
   const opts = { ...fullOpts(), expectedText: 'The cow says moo.' };
-  const textFields = { text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
+  const textFields = { text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false };
   fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, visible_text: '', ...textFields })));
   expect((await checkSpreadRenderV2(IMG, opts)).qaUnavailable).toMatch(/malformed/);
   fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict({ readable_text: true, ...textFields })));
@@ -214,7 +214,7 @@ test('with embedded text expected, a readable_text:true verdict without a transc
 
 test('text on the page fold is BLOCKING — judged boolean OR a text bbox straddling the middle tenth (ce-12)', async () => {
   const opts = { ...fullOpts(), expectedText: 'The cow says moo.' };
-  const textFields = { text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false };
+  const textFields = { text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false };
   const embedded = (over = {}) => cleanVerdict({ readable_text: true, visible_text: 'The cow says moo.', ...textFields, ...over });
 
   // The judge's boolean alone flags it.
@@ -351,7 +351,7 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
   const textVerdict = (bbox) => cleanVerdict({
     readable_text: true, visible_text: TEXT,
     text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
-    text_lines_misaligned: false, text_style_inconsistent: false, text_bbox: bbox,
+    text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false, text_bbox: bbox,
   });
 
   test('textSizeRatio is the max of the width and height ratios, null without a bbox or footprint', () => {
@@ -360,19 +360,27 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
     expect(textSizeRatio({ x: 0.07, y: 0.3, w: 0.18, h: 0.224 }, block)).toBe(2); // a bigger face
     expect(textSizeRatio(null, block)).toBeNull();
     expect(textSizeRatio({ x: 0, y: 0, w: 0.2, h: 0.2 }, null)).toBeNull();
-    expect(TEXT_TOO_LARGE_RATIO).toBe(4);
-    expect(TEXT_OVERSIZED_RATIO).toBe(2);
+    // qa-12 restored the ce-16 ruler: the 2026-09-05 4×/2× relaxation let a
+    // block at TWICE its footprint (subtitle scale) ship as an advisory.
+    expect(TEXT_TOO_LARGE_RATIO).toBe(1.5);
+    expect(TEXT_OVERSIZED_RATIO).toBe(1.25);
   });
 
-  test('3x text is advisory, modest variation is clean, and extreme size still blocks', async () => {
+  test('1.3× is advisory, modest variation is clean, and a block at twice its footprint BLOCKS (qa-12)', async () => {
     // Keep the width away from the fold; vary height to isolate the size rule.
-    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.18, h: 0.336 })));
-    const three = await checkSpreadRenderV2(IMG, textOpts());
-    expect(three.blocking).toEqual([]);
-    expect(three.advisory).toEqual([expect.stringContaining('oversized (about 3×')]);
-    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.25, h: 0.12 })));
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.18, h: 0.146 })));
+    const oversized = await checkSpreadRenderV2(IMG, textOpts());
+    expect(oversized.blocking).toEqual([]);
+    expect(oversized.advisory).toEqual([expect.stringContaining('oversized (about 1.3×')]);
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.2, h: 0.12 })));
     const modest = await checkSpreadRenderV2(IMG, textOpts());
     expect(modest.defects).toEqual([]);
+    // The underwater book's second spread: rows twice as wide and tall as
+    // the drawn template — the "subtitle" block — is blocking, so the
+    // repair loop spends on it and it can never be elected as a reference.
+    fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.56, y: 0.14, w: 0.36, h: 0.224 })));
+    const subtitle = await checkSpreadRenderV2(IMG, textOpts());
+    expect(subtitle.blocking).toEqual([expect.stringContaining('too large (about 2×')]);
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.18, h: 0.448 })));
     const extreme = await checkSpreadRenderV2(IMG, textOpts());
     expect(extreme.blocking).toEqual([expect.stringContaining('too large (about 4×')]);
@@ -409,7 +417,7 @@ describe('qa-9 (ce-17): a blurred, fogged, or darkened zone behind the text is a
   const verdict = (over = {}) => cleanVerdict({
     readable_text: true, visible_text: TEXT,
     text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
-    text_lines_misaligned: false, text_style_inconsistent: false, text_bbox: { x: 0.07, y: 0.3, w: 0.13, h: 0.08 },
+    text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false, text_bbox: { x: 0.07, y: 0.3, w: 0.13, h: 0.08 },
     ...over,
   });
 
@@ -461,7 +469,7 @@ describe('qa-10 (ce-18): the painted INK colour is measured against the book\'s 
   const inkVerdict = () => cleanVerdict({
     readable_text: true, visible_text: TEXT,
     text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false,
-    text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false,
+    text_in_center_gutter: false, text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false,
     // Off the fold, so only the ink check can speak.
     text_bbox: { x: 0.07, y: 0.2, w: 0.2, h: 0.5 },
   });
@@ -590,5 +598,90 @@ describe('companion check v2 (ce-19 / qa-11)', () => {
     const creature = repairNoteV2(['companion differs from its reference sheet: "Tavi"'], null, { companion: { name: 'Tavi', ref: 4 } });
     expect(creature).toContain('COMPANION REPAIR: "Tavi" must appear in this scene exactly once, drawn EXACTLY as REFERENCE 4 — same design, colours and proportions; friendly and secondary to the child. Keep the scene otherwise identical.');
     expect(creature).not.toContain('Exactly ONE of them');
+  });
+});
+
+
+describe('qa-12: the book\'s ONE lettering is judged — typeface and alignment against the drawn template (BLOCKING)', () => {
+  const { TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT } = require('../../../services/catalogEngine/illustrator/spreadQa');
+  const TEXT = 'Together, Tamari and Nori reset the marker. She pressed while Nori steadied it with one flipper.';
+  const LETTERING = { base64: 'bGV0dGVyaW5n', mimeType: 'image/png' };
+  const opts = (over = {}) => ({ label: 't', expectedText: TEXT, expectedBlock: { widthPercent: 20.5, heightPercent: 39.9 }, sheet: SHEET, letteringReference: LETTERING, ...over });
+  const verdict = (over = {}) => cleanVerdict({
+    readable_text: true, visible_text: TEXT,
+    text_split_both_sides: false, text_on_band: false, text_backdrop_treated: false, text_in_center_gutter: false,
+    text_lines_misaligned: false, text_style_inconsistent: false, text_typeface_mismatch: false, text_not_left_aligned: false,
+    text_bbox: { x: 0.6, y: 0.2, w: 0.2, h: 0.38 },
+    ...over,
+  });
+
+  test('the prompt carries a TYPOGRAPHY section, asks both fields, and attaches the lettering reference LAST with its number', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    const r = await checkSpreadRenderV2(IMG, opts());
+    expect(r.pass).toBe(true);
+    const body = JSON.parse(fetchWithTimeout.mock.calls[0][1].body);
+    const parts = body.contents[0].parts;
+    const prompt = parts[0].text;
+    expect(prompt).toContain('TYPOGRAPHY: the painted story text must be plain REGULAR-weight book serif');
+    expect(prompt).toContain('"text_typeface_mismatch": true|false');
+    expect(prompt).toContain('"text_not_left_aligned": true|false');
+    expect(prompt).toContain('one completely EMPTY row between sentences is by design');
+    // render = 1, sheet = 2, lettering reference = 3 — and it is the last image
+    expect(prompt).toContain('Image 3 is the LETTERING REFERENCE');
+    expect(prompt).toContain('Compare the painted text with the LETTERING REFERENCE (image 3)');
+    const images = parts.filter(p => p.inline_data).map(p => p.inline_data.data);
+    expect(images).toEqual([IMG.toString('base64'), SHEET.base64, LETTERING.base64]);
+  });
+
+  test('a bold rounded sans-serif block with a contour (the subtitle look) is BLOCKING with a lettering repair note', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict({ text_typeface_mismatch: true })));
+    const r = await checkSpreadRenderV2(IMG, opts());
+    expect(r.blocking).toEqual([TEXT_TYPEFACE_DEFECT]);
+    expect(r.advisory).toEqual([]);
+    expect(classifyDefects([TEXT_TYPEFACE_DEFECT]).blocking).toEqual([TEXT_TYPEFACE_DEFECT]);
+    const note = repairNoteV2(r.defects, TEXT, { typographyRef: 4 });
+    expect(note).toContain('WRONG LETTERING');
+    expect(note).toContain('Playfair Display Regular');
+    expect(note).toContain('REFERENCE IMAGE 4');
+    expect(note).toContain('no outline, stroke, contour');
+    expect(note).toContain('Fix ONLY the lettering style');
+  });
+
+  test('a centred block is BLOCKING with an alignment repair note; tilt/wave/pitch stays the ce-4 advisory', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict({ text_not_left_aligned: true, text_lines_misaligned: true })));
+    const r = await checkSpreadRenderV2(IMG, opts());
+    expect(r.blocking).toEqual([TEXT_ALIGNMENT_DEFECT]);
+    expect(r.advisory).toEqual(['embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)']);
+    const note = repairNoteV2([TEXT_ALIGNMENT_DEFECT], TEXT, { typographyRef: 2 });
+    expect(note).toContain('CENTRED');
+    expect(note).toContain('LEFT-ALIGNED to one shared straight left margin');
+    expect(note).toContain('REFERENCE IMAGE 2');
+    expect(note).toContain('Fix ONLY the alignment');
+  });
+
+  test('both fields are REQUIRED with embedded text: a verdict missing either is malformed (fail-open, never a silent pass)', async () => {
+    for (const field of ['text_typeface_mismatch', 'text_not_left_aligned']) {
+      const missing = verdict();
+      delete missing[field];
+      fetchWithTimeout.mockResolvedValueOnce(answer(missing));
+      const r = await checkSpreadRenderV2(IMG, opts());
+      expect(r.qaUnavailable).toMatch(/malformed/);
+    }
+    // Without embedded text neither field is asked.
+    fetchWithTimeout.mockResolvedValueOnce(answer(cleanVerdict()));
+    await checkSpreadRenderV2(IMG, fullOpts());
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[2][1].body).contents[0].parts[0].text;
+    expect(prompt).not.toContain('text_typeface_mismatch');
+    expect(prompt).not.toContain('TYPOGRAPHY:');
+  });
+
+  test('without a drawn lettering reference the section is judged from the written spec alone — no image attached', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(verdict()));
+    const r = await checkSpreadRenderV2(IMG, opts({ letteringReference: null }));
+    expect(r.pass).toBe(true);
+    const parts = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts;
+    expect(parts[0].text).toContain('TYPOGRAPHY: the painted story text');
+    expect(parts[0].text).not.toContain('LETTERING REFERENCE');
+    expect(parts.filter(p => p.inline_data)).toHaveLength(2);
   });
 });
