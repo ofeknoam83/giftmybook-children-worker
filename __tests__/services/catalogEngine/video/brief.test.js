@@ -1,6 +1,8 @@
 /**
- * Clip brief (gv-1): pinned-data-only prompt, reference placeholders,
- * hashing, the repair brief, and the per-model rendering.
+ * Journey brief (gv-2): pinned-data-only prompt for the single take — one
+ * MOMENT per act with its window, action and camera line — reference
+ * placeholders, hashing, the repair brief (single-take / journey notes
+ * included), and the per-model rendering.
  */
 
 jest.mock('../../../../services/gcsStorage', () => ({
@@ -10,57 +12,71 @@ jest.mock('../../../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(), getNextApiKey: jest.fn(() => 'k'), downloadPhotoAsBase64: jest.fn(), isModestBathWaterScene: jest.fn(() => false),
 }));
 
-const { buildClipBrief, repairBrief, renderPromptForModel, actionSentence, NEGATIVE_PROMPT } = require('../../../../services/catalogEngine/video/brief');
+const { buildJourneyBrief, repairBrief, renderPromptForModel, actionSentence, NEGATIVE_PROMPT } = require('../../../../services/catalogEngine/video/brief');
+const { buildFilmPlan } = require('../../../../services/catalogEngine/video/plan');
 
-const base = () => buildClipBrief({
-  segment: { kind: 'spread', spread: 7, motion: 'pan-left', seconds: 3 },
-  name: 'Emma',
-  beat: 'Child arrives in Sunnybrook Farm and takes in the main sights.',
-  companion: { name: 'Buttons', type: 'goat' },
-  emotion: { emotion: 'wonder', intensity: 'clear' },
-  propValues: ['blue bunny'],
+const shotPlan = { 1: { shotType: 'wide' }, 7: { shotType: 'close-up' }, 12: { shotType: 'overhead' } };
+const segment = () => buildFilmPlan({ scenes: [1, 7, 12], shotPlan, ageBand: '4-5' }).segments[0];
+const acts = () => [
+  { spread: 1, beat: 'Child gets ready to visit Sunnybrook Farm.', emotion: { emotion: 'curiosity', intensity: 'clear' }, companion: null, propValues: ['blue bunny'] },
+  { spread: 7, beat: 'Child discovers three chickens and counts them.', emotion: { emotion: 'joy', intensity: 'big' }, companion: { name: 'Buttons', type: 'goat' }, propValues: ['blue bunny'] },
+  { spread: 12, beat: 'Child waves goodbye to Sunnybrook Farm.', emotion: { emotion: 'tenderness', intensity: 'soft' }, companion: { name: 'Buttons', type: 'goat' }, propValues: [] },
+];
+const base = (over = {}) => buildJourneyBrief({
+  segment: segment(), name: 'Emma', acts: acts(),
   references: [{ kind: 'character' }, { kind: 'companion' }, { kind: 'prop', value: 'blue bunny' }],
-  ageBand: '4-5',
+  theme: { display_name: 'Farm', world_name: 'Sunnybrook Farm' }, ageBand: '4-5', endFrame: true, ...over,
 });
 
-describe('buildClipBrief', () => {
+describe('buildJourneyBrief', () => {
   test('is byte-stable for the same inputs and changes hash with the inputs', () => {
     const a = base();
     const b = base();
     expect(a.prompt).toBe(b.prompt);
     expect(a.hash).toBe(b.hash);
-    const c = buildClipBrief({ ...{ segment: { kind: 'spread', spread: 7, motion: 'push-in', seconds: 3 }, name: 'Emma', beat: 'x', companion: null, emotion: null, propValues: [], references: [{ kind: 'character' }] } });
-    expect(c.hash).not.toBe(a.hash);
+    expect(base({ name: 'Noa' }).hash).not.toBe(a.hash);
+    expect(base({ endFrame: false }).hash).not.toBe(a.hash);
   });
-  test('carries the action with the name, the camera, the emotion cue, the lock and the rules', () => {
+  test('describes one unbroken take with a moment per act, its window, action and camera', () => {
     const b = base();
-    expect(b.prompt).toContain('ACTION: Emma arrives in Sunnybrook Farm');
-    expect(b.prompt).toContain('CAMERA: a slow, smooth pan to the left');
-    expect(b.prompt).toContain('clear wonder');
-    expect(b.prompt).toContain('exactly ONE child — Emma, the child of [REF1]');
-    expect(b.prompt).toContain('COMPANION: Buttons (goat)');
+    expect(b.prompt).toMatch(/^Animate this children's-book illustration into ONE continuous, unbroken 10-second shot/);
+    expect(b.prompt).toContain('JOURNEY: Emma travels through 3 moments of Sunnybrook Farm in one continuous take');
+    expect(b.prompt).toContain('MOMENT 1 (0–3.3s, starts exactly on the first frame): Emma gets ready to visit Sunnybrook Farm. CAMERA: a wide establishing angle');
+    expect(b.prompt).toContain('MOMENT 2 (3.3–6.7s): Emma advances into the next part of Sunnybrook Farm: Emma discovers three chickens and counts them. CAMERA: the camera pushes in slowly to a close angle');
+    expect(b.prompt).toContain('MOMENT 3 (6.7–10s): Emma advances into the next part of Sunnybrook Farm: Emma waves goodbye to Sunnybrook Farm. CAMERA: the camera rises and drifts higher to a high angle');
+    expect(b.prompt).toContain('settles on the final composition — exactly the last frame');
+    expect(b.prompt).toContain('COMPANION: Buttons (goat) is present in moments 2 and 3');
     expect(b.prompt).toContain('exactly as in [REF2]');
+    expect(b.prompt).toContain('PERFORMANCE: the child\'s expression reads, moment by moment, as clear curiosity');
+    expect(b.prompt).toContain('then big joy');
+    expect(b.prompt).toContain('exactly ONE child — Emma, the child of [REF1]');
     expect(b.prompt).toContain('"blue bunny" (exactly as [REF3])');
-    expect(b.prompt).toContain('no speech');
-    expect(b.prompt).toContain('no text, captions');
+    expect(b.prompt).toContain('no cuts, fades, wipes or scene jumps');
     expect(b.negativePrompt).toBe(NEGATIVE_PROMPT);
-    expect(b.cameraMotion).toBe('pan-left');
+    expect(b.cameraMotion).toBe('journey');
+    expect(b.angles).toEqual(['wide', 'close', 'overhead']);
+    expect(b.motionScale).toBe('big');
     expect(b.params.cfgScale).toBe(0.5);
   });
+  test('without an end frame the last moment only settles; band 1-3 caps the motion scale', () => {
+    const b = base({ endFrame: false, ageBand: '1-3' });
+    expect(b.prompt).toContain('settles on the final composition.');
+    expect(b.prompt).not.toContain('exactly the last frame');
+    expect(b.motionScale).toBe('clear');
+  });
   test('sanitizes profile strings and never lets quotes or control characters through', () => {
-    const b = buildClipBrief({ segment: { kind: 'spread', spread: 2, motion: 'hold', seconds: 3 }, name: 'Em"ma', beat: 'Child waves.', companion: null, emotion: null, propValues: ['tea"pot'], references: [] });
+    const b = buildJourneyBrief({ segment: buildFilmPlan({ scenes: [2] }).segments[0], name: 'Em"ma', acts: [{ spread: 2, beat: 'Child waves.', emotion: null, companion: null, propValues: ['tea"pot'] }], references: [], theme: null });
     expect(b.prompt).not.toMatch(new RegExp('[\\u0000-\\u0009\\u000b-\\u001f]')); // newlines separate the blocks; nothing else
     expect(b.prompt).toContain('Emma waves');
     expect(b.prompt).not.toContain('Em"ma');
     expect(b.prompt).toContain('"teapot"'); // the template quotes props; the value itself lost its quote
+    expect(b.prompt).toContain('one moment of the world of the book');
+    expect(b.prompt).toContain('PERFORMANCE: a warm, natural expression');
   });
-  test('the cover segment gets its own action and no beat', () => {
-    const b = buildClipBrief({ segment: { kind: 'cover', spread: null, motion: 'push-in', seconds: 2.4 }, name: 'Emma', beat: null, companion: null, emotion: null, propValues: [], references: [{ kind: 'character' }] });
-    expect(b.prompt).toContain("comes alive on the book's cover");
-  });
-  test('band 1-3 caps the motion scale below big', () => {
-    const b = buildClipBrief({ segment: { kind: 'spread', spread: 3, motion: 'push-in', seconds: 3 }, name: 'Emma', beat: 'Child laughs.', companion: null, emotion: { emotion: 'joy', intensity: 'big' }, propValues: [], references: [], ageBand: '1-3' });
-    expect(b.motionScale).toBe('clear');
+  test('an act without a beat still gets a moment line', () => {
+    const b = buildJourneyBrief({ segment: buildFilmPlan({ scenes: [3, 9] }).segments[0], name: 'Noa', acts: [{ spread: 3, beat: null, emotion: null, companion: null, propValues: [] }], references: [], theme: null });
+    expect(b.prompt).toContain('MOMENT 1 (0–5s, starts exactly on the first frame): Noa looks around and moves on');
+    expect(b.prompt).toContain('MOMENT 2 (5–10s): Noa advances into the next part of the world of the book: Noa looks around and moves on');
   });
 });
 
@@ -75,6 +91,13 @@ describe('repairBrief', () => {
     expect(r.prompt).toContain('Motion scale: barely moving');
     expect(r.hash).not.toBe(b.hash);
     expect(b.params.cfgScale).toBe(0.5); // pure — the base is untouched
+  });
+  test('a cut, a static journey and a static camera get their own single-take notes', () => {
+    const r = repairBrief(base(), ['cut break: the clip contains a cut or transition instead of one continuous shot', 'journey break: the surroundings never change — the child does not advance into the next moment', 'composition break: the camera angle does not change along the take']);
+    expect(r.prompt).toContain('SINGLE-TAKE REPAIR');
+    expect(r.prompt).toContain('JOURNEY REPAIR');
+    expect(r.prompt).toContain('CAMERA REPAIR');
+    expect(r.params.cfgScale).toBe(0.5);
   });
   test('unknown defects leave the brief as it is', () => {
     const b = base();

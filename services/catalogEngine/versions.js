@@ -249,11 +249,13 @@ const QA_VERSION = 'qa-11';
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip
  * cache namespace (`children-jobs/{bookId}/gift-video/{VIDEO_VERSION}/…`).
- * Bump on any change to the film plan rules, the duration table, the clip
- * brief template, or the stitch graph: gv-(N-1) films must never replay as
- * gv-N. Provider and model are inside the clip hash, not this version.
+ * Bump on any change to the film plan rules, the still-selection scoring,
+ * the clip brief template, or the stitch graph: gv-(N-1) films must never
+ * replay as gv-N. Provider and model are inside the clip hash, not this
+ * version. gv-2 (2026-09-07): ONE continuous take through the best three
+ * stills (the still-selection gate) instead of four crossfaded clips.
  */
-const VIDEO_VERSION = 'gv-1';
+const VIDEO_VERSION = 'gv-2';
 
 module.exports = {
   WRITER_ENGINE_VERSION,

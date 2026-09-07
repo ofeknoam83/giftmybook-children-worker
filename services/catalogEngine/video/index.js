@@ -1,16 +1,19 @@
 /**
- * The gift video (gv-1 — docs/GIFT_VIDEO_PLAN.md): a 10-second, text-free,
- * FULLY ANIMATED film of one book — the approved cover coming alive, the
- * opening spread, the emotional peak, the resolution — built from the exact
- * shipped renders and the Book Bible, one image-to-video clip per segment,
- * each verified against the character sheet, selected among candidates,
- * repaired within a bounded budget, and failed closed (`video_unresolved`
- * with the scored candidates attached) rather than degraded.
+ * The gift video (gv-2 — docs/GIFT_VIDEO_PLAN.md, revision 4): a 10-second,
+ * text-free, FULLY ANIMATED film of one book as ONE continuous take — the
+ * child advancing through the book's best illustrations while the camera
+ * angle changes along the way — built from the exact shipped renders and
+ * the Book Bible, verified against the character sheet, selected among
+ * candidates, repaired within a bounded budget, and failed closed
+ * (`video_unresolved` with the scored candidates attached) rather than
+ * degraded.
  *
- * Order of work: resolve provider → anchor + bible → plan → start frames
- * (embedded books re-render text-free) → text gate → film-level replay
- * check → references + briefs → per segment: candidates → verify → repair
- * → promote → stitch → upload → manifest.
+ * Order of work: resolve provider → anchor + bible → STILL SELECTION (every
+ * render judged once, the best `CATALOG_VIDEO_SCENES` picked in story
+ * order; an embedded book re-renders its arc trio text-free instead) →
+ * plan (one segment, one act per picked still) → film-level replay check
+ * → references + the journey brief → candidates → verify → repair →
+ * promote → stitch → upload → manifest.
  */
 
 const path = require('path');
@@ -29,9 +32,10 @@ const { normalizePropValue } = require('../illustrator/bible/propSheet');
 const { QA_VERSION, VIDEO_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
-const { buildFilmPlan } = require('./plan');
-const { buildClipBrief, repairBrief } = require('./brief');
-const { validateRenders, fetchStill, prepareStartFrame, textGate, contentHash } = require('./stills');
+const { buildFilmPlan, pickStorySpreads } = require('./plan');
+const { buildJourneyBrief, repairBrief } = require('./brief');
+const { validateRenders, fetchStill, prepareStartFrame, contentHash } = require('./stills');
+const { judgeStill, rankStills } = require('./stillSelect');
 const { resolveProvider } = require('./providers');
 const { generateCandidates, videoBase } = require('./generate');
 const { verifyClip } = require('./verify');
@@ -39,6 +43,7 @@ const ffmpeg = require('./ffmpeg');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CANDIDATE_CONCURRENCY = 4;
+const JUDGE_CONCURRENCY = 4;
 
 class VideoError extends Error {
   constructor(message, failureCode, details) {
@@ -73,6 +78,28 @@ function musicPathFor(music) {
 }
 
 /**
+ * Judge one still, replaying a pinned verdict for the same pixels under
+ * the same checker (`stills/{renderHash}.json` beside the clips) so a
+ * re-dispatch never re-spends the judge and always ranks the same way.
+ * @param {object} p
+ * @returns {Promise<{spread: number, verdict: object|null, unavailable: string|null}>}
+ */
+async function judgeStillPinned({ bookId, spread, buffer, hash, forceNew, costTracker, log }) {
+  const key = `${videoBase(bookId)}/stills/${hash}.json`;
+  if (!forceNew) {
+    const pinned = await loadJson(key).catch(() => null);
+    if (pinned && pinned.qaVersion === QA_VERSION && pinned.verdict && typeof pinned.verdict === 'object') {
+      return { spread, verdict: pinned.verdict, unavailable: null };
+    }
+  }
+  const j = await judgeStill(buffer, { label: `videoStillJudge:${bookId}:s${spread}`, costTracker });
+  if (j.verdict) {
+    try { await saveJson({ qaVersion: QA_VERSION, spread, renderHash: hash, verdict: j.verdict, judgedAt: new Date().toISOString() }, key); } catch (err) { log('warn', `still verdict pin failed for spread ${spread} (${err.message})`); }
+  }
+  return { spread, verdict: j.verdict, unavailable: j.unavailable || null };
+}
+
+/**
  * Generate the gift video for one book.
  * @param {object} p
  * @param {string} p.bookId
@@ -100,7 +127,7 @@ function musicPathFor(music) {
  * @param {() => void} [p.touch] book-context activity touch
  * @param {AbortSignal} [p.abortSignal]
  * @param {(level: string, msg: string) => void} [p.log]
- * @returns {Promise<object>} the callback body fields (video, plan, textGate, bookBible, unresolved, advisories, warnings)
+ * @returns {Promise<object>} the callback body fields (video, plan, stills, textGate, bookBible, unresolved, advisories, warnings)
  */
 async function generateGiftVideo(p) {
   const log = p.log || ((l, m) => console.log(`[giftVideo:${p.bookId}] ${m}`));
@@ -123,10 +150,11 @@ async function generateGiftVideo(p) {
   const validated = validateRenders(bookId, p.renders);
   if (!validated.ok) throw new VideoError(validated.error, 'video_no_sources');
   const entries = validated.entries;
+  const bySpread = new Map(entries.map(e => [e.spread, e]));
 
-  // ── Anchor + Book Bible (the identity kit every clip references) ───────
+  // ── Anchor + Book Bible (the identity kit the take references) ─────────
   const characterRefUrl = p.approvedCoverUrl || p.childPhotoUrl || null;
-  if (!characterRefUrl) throw new VideoError('no approved cover and no child photo — the clips would have no identity reference', 'missing_identity_reference');
+  if (!characterRefUrl) throw new VideoError('no approved cover and no child photo — the clip would have no identity reference', 'missing_identity_reference');
   let refPhoto;
   try {
     refPhoto = await downloadPhotoAsBase64(characterRefUrl);
@@ -151,34 +179,61 @@ async function generateGiftVideo(p) {
   }
   for (const a of bible.advisories || []) advisories.push(a);
   if (!bible.sheet) {
-    // The sheet is the identity reference of every clip: without one the
+    // The sheet is the identity reference of the take: without one the
     // film would animate an unpinned child. (CATALOG_SHEET_REQUIRED=0 lets
     // renders proceed sheet-less; the film does not.)
-    throw new VideoError('no character model sheet is available for this anchor — the clips would have no identity reference', 'identity_kit_failed');
+    throw new VideoError('no character model sheet is available for this anchor — the clip would have no identity reference', 'identity_kit_failed');
   }
 
-  // ── Plan ───────────────────────────────────────────────────────────────
+  // ── Pinned plans ───────────────────────────────────────────────────────
   const baseHash = storyFingerprint(story);
   const shotPlan = flags.shotPlanEnabled()
     ? buildShotPlan({ seedBasis: baseHash, spreads: book.beats.map(b => b.spread), ageBand, textLayout })
     : null;
   const emotionPlan = bible.emotion ? bible.emotion.plan : null;
-  let plan = buildFilmPlan({ available: entries.map(e => e.spread), coverKind: p.approvedCoverUrl ? 'cover' : 'photo', emotionPlan, shotPlan, textLayout, ageBand });
-  if (plan.segments.length === 0) throw new VideoError('no usable spreads for the film', 'video_no_sources');
 
-  // ── Start frames (embedded renders re-rendered text-free) ──────────────
-  onProgress(0.08, 'Resolving the start frames...');
-  const bySpread = new Map(entries.map(e => [e.spread, e]));
-  const plannedSpreads = plan.segments.filter(s => s.kind === 'spread').map(s => s.spread);
-  const rerenderSpreads = plannedSpreads.filter(s => bySpread.get(s).embedded);
-  const frames = new Map(); // segment index → {buffer, hash, storageKey|null, rerendered}
-  if (rerenderSpreads.length > 0) {
-    log('info', `re-rendering ${rerenderSpreads.length} embedded spread(s) text-free for the film: ${rerenderSpreads.join(', ')}`);
-    onProgress(0.1, `Rendering text-free start frames (${rerenderSpreads.length})...`);
+  // ── Still selection: pick the best illustrations FIRST ─────────────────
+  const sceneCount = flags.videoSceneCount();
+  const frames = new Map(); // spread → {buffer, hash, storageKey, rerendered}
+  const stillReport = [];
+  const judgeLimit = pLimit(JUDGE_CONCURRENCY);
+  const judgeAll = (spreads) => Promise.all(spreads.map(spread => judgeLimit(async () => {
+    const f = frames.get(spread);
+    const r = await judgeStillPinned({ bookId, spread, buffer: f.buffer, hash: f.hash, forceNew: !!p.forceNew, costTracker, log });
+    touch();
+    return r;
+  })));
+  let picked = [];
+  const selectable = entries.filter(e => !e.embedded);
+  if (selectable.length > 0) {
+    onProgress(0.08, `Judging ${selectable.length} illustrations for the film...`);
+    for (const e of selectable) {
+      const still = await fetchStill(e.storageKey, `render of spread ${e.spread}`);
+      frames.set(e.spread, { ...still, storageKey: e.storageKey, rerendered: false });
+    }
+    const judged = await judgeAll(selectable.map(e => e.spread));
+    const ranked = rankStills(judged, { count: sceneCount });
+    picked = ranked.picked;
+    const unavailable = new Map(judged.map(j => [j.spread, j.unavailable]));
+    for (const r of ranked.report) stillReport.push({ ...r, storageKey: bySpread.get(r.spread).storageKey, rerendered: false, unavailable: unavailable.get(r.spread) || null });
+    const unchecked = ranked.report.filter(r => r.unchecked).length;
+    if (unchecked > 0) advisories.push({ stage: 'video', note: `still judge unavailable for ${unchecked} render(s) (${[...new Set(judged.map(j => j.unavailable).filter(Boolean))].join('; ')}) — ranked as unchecked` });
+    log('info', `still selection: picked ${picked.join(', ') || 'none'} of ${selectable.map(e => e.spread).join(', ')} (${ranked.report.map(r => `s${r.spread}=${r.score}${r.disqualified ? 'x' : ''}`).join(' ')})`);
+  }
+  const embedded = entries.filter(e => e.embedded);
+  if (picked.length === 0 && embedded.length > 0) {
+    // An embedded book paints its story text INTO every render: there are
+    // no text-free stills to choose from, so the story-arc trio is
+    // re-rendered text-free through the production path (the gv-1 rule)
+    // and gated afterwards.
+    const arc = pickStorySpreads(embedded.map(e => e.spread), emotionPlan).spreads.slice(0, sceneCount);
+    advisories.push({ stage: 'video', note: `embedded renders carry painted text — spread(s) ${arc.join(', ')} (the story arc) were re-rendered text-free instead of being chosen by the still gate` });
+    log('info', `re-rendering ${arc.length} embedded spread(s) text-free for the film: ${arc.join(', ')}`);
+    onProgress(0.1, `Rendering text-free start frames (${arc.length})...`);
     const art = await renderStorySpreads({
       bookId, story, bookDef, profile,
       approvedCoverUrl: p.approvedCoverUrl, childPhotoUrl: p.childPhotoUrl || null, characterDescription: p.characterDescription || null,
-      textLayout: 'half', spreads: rerenderSpreads, tuning: p.tuning || null,
+      textLayout: 'half', spreads: arc, tuning: p.tuning || null,
       identityKeyed: !!p.identityKeyed, seed: Number.isInteger(p.seed) ? p.seed : null, probeNonce: p.probeNonce || null,
       costTracker, forceRerender: false,
       onProgress: (f, m) => { touch(); onProgress(0.1 + f * 0.15, m); }, log,
@@ -188,53 +243,47 @@ async function generateGiftVideo(p) {
     }
     for (const r of art.results) {
       if (!r.buffer) throw new VideoError(`text-free start frame for spread ${r.spread} could not be rendered (${r.advisories.map(a => a.note).join('; ') || 'render failed'})`, 'render_failed');
-      frames.set(`spread:${r.spread}`, { buffer: r.buffer, hash: contentHash(r.buffer), storageKey: r.storageKey, rerendered: true });
+      frames.set(r.spread, { buffer: r.buffer, hash: contentHash(r.buffer), storageKey: r.storageKey, rerendered: true });
     }
-  }
-  for (const s of plan.segments) {
-    if (s.kind === 'cover') {
-      const still = await fetchStill(p.approvedCoverUrl, 'the approved cover');
-      frames.set('cover', { ...still, storageKey: null, rerendered: false });
-    } else if (!frames.has(`spread:${s.spread}`)) {
-      const entry = bySpread.get(s.spread);
-      const still = await fetchStill(entry.storageKey, `render of spread ${s.spread}`);
-      frames.set(`spread:${s.spread}`, { ...still, storageKey: entry.storageKey, rerendered: false });
+    const judged = await judgeAll(arc.filter(s => frames.has(s)));
+    const textual = judged.filter(j => j.verdict && j.verdict.textPresent);
+    if (textual.length > 0) {
+      throw new VideoError(`spread ${textual[0].spread} still carries painted text after the text-free re-render ("${textual[0].verdict.transcript || ''}") — a text-free film cannot use it`, 'video_text_visible', { textGate: textual.map(j => ({ segment: 0, kind: 'spread', spread: j.spread, pass: false, transcript: j.verdict.transcript || undefined })) });
     }
+    const ranked = rankStills(judged, { count: arc.length });
+    picked = ranked.picked;
+    const unavailable = new Map(judged.map(j => [j.spread, j.unavailable]));
+    for (const r of ranked.report) stillReport.push({ ...r, storageKey: frames.get(r.spread).storageKey, rerendered: true, unavailable: unavailable.get(r.spread) || null });
   }
-  const frameFor = (s) => frames.get(s.kind === 'cover' ? 'cover' : `spread:${s.spread}`);
+  if (picked.length === 0) {
+    const allText = stillReport.length > 0 && stillReport.every(r => r.disqualified && r.reasons.some(x => /^painted text/.test(x)));
+    throw new VideoError(
+      allText
+        ? 'every render carries painted text — a text-free film cannot use them; re-render the spreads'
+        : `no illustration reads as a complete, text-free picture (${stillReport.map(r => `s${r.spread}: ${r.reasons.join(', ') || 'disqualified'}`).join('; ') || 'nothing to judge'})`,
+      allText ? 'video_text_visible' : 'video_no_sources',
+      { stills: stillReport },
+    );
+  }
+  for (const r of stillReport) if (r.picked && r.reasons.length > 0) advisories.push({ stage: 'video', spread: r.spread, note: `picked still: ${r.reasons.join(', ')}` });
+  const textGateReport = picked.map(spread => {
+    const r = stillReport.find(x => x.spread === spread);
+    const entry = { segment: 0, kind: 'spread', spread, pass: true };
+    if (r && r.unchecked) {
+      entry.unavailable = r.unavailable || 'still judge unavailable';
+      advisories.push({ stage: 'video', spread, note: `text gate unavailable for spread ${spread} (${entry.unavailable}) — source is text-free by contract` });
+    }
+    return entry;
+  });
 
-  // ── Text gate ──────────────────────────────────────────────────────────
-  onProgress(0.26, 'Checking the start frames for text...');
-  const gateLimit = pLimit(4);
-  const gates = await Promise.all(plan.segments.map(s => gateLimit(async () => ({ segment: s, verdict: await textGate(frameFor(s).buffer, { label: `videoTextGate:${bookId}:${s.kind}${s.spread || ''}`, costTracker }) }))));
-  const textGateReport = [];
-  let dropCover = false;
-  for (const g of gates) {
-    touch();
-    const entry = { segment: g.segment.index, kind: g.segment.kind, spread: g.segment.spread, pass: g.verdict.pass };
-    if (g.verdict.transcript) entry.transcript = g.verdict.transcript;
-    if (g.verdict.unavailable) {
-      entry.unavailable = g.verdict.unavailable;
-      advisories.push({ stage: 'video', spread: g.segment.spread, note: `text gate unavailable for ${g.segment.kind}${g.segment.spread ? ` ${g.segment.spread}` : ''} (${g.verdict.unavailable}) — source is text-free by contract` });
-    }
-    textGateReport.push(entry);
-    if (!g.verdict.pass) {
-      if (g.segment.kind === 'cover') {
-        dropCover = true;
-        advisories.push({ stage: 'video', note: `cover_text_visible: the approved cover carries painted text ("${g.verdict.transcript || ''}") — the film opens on the first spread instead` });
-      } else {
-        throw new VideoError(`spread ${g.segment.spread} carries painted text ("${g.verdict.transcript || ''}") — a text-free film cannot use it; re-render the spread`, 'video_text_visible', { textGate: textGateReport });
-      }
-    }
-  }
-  if (dropCover) {
-    plan = buildFilmPlan({ available: entries.map(e => e.spread), coverKind: null, emotionPlan, shotPlan, textLayout, ageBand });
-    // The report keeps the cover's verdict (segment null, dropped) and
-    // re-indexes the spreads to the rebuilt plan.
-    for (const t of textGateReport) {
-      if (t.kind === 'cover') { t.segment = null; t.dropped = true; } else { t.segment = Math.max(0, t.segment - 1); }
-    }
-  }
+  // ── Plan: one take, one act per picked still ───────────────────────────
+  const plan = buildFilmPlan({ scenes: picked, emotionPlan, shotPlan, ageBand });
+  if (plan.segments.length === 0) throw new VideoError('no usable spreads for the film', 'video_no_sources', { stills: stillReport });
+  const segment = plan.segments[0];
+  const startFrame = frames.get(segment.acts[0].spread);
+  const endFrameEligible = segment.acts.length > 1 && !!provider.profile.supportsEndFrame && flags.videoEndFrameEnabled();
+  const endFrame = endFrameEligible ? frames.get(segment.acts[segment.acts.length - 1].spread) : null;
+  if (segment.acts.length > 1 && !endFrame) advisories.push({ stage: 'video', note: `the take carries no end frame (${provider.profile.supportsEndFrame ? 'CATALOG_VIDEO_END_FRAME=0' : `${provider.model} takes none`}) — the last moment is described in the brief only` });
 
   // ── References (the identity kit as reference elements) ────────────────
   const base = videoBase(bookId);
@@ -254,51 +303,61 @@ async function generateGiftVideo(p) {
     propRefs.set(normalizePropValue(x.value), { kind: 'prop', value: x.value, urls: [url], hash: x.sheet.hash, specText: x.sheet.specText || null, sheet: x.sheet });
   }
 
-  // ── Briefs + QA inputs per segment ─────────────────────────────────────
+  // ── The journey brief + QA inputs per act ──────────────────────────────
   const evidence = story.personalization_evidence || [];
   const outfitSpec = bible.outfit ? bible.outfit.outfit : null;
   const companionDrawable = !!(theme.companion && theme.companion.name);
-  const segmentInputs = plan.segments.map(s => {
-    const beat = s.kind === 'spread' ? book.beats.find(b => b.spread === s.spread) : null;
-    const spreadText = s.kind === 'spread' ? (story.spreads.find(x => x.spread === s.spread) || {}).text || '' : '';
-    // ce-11 signal (beat OR manuscript names the companion) — the film's
-    // segments attach the companion ref on the same spreads the book does.
+  const companionCheck = companionDrawable
+    ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion && bible.companion.base64 ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null, specText: bible.companion ? bible.companion.specText || null : null, human: bible.companion ? !!bible.companion.human : undefined }
+    : null;
+  const actContents = segment.acts.map(a => {
+    const beat = book.beats.find(b => b.spread === a.spread) || null;
+    const spreadText = (story.spreads.find(x => x.spread === a.spread) || {}).text || '';
+    // ce-11 signal (beat OR manuscript names the companion) — the act
+    // carries the companion on the same spreads the book does.
     const companionPresent = !!(beat && companionDrawable && companionOnSpread(beat, spreadText, theme.companion, { theme, childName: profile?.name }));
-    const declared = beat ? visualPropsForSpread(evidence, s.spread) : [];
-    const carried = beat && flags.propContinuityEnabled() ? continuityPropsForSpread(evidence, s.spread) : [];
-    const propValues = [...new Set([...declared, ...carried])];
-    const references = [characterRef];
-    if (companionPresent && companionRef) references.push(companionRef);
-    const propRefList = [];
-    for (const v of propValues) {
-      const r = propRefs.get(normalizePropValue(v));
-      if (r && !propRefList.includes(r)) propRefList.push(r);
-    }
-    references.push(...propRefList);
-    const emotion = s.kind === 'spread' && emotionPlan && emotionPlan[s.spread] ? emotionPlan[s.spread] : null;
-    const brief = buildClipBrief({
-      segment: s, name: profile.name, beat: beat ? beat.beat : null,
-      companion: companionPresent ? theme.companion : null,
-      emotion, propValues, references, ageBand, theme,
-    });
-    const checks = {
-      sheet: { base64: bible.sheet.base64, mimeType: bible.sheet.mimeType || 'image/png' },
-      outfitSpec: beat && isModestBathWaterScene(`${beat.beat} ${spreadText}`) ? null : outfitSpec,
-      props: propValues.map(v => {
-        const r = propRefs.get(normalizePropValue(v));
-        return { name: v, specText: r ? r.specText : null, sheet: r ? r.sheet : null, expected: declared.includes(v) ? 'required' : 'carried' };
-      }),
-      companion: companionPresent ? { name: theme.companion.name, type: theme.companion.type || null, sheet: bible.companion && bible.companion.base64 ? { base64: bible.companion.base64, mimeType: bible.companion.mimeType || 'image/png' } : null, specText: bible.companion ? bible.companion.specText || null : null, human: bible.companion ? !!bible.companion.human : undefined } : null,
+    const declared = beat ? visualPropsForSpread(evidence, a.spread) : [];
+    const carried = beat && flags.propContinuityEnabled() ? continuityPropsForSpread(evidence, a.spread) : [];
+    const emotion = a.emotion || null;
+    return {
+      spread: a.spread,
       beat: beat ? beat.beat : null,
-      emotion: emotion ? { ...emotion, cue: EMOTION_CUES[emotion.emotion] || null } : null,
+      emotion,
+      companion: companionPresent ? theme.companion : null,
+      propValues: [...new Set([...declared, ...carried])],
+      declared,
+      bathWater: !!beat && isModestBathWaterScene(`${beat.beat} ${spreadText}`),
     };
-    return { segment: s, brief, checks, references };
   });
+  const references = [characterRef];
+  if (companionRef && actContents.some(a => a.companion)) references.push(companionRef);
+  const propValues = [...new Set(actContents.flatMap(a => a.propValues))];
+  const declaredValues = new Set(actContents.flatMap(a => a.declared));
+  for (const v of propValues) {
+    const r = propRefs.get(normalizePropValue(v));
+    if (r && !references.includes(r)) references.push(r);
+  }
+  const brief = buildJourneyBrief({ segment, name: profile.name, acts: actContents, references, theme, ageBand, endFrame: !!endFrame });
+  const checks = {
+    sheet: { base64: bible.sheet.base64, mimeType: bible.sheet.mimeType || 'image/png' },
+    outfitSpec,
+    props: propValues.map(v => {
+      const r = propRefs.get(normalizePropValue(v));
+      return { name: v, specText: r ? r.specText : null, sheet: r ? r.sheet : null, expected: declaredValues.has(v) ? 'required' : 'carried' };
+    }),
+    acts: segment.acts.map((a, i) => ({
+      index: a.index, from: a.from, to: a.to, spread: a.spread,
+      beat: actContents[i].beat,
+      emotion: actContents[i].emotion ? { ...actContents[i].emotion, cue: EMOTION_CUES[actContents[i].emotion.emotion] || null } : null,
+      companion: actContents[i].companion ? companionCheck : null,
+      outfitSpec: actContents[i].bathWater ? null : outfitSpec,
+    })),
+  };
 
   // ── Film-level replay ─────────────────────────────────────────────────
   const planHash = fnv1a(JSON.stringify({
     v: VIDEO_VERSION, p: provider.provider, m: provider.model, a: aspect, u: music,
-    s: segmentInputs.map(x => [x.segment.kind, x.segment.spread, frameFor(x.segment).hash, x.brief.hash, x.segment.seconds]),
+    s: segment.acts.map(a => a.spread), f: startFrame.hash, e: endFrame ? endFrame.hash : null, b: brief.hash, d: segment.seconds,
   })).toString(36);
   const filmDir = `${base}/${planHash}`;
   const manifestKey = `${filmDir}/video.json`;
@@ -313,90 +372,90 @@ async function generateGiftVideo(p) {
       const posterUrl = await getSignedUrl(posterKey, SIGNED_URL_TTL_MS).catch(() => null);
       return {
         video: { ...manifest.video, url, posterUrl, cached: true },
-        plan: manifest.plan, textGate: manifest.textGate || textGateReport, bookBible,
+        plan: manifest.plan, stills: stillReport, textGate: manifest.textGate || textGateReport, bookBible,
         unresolved: [], advisories: [...advisories, ...(manifest.advisories || [])], warnings,
         provider: provider.provider, model: provider.model, planHash,
       };
     }
   }
 
-  // ── Prepared start frames → vendor URLs ────────────────────────────────
-  onProgress(0.3, 'Preparing the start frames...');
-  const prepared = new Map();
-  for (const x of segmentInputs) {
-    const f = frameFor(x.segment);
-    const prep = await prepareStartFrame(f.buffer, aspect === '9:16' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 });
+  // ── Prepared frames → vendor URLs ──────────────────────────────────────
+  onProgress(0.3, 'Preparing the start and end frames...');
+  const frameSize = aspect === '9:16' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+  const prepareFor = async (f) => {
+    const prep = await prepareStartFrame(f.buffer, frameSize);
     const url = await stage(prep.buffer, `${base}/frames/${f.hash}-${aspect.replace(':', 'x')}.jpg`, 'image/jpeg');
-    prepared.set(x.segment.index, { url, hash: f.hash, blurFilled: prep.blurFilled });
     touch();
-  }
+    return { url, hash: f.hash, blurFilled: prep.blurFilled };
+  };
+  const preparedStart = await prepareFor(startFrame);
+  const preparedEnd = endFrame ? await prepareFor(endFrame) : null;
 
-  // ── Per segment: candidates → verify → repair → promote ────────────────
+  // ── The take: candidates → verify → repair → promote ───────────────────
   const n = flags.videoClipCandidates();
   const maxRepairs = flags.videoClipMaxRepairs();
   const secondsCap = flags.videoMaxClipSeconds();
   const limit = pLimit(CANDIDATE_CONCURRENCY);
   const tmp = await ffmpeg.makeTempDir(bookId);
   let generatedSeconds = 0;
-  let finished = 0;
-  const heartbeat = setInterval(() => { touch(); onProgress(0.3 + (finished / plan.segments.length) * 0.55, `Animating (${finished}/${plan.segments.length} segments done, ${generatedSeconds}s generated)...`); }, 30000);
-  const results = [];
+  const heartbeat = setInterval(() => { touch(); onProgress(0.35, `Animating the take (${generatedSeconds}s generated)...`); }, 30000);
+  let result;
   try {
-    onProgress(0.32, `Animating ${plan.segments.length} segments (${n} candidates each)...`);
-    const perSegment = async (x) => {
-      const s = x.segment;
-      const label = `s${s.index}`;
-      const startFrame = prepared.get(s.index);
-      let brief = x.brief;
-      const all = [];
-      let best = null;
-      let repairs = 0;
-      let canonicalKey = null;
-      let clipHash = null;
+    onProgress(0.32, `Animating one ${segment.seconds}s take through spreads ${segment.spreads.join(', ')} (${n} candidate${n === 1 ? '' : 's'})...`);
+    const s = segment;
+    const label = `s${s.index}`;
+    const x = { segment: s, brief, checks, references };
+    let activeBrief = brief;
+    const all = [];
+    let best = null;
+    let repairs = 0;
+    let replayed = null;
 
-      // Replay a promoted clip whose marker still vouches for it.
-      const probe = await generateCandidatesMeta(bookId, x, startFrame, provider, aspect);
-      canonicalKey = probe.canonicalKey;
-      clipHash = probe.clipHash;
-      if (!p.forceNew) {
-        const marker = await loadJson(`${canonicalKey}.qa.json`).catch(() => null);
-        if (marker && marker.qaVersion === QA_VERSION && (marker.adminPicked || !marker.unresolved)) {
-          const buffer = await downloadBuffer(canonicalKey).catch(() => null);
-          if (buffer && buffer.length > 0 && contentHash(buffer) === marker.renderHash) {
-            log('info', `${label}: promoted clip replays from ${canonicalKey}${marker.adminPicked ? ' (admin-picked)' : ''}`);
-            finished += 1;
-            return { segment: s, buffer, storageKey: canonicalKey, clipHash, score: marker.score ?? null, candidates: 0, repairs: 0, replayed: true, adminPicked: !!marker.adminPicked, blocking: marker.adminPicked ? [] : (marker.qa && marker.qa.blocking) || [], advisory: (marker.qa && marker.qa.advisory) || [], candidateFiles: [] };
-          }
+    // Replay a promoted clip whose marker still vouches for it.
+    const probe = await generateCandidatesMeta(bookId, x, preparedStart, preparedEnd, provider, aspect);
+    const { canonicalKey, clipHash } = probe;
+    if (!p.forceNew) {
+      const marker = await loadJson(`${canonicalKey}.qa.json`).catch(() => null);
+      if (marker && marker.qaVersion === QA_VERSION && (marker.adminPicked || !marker.unresolved)) {
+        const buffer = await downloadBuffer(canonicalKey).catch(() => null);
+        if (buffer && buffer.length > 0 && contentHash(buffer) === marker.renderHash) {
+          log('info', `${label}: promoted clip replays from ${canonicalKey}${marker.adminPicked ? ' (admin-picked)' : ''}`);
+          replayed = { segment: s, buffer, storageKey: canonicalKey, clipHash, score: marker.score ?? null, candidates: 0, repairs: 0, replayed: true, adminPicked: !!marker.adminPicked, blocking: marker.adminPicked ? [] : (marker.qa && marker.qa.blocking) || [], advisory: (marker.qa && marker.qa.advisory) || [], candidateFiles: [] };
         }
       }
-
+    }
+    if (replayed) {
+      result = replayed;
+    } else {
+      let endFrameDropped = false;
       for (let pass = 0; pass <= maxRepairs; pass++) {
         if (pass > 0) {
           const residual = residualBlocking(best);
           if (!best || residual.length === 0) break;
-          brief = repairBrief(x.brief, residual);
+          activeBrief = repairBrief(brief, residual);
           repairs += 1;
         }
         if (generatedSeconds + n * probe.seconds > secondsCap) {
-          advisories.push({ stage: 'video', spread: s.spread, note: `${label}: the per-film generation budget (${secondsCap}s) leaves no room for ${pass > 0 ? 'another repair pass' : 'candidates'}` });
+          advisories.push({ stage: 'video', note: `${label}: the per-film generation budget (${secondsCap}s) leaves no room for ${pass > 0 ? 'another repair pass' : 'candidates'}` });
           break;
         }
         const gen = await generateCandidates({
-          bookId, segment: s, brief, startFrame, references: x.references, provider, aspect, n, pass,
+          bookId, segment: s, brief: activeBrief, startFrame: preparedStart, endFrame: preparedEnd, references, provider, aspect, n, pass,
           seed: Number.isInteger(p.seed) ? p.seed : null, token: p.providerToken || null, costTracker,
           ctx: { touch, log, abortSignal: p.abortSignal }, limit, forceNew: !!p.forceNew,
           clipHash, canonicalKey,
           ...(p.pollIntervalMs ? { pollIntervalMs: p.pollIntervalMs } : {}),
         });
         generatedSeconds += gen.candidates.filter(c => c.status === 'done' && !c.cached).length * gen.seconds;
+        if (gen.candidates.some(c => c.endFrameDropped)) endFrameDropped = true;
         const scored = [];
         for (const c of gen.candidates) {
           if (c.status !== 'done' || !c.buffer) {
             all.push({ k: c.k, pass, storageKey: c.storageKey, status: c.status, error: c.error, reasons: c.reasons || null, score: null });
-            if (c.status === 'filtered') advisories.push({ stage: 'video', spread: s.spread, note: `${label}: candidate ${c.k}${pass > 0 ? ` (repair ${pass})` : ''} refused by the vendor's moderation (${c.error || 'no reason given'})` });
+            if (c.status === 'filtered') advisories.push({ stage: 'video', note: `${label}: candidate ${c.k}${pass > 0 ? ` (repair ${pass})` : ''} refused by the vendor's moderation (${c.error || 'no reason given'})` });
             continue;
           }
-          const v = await verifyClip({ buffer: c.buffer, dir: tmp, label: `${label}-p${pass}c${c.k}`, segment: s, brief, checks: x.checks, costTracker, log });
+          const v = await verifyClip({ buffer: c.buffer, dir: tmp, label: `${label}-p${pass}c${c.k}`, segment: s, brief: activeBrief, checks, costTracker, log });
           const cand = { k: c.k, pass, storageKey: c.storageKey, buffer: c.buffer, status: 'done', qa: { pass: v.pass, blocking: v.blocking, advisory: v.advisory, ...(v.qaUnavailable ? { qaUnavailable: v.qaUnavailable } : {}) }, score: v.score, verdict: v, providerJobId: c.providerJobId };
           scored.push(cand);
           all.push({ k: c.k, pass, storageKey: c.storageKey, status: 'done', error: null, score: v.score, blocking: v.blocking, advisory: v.advisory, qaUnavailable: v.qaUnavailable || null });
@@ -408,81 +467,79 @@ async function generateGiftVideo(p) {
         if (best && best.qa && !best.qa.qaUnavailable && best.qa.blocking.length === 0) break;
         if (best && best.qa && best.qa.qaUnavailable) break; // an unchecked clip cannot steer a repair
       }
-      finished += 1;
+      if (endFrameDropped) advisories.push({ stage: 'video', note: `${label}: ${provider.model} rejected the end-frame field — the take was generated from the start frame and the brief alone (set CATALOG_VIDEO_MODEL_INPUT_JSON to rename it, or CATALOG_VIDEO_END_FRAME=0)` });
       if (!best) {
         const filtered = all.filter(c => c.status === 'filtered');
         if (filtered.length > 0 && filtered.length === all.length) {
-          return { segment: s, buffer: null, storageKey: canonicalKey, clipHash, score: null, candidates: all.length, repairs, blocking: [`vendor moderation refused every candidate (${filtered[0].error || 'no reason given'})`], advisory: [], candidateFiles: [], unresolvedReason: 'filtered' };
+          result = { segment: s, buffer: null, storageKey: canonicalKey, clipHash, score: null, candidates: all.length, repairs, blocking: [`vendor moderation refused every candidate (${filtered[0].error || 'no reason given'})`], advisory: [], candidateFiles: [], unresolvedReason: 'filtered' };
+        } else {
+          throw new VideoError(`${label}: no candidate clip came back from ${provider.provider} (${all.map(c => c.error).filter(Boolean).slice(0, 2).join('; ') || 'no output'})`, 'video_provider_unavailable', { stills: stillReport });
         }
-        throw new VideoError(`${label}: no candidate clip came back from ${provider.provider} (${all.map(c => c.error).filter(Boolean).slice(0, 2).join('; ') || 'no output'})`, 'video_provider_unavailable');
+      } else {
+        // Promote the best candidate to the canonical key + marker.
+        const blocking = best.qa.blocking || [];
+        const unresolved = blocking.length > 0;
+        const renderHash = contentHash(best.buffer);
+        await uploadBuffer(best.buffer, canonicalKey, 'video/mp4');
+        await uploadBuffer(Buffer.from(JSON.stringify({
+          qaVersion: QA_VERSION, clipHash, renderHash, score: best.score,
+          qa: { blocking, advisory: best.qa.advisory || [], qaUnavailable: best.qa.qaUnavailable || null },
+          briefHash: activeBrief.hash, baseBriefHash: brief.hash, provider: provider.provider, model: provider.model,
+          providerJobId: best.providerJobId || null, candidate: best.storageKey, pass: best.pass, unresolved,
+          spreads: s.spreads, endFrame: !!preparedEnd && !endFrameDropped,
+          checkedAt: new Date().toISOString(),
+        })), `${canonicalKey}.qa.json`, 'application/json');
+        for (const a of best.qa.advisory || []) advisories.push({ stage: 'video', note: `${label}: ${a}` });
+        if (best.qa.qaUnavailable) advisories.push({ stage: 'video', note: `${label}: shipped UNCHECKED (${best.qa.qaUnavailable})` });
+        result = { segment: s, buffer: best.buffer, storageKey: canonicalKey, clipHash, score: best.score, candidates: all.length, repairs, blocking, advisory: best.qa.advisory || [], candidateFiles: all.filter(c => c.status === 'done').map(c => ({ storageKey: c.storageKey, score: c.score })) };
       }
-      // Promote the best candidate to the canonical key + marker.
-      const blocking = best.qa.blocking || [];
-      const unresolved = blocking.length > 0;
-      const renderHash = contentHash(best.buffer);
-      await uploadBuffer(best.buffer, canonicalKey, 'video/mp4');
-      await uploadBuffer(Buffer.from(JSON.stringify({
-        qaVersion: QA_VERSION, clipHash, renderHash, score: best.score,
-        qa: { blocking, advisory: best.qa.advisory || [], qaUnavailable: best.qa.qaUnavailable || null },
-        briefHash: brief.hash, baseBriefHash: x.brief.hash, provider: provider.provider, model: provider.model,
-        providerJobId: best.providerJobId || null, candidate: best.storageKey, pass: best.pass, unresolved,
-        checkedAt: new Date().toISOString(),
-      })), `${canonicalKey}.qa.json`, 'application/json');
-      for (const a of best.qa.advisory || []) advisories.push({ stage: 'video', spread: s.spread, note: `${label}: ${a}` });
-      if (best.qa.qaUnavailable) advisories.push({ stage: 'video', spread: s.spread, note: `${label}: shipped UNCHECKED (${best.qa.qaUnavailable})` });
-      return { segment: s, buffer: best.buffer, storageKey: canonicalKey, clipHash, score: best.score, candidates: all.length, repairs, blocking, advisory: best.qa.advisory || [], candidateFiles: all.filter(c => c.status === 'done').map(c => ({ storageKey: c.storageKey, score: c.score })) };
-    };
-    const segLimit = pLimit(plan.segments.length);
-    results.push(...await Promise.all(segmentInputs.map(x => segLimit(() => perSegment(x)))));
+    }
   } finally {
     clearInterval(heartbeat);
   }
 
   // ── Ship policy ────────────────────────────────────────────────────────
   const unresolved = [];
-  for (const r of results) {
-    if (r.blocking && r.blocking.length > 0) {
-      const candidates = [];
-      for (const c of r.candidateFiles || []) {
-        let url = null;
-        try { url = await getSignedUrl(c.storageKey, SIGNED_URL_TTL_MS); } catch { url = null; }
-        candidates.push({ storageKey: c.storageKey, url, score: c.score });
-      }
-      unresolved.push({ segment: r.segment.index, spread: r.segment.spread, defects: r.blocking, candidates });
+  if (result.blocking && result.blocking.length > 0) {
+    const candidates = [];
+    for (const c of result.candidateFiles || []) {
+      let url = null;
+      try { url = await getSignedUrl(c.storageKey, SIGNED_URL_TTL_MS); } catch { url = null; }
+      candidates.push({ storageKey: c.storageKey, url, score: c.score });
     }
+    unresolved.push({ segment: segment.index, spread: null, spreads: segment.spreads, defects: result.blocking, candidates });
   }
-  const planReport = results.map(r => ({
-    index: r.segment.index, kind: r.segment.kind, spread: r.segment.spread, seconds: r.segment.seconds, motion: r.segment.motion,
-    startFrame: { storageKey: frameFor(r.segment).storageKey, renderHash: frameFor(r.segment).hash, rerendered: !!frameFor(r.segment).rerendered, blurFilled: !!(prepared.get(r.segment.index) || {}).blurFilled },
-    clip: r.buffer ? { storageKey: r.storageKey, hash: r.clipHash, score: r.score, candidates: r.candidates, repairs: r.repairs, replayed: !!r.replayed, adminPicked: !!r.adminPicked } : null,
-  }));
+  const frameReport = (f, prepared) => (f ? { storageKey: f.storageKey, renderHash: f.hash, rerendered: !!f.rerendered, blurFilled: !!(prepared || {}).blurFilled } : null);
+  const planReport = [{
+    index: segment.index, kind: 'journey', spread: null, spreads: segment.spreads, seconds: segment.seconds, motion: 'journey',
+    acts: segment.acts.map(a => ({ index: a.index, spread: a.spread, from: a.from, to: a.to, angle: a.angle, move: a.move })),
+    startFrame: frameReport(startFrame, preparedStart),
+    endFrame: frameReport(endFrame, preparedEnd),
+    clip: result.buffer ? { storageKey: result.storageKey, hash: result.clipHash, score: result.score, candidates: result.candidates, repairs: result.repairs, replayed: !!result.replayed, adminPicked: !!result.adminPicked } : null,
+  }];
   if (unresolved.length > 0 && !flags.videoShipOnExhaustion()) {
     await fs.promises.rm(tmp, { recursive: true, force: true }).catch(() => {});
-    throw new VideoError(`${unresolved.length} segment(s) could not be animated to the book's standard: ${unresolved.map(u => `s${u.segment}${u.spread ? ` (spread ${u.spread})` : ''}: ${u.defects.join(' | ')}`).join('; ')}`, 'video_unresolved', { unresolved, plan: planReport, textGate: textGateReport, bookBible, advisories, warnings, provider: provider.provider, model: provider.model });
+    throw new VideoError(`the take could not be animated to the book's standard: ${unresolved.map(u => u.defects.join(' | ')).join('; ')}`, 'video_unresolved', { unresolved, plan: planReport, stills: stillReport, textGate: textGateReport, bookBible, advisories, warnings, provider: provider.provider, model: provider.model });
   }
   if (unresolved.length > 0) {
-    advisories.push({ stage: 'shipPolicy', note: `stitched ${unresolved.length} segment(s) with BLOCKING residual defects (CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1): ${unresolved.map(u => `s${u.segment}`).join(', ')}` });
+    advisories.push({ stage: 'shipPolicy', note: `stitched the take with BLOCKING residual defects (CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1): ${unresolved[0].defects.join(' | ')}` });
   }
-  if (results.some(r => !r.buffer)) {
-    throw new VideoError('a segment has no clip to stitch', 'video_provider_unavailable');
+  if (!result.buffer) {
+    throw new VideoError('the take has no clip to stitch', 'video_provider_unavailable', { stills: stillReport });
   }
 
-  // ── Stitch ─────────────────────────────────────────────────────────────
-  onProgress(0.88, 'Stitching the film...');
+  // ── Stitch (one clip: normalize, fade in/out, silent or music track) ───
+  onProgress(0.88, 'Finishing the film...');
   let video;
   try {
-    const clipFiles = [];
-    for (const r of results) {
-      const file = path.join(tmp, `seg-${r.segment.index}.mp4`);
-      await fs.promises.writeFile(file, r.buffer);
-      clipFiles.push({ path: file, seconds: r.segment.seconds });
-    }
+    const file = path.join(tmp, 'take.mp4');
+    await fs.promises.writeFile(file, result.buffer);
     const output = path.join(tmp, 'video.mp4');
     const poster = path.join(tmp, 'poster.jpg');
     const musicPath = musicPathFor(music);
     if (music !== 'none' && !musicPath) advisories.push({ stage: 'video', note: `music bed '${music}' is not bundled — the film ships with a silent track` });
     const portrait = aspect === '9:16';
-    const stitch = ffmpeg.buildStitchCommand({ segments: clipFiles, output, width: portrait ? 1080 : 1920, height: portrait ? 1920 : 1080, fps: 30, fadeSeconds: plan.fadeSeconds, xfadeSeconds: plan.xfadeSeconds, musicPath });
+    const stitch = ffmpeg.buildStitchCommand({ segments: [{ path: file, seconds: segment.seconds }], output, width: portrait ? 1080 : 1920, height: portrait ? 1920 : 1080, fps: 30, fadeSeconds: plan.fadeSeconds, musicPath });
     await ffmpeg.runFfmpeg(stitch.args, { timeoutMs: 600000 });
     touch();
     await ffmpeg.runFfmpeg(ffmpeg.buildPosterCommand({ input: output, timeSeconds: 1.2, output: poster }), { timeoutMs: 60000 });
@@ -503,24 +560,24 @@ async function generateGiftVideo(p) {
   }
   const manifest = {
     videoVersion: VIDEO_VERSION, planHash, provider: provider.provider, model: provider.model, aspect, music,
-    video: { ...video, url: undefined, posterUrl: undefined }, plan: planReport, textGate: textGateReport, unresolved, advisories,
+    video: { ...video, url: undefined, posterUrl: undefined }, plan: planReport, stills: stillReport, textGate: textGateReport, unresolved, advisories,
     bibleHash: bible.hash, generatedSeconds, createdAt: new Date().toISOString(),
   };
   try { await saveJson(manifest, manifestKey); } catch (err) { log('warn', `film manifest write failed (${err.message})`); }
   onProgress(1, 'Film ready');
-  return { video, plan: planReport, textGate: textGateReport, bookBible, unresolved, advisories, warnings, provider: provider.provider, model: provider.model, planHash };
+  return { video, plan: planReport, stills: stillReport, textGate: textGateReport, bookBible, unresolved, advisories, warnings, provider: provider.provider, model: provider.model, planHash };
 }
 
 /**
- * The canonical clip key + hash a segment WOULD get (without generating) —
+ * The canonical clip key + hash the take WOULD get (without generating) —
  * the replay probe shares generate.js's identity so a promoted clip is
  * found before any vendor call.
  */
-async function generateCandidatesMeta(bookId, x, startFrame, provider, aspect) {
+async function generateCandidatesMeta(bookId, x, startFrame, endFrame, provider, aspect) {
   const { clipHashFor, clipKey } = require('./generate');
   const { clipSecondsFor } = require('./providers/models');
   const seconds = clipSecondsFor(x.segment.requestedSeconds, provider.profile.durations);
-  const clipHash = clipHashFor({ provider: provider.provider, model: provider.model, briefHash: x.brief.hash, startFrameHash: startFrame.hash, referenceHashes: x.references.map(r => r.hash), seconds, aspect });
+  const clipHash = clipHashFor({ provider: provider.provider, model: provider.model, briefHash: x.brief.hash, startFrameHash: startFrame.hash, endFrameHash: endFrame ? endFrame.hash : null, referenceHashes: x.references.map(r => r.hash), seconds, aspect });
   return { clipHash, canonicalKey: clipKey(bookId, x.segment.index, clipHash), seconds };
 }
 

@@ -1,69 +1,101 @@
 /**
- * Film plan (gift video, gv-1 — docs/GIFT_VIDEO_PLAN.md §4.1–4.2).
+ * Film plan (gift video, gv-2 — docs/GIFT_VIDEO_PLAN.md, revision 4).
  *
- * A pure function from the book's pinned inputs to the 10-second film: which
- * moments (the approved cover coming alive, the opening spread, the emotional
- * peak, the resolution), how long each segment runs (a fixed duration table
- * per segment count so the total is exactly TOTAL_SECONDS after the
- * crossfades), and which camera move each clip is briefed with (a closed
- * vocabulary keyed by the spread's assigned shot type). Same inputs, same
+ * The film is ONE continuous shot: the child advances through the picked
+ * illustrations (the still-selection gate's best stills, in story order)
+ * as one unbroken take while the camera angle changes along the way. A
+ * pure function from the picked scenes + the book's pinned plans to the
+ * plan: one 10-second segment carrying one ACT per scene — its time window,
+ * a camera ANGLE from a closed vocabulary (keyed by the spread's assigned
+ * shot type, made distinct across the acts), and the camera MOVE that
+ * carries the take from the previous angle to this one. Same inputs, same
  * plan, forever — no model output and no free text ever enters here.
+ *
+ * gv-1's per-moment clips (cover + opening + peak + resolution, crossfaded)
+ * are gone: they cost four to sixteen vendor clips per film and never read
+ * as one story. `pickStorySpreads` survives ONLY as the fallback for a book
+ * whose renders all carry painted text (an embedded book has no text-free
+ * stills to choose from, so the arc trio is re-rendered text-free instead).
  */
 
 const TOTAL_SECONDS = 10.0;
-const XFADE_SECONDS = 0.4;
 const FADE_SECONDS = 0.5;
 
-/** Seconds per segment, keyed by segment count: sum − overlaps === TOTAL_SECONDS. */
-const DURATIONS = {
-  1: [10.0],
-  2: [4.2, 6.2],
-  3: [2.6, 4.2, 4.0],
-  4: [2.4, 3.0, 3.0, 2.8],
+/** Closed camera-angle vocabulary: each act of the single take is filmed from one of these. */
+const ANGLES = {
+  wide: 'a wide establishing angle, the whole scene around the child',
+  'eye-level': 'an eye-level angle beside the child, tracking alongside as the child moves',
+  'low-angle': 'a low angle looking slightly up at the child, the world rising tall behind',
+  overhead: 'a high angle looking down over the scene, the child small in the space',
+  close: 'a close angle on the child\'s face and shoulders, the scene soft behind',
 };
+/** Rotation order when an act needs a distinct angle. */
+const ANGLE_ORDER = ['wide', 'eye-level', 'low-angle', 'overhead', 'close'];
+/** Band 1-3 menu: calm, no vertigo. */
+const ANGLES_YOUNG = ['wide', 'eye-level', 'close'];
 
-/** Closed camera-move vocabulary (the brief renders each as one sentence). */
-const MOTIONS = ['push-in', 'pull-out', 'pan-left', 'pan-right', 'rise', 'hold'];
-/** Band 1-3 menu: calm, slow. */
-const MOTIONS_YOUNG = ['push-in', 'hold'];
+/** Closed camera-move vocabulary: how the take travels INTO an act's angle. */
+const MOVES = {
+  'push-in': 'pushes in slowly',
+  glide: 'glides forward alongside the child',
+  sweep: 'sweeps smoothly around the child in a slow arc',
+  rise: 'rises and drifts higher',
+  'pull-out': 'pulls back slowly to reveal more of the scene',
+};
+const MOVES_YOUNG = ['push-in', 'glide', 'pull-out'];
 
-/** Fixed tie order for the peak spread among 5..10. */
+/** Fixed tie order for the peak spread among 5..10 (embedded fallback only). */
 const PEAK_PREFERENCE = [8, 9, 7, 10, 6, 5];
 const INTENSITY_RANK = { big: 3, clear: 2, soft: 1 };
 
-/** Alternate move when two adjacent segments would repeat one. */
-const ALTERNATE = { 'push-in': 'pull-out', 'pull-out': 'push-in', 'pan-left': 'pan-right', 'pan-right': 'pan-left', rise: 'push-in', hold: 'push-in' };
-const ALTERNATE_YOUNG = { 'push-in': 'hold', hold: 'push-in' };
-
-/** Camera move per shot type (pinned data → closed vocabulary). */
-function motionForShot(entry, textLayout) {
-  const shotType = entry && entry.shotType;
-  switch (shotType) {
-    case 'wide': return 'push-in';
-    case 'close-up': return 'pull-out';
-    case 'medium':
-      if (entry.placement === 'left-third') return 'pan-left';
-      if (entry.placement === 'right-third') return 'pan-right';
-      return textLayout === 'half' ? 'pan-right' : 'push-in';
-    case 'overhead': return 'rise';
-    case 'low-angle': return 'push-in';
-    default: return 'push-in';
+/** Camera angle per shot type (pinned data → closed vocabulary). */
+function angleForShot(entry) {
+  switch (entry && entry.shotType) {
+    case 'wide': return 'wide';
+    case 'medium': return 'eye-level';
+    case 'close-up': return 'close';
+    case 'overhead': return 'overhead';
+    case 'low-angle': return 'low-angle';
+    default: return null;
   }
 }
 
+/** The move that carries the take into an angle. */
+function moveInto(angle, young) {
+  const move = { wide: 'pull-out', 'eye-level': 'glide', 'low-angle': 'sweep', overhead: 'rise', close: 'push-in' }[angle] || 'push-in';
+  if (young && !MOVES_YOUNG.includes(move)) return 'glide';
+  return move;
+}
+
 /**
- * The seconds a provider is asked for so `[0, seconds]` of the clip covers
- * the segment (Kling takes whole seconds from 3; the tail is discarded).
+ * The seconds a provider is asked for: the whole take is used, so the
+ * request is the plan's seconds rounded up (Kling takes whole seconds from 3).
  * @param {number} seconds
  * @returns {number}
  */
 function requestedClipSeconds(seconds) {
-  return Math.max(3, Math.ceil(seconds) + 1);
+  return Math.max(3, Math.ceil(seconds));
 }
 
 /**
- * Choose the story spreads for the film from the ones the caller has
- * renders for: opening (lowest in 1..4), peak (highest planned emotion
+ * Split the take into `n` equal time windows (tenths of a second).
+ * @param {number} n
+ * @param {number} [total]
+ * @returns {Array<{from: number, to: number}>}
+ */
+function actWindows(n, total = TOTAL_SECONDS) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const from = Math.round((total * i / n) * 10) / 10;
+    const to = i === n - 1 ? total : Math.round((total * (i + 1) / n) * 10) / 10;
+    out.push({ from, to });
+  }
+  return out;
+}
+
+/**
+ * EMBEDDED FALLBACK ONLY — the story-arc trio from the spreads the caller
+ * has renders for: opening (lowest in 1..4), peak (highest planned emotion
  * intensity in 5..10, ties by PEAK_PREFERENCE), resolution (highest in
  * 11..12) — falling back to the nearest available spread for each role and
  * compressing to what exists.
@@ -99,58 +131,73 @@ function pickStorySpreads(available, emotionPlan) {
 }
 
 /**
- * Build the film plan.
+ * Build the film plan: one continuous take through the picked scenes.
  * @param {object} p
- * @param {number[]} p.available spreads the caller has renders for
- * @param {'cover'|'photo'|null} p.coverKind 'cover' when the anchor is an approved cover (the only kind that opens the film)
+ * @param {number[]} p.scenes picked spreads (story order is enforced here)
  * @param {Object<number, {emotion: string, intensity: string}>|null} [p.emotionPlan]
  * @param {Object<number, {shotType: string, placement?: string|null}>|null} [p.shotPlan]
- * @param {string} [p.textLayout]
  * @param {string} [p.ageBand]
- * @returns {{segments: Array<{index: number, kind: 'cover'|'spread', spread: number|null, seconds: number, requestedSeconds: number, motion: string, shotType: string|null}>, totalSeconds: number, xfadeSeconds: number, fadeSeconds: number, picks: object}}
+ * @param {number} [p.seconds] total seconds (default TOTAL_SECONDS)
+ * @returns {{segments: Array<{index: number, kind: 'journey', spread: null, spreads: number[], seconds: number, requestedSeconds: number, motion: 'journey', acts: Array<{index: number, spread: number, from: number, to: number, angle: string, angleText: string, move: string, moveText: string, shotType: string|null, emotion: object|null}>}>, totalSeconds: number, fadeSeconds: number}}
  */
 function buildFilmPlan(p) {
-  const { spreads, picks } = pickStorySpreads(p.available, p.emotionPlan || null);
-  // A cover alone is not a story summary: no story spreads → no film.
-  if (spreads.length === 0) return { segments: [], totalSeconds: 0, xfadeSeconds: XFADE_SECONDS, fadeSeconds: FADE_SECONDS, picks };
-  const kinds = [];
-  if (p.coverKind === 'cover') kinds.push({ kind: 'cover', spread: null });
-  for (const s of spreads) kinds.push({ kind: 'spread', spread: s });
+  const scenes = [...new Set((p.scenes || []).filter(n => Number.isInteger(n) && n >= 1 && n <= 12))].sort((a, b) => a - b);
+  const seconds = Number.isFinite(p.seconds) && p.seconds > 0 ? p.seconds : TOTAL_SECONDS;
+  if (scenes.length === 0) return { segments: [], totalSeconds: 0, fadeSeconds: FADE_SECONDS };
   const young = p.ageBand === '1-3';
-  const table = DURATIONS[kinds.length];
-  if (!table) return { segments: [], totalSeconds: 0, xfadeSeconds: XFADE_SECONDS, fadeSeconds: FADE_SECONDS, picks };
-  const segments = [];
-  let prev = null;
-  kinds.forEach((k, i) => {
-    const entry = k.kind === 'spread' && p.shotPlan ? p.shotPlan[k.spread] || null : null;
-    let motion = k.kind === 'cover' ? 'push-in' : motionForShot(entry, p.textLayout);
-    if (young && !MOTIONS_YOUNG.includes(motion)) motion = 'push-in';
-    if (motion === prev) motion = (young ? ALTERNATE_YOUNG : ALTERNATE)[motion] || 'push-in';
-    prev = motion;
-    segments.push({
+  const menu = young ? ANGLES_YOUNG : ANGLE_ORDER;
+  const windows = actWindows(scenes.length, seconds);
+  const used = [];
+  const acts = scenes.map((spread, i) => {
+    const entry = p.shotPlan ? p.shotPlan[spread] || null : null;
+    let angle = angleForShot(entry);
+    if (!angle || !menu.includes(angle) || used.includes(angle)) {
+      // Distinct angles across the take: the first unused entry of the
+      // menu, rotated from the act's position so a plan-less run still
+      // changes angle every act.
+      angle = menu.slice(i).concat(menu.slice(0, i)).find(a => !used.includes(a)) || menu[i % menu.length];
+    }
+    used.push(angle);
+    const move = i === 0 ? (young ? 'push-in' : (angle === 'wide' ? 'push-in' : 'glide')) : moveInto(angle, young);
+    return {
       index: i,
-      kind: k.kind,
-      spread: k.spread,
-      seconds: table[i],
-      requestedSeconds: requestedClipSeconds(table[i]),
-      motion,
+      spread,
+      from: windows[i].from,
+      to: windows[i].to,
+      angle,
+      angleText: ANGLES[angle],
+      move,
+      moveText: MOVES[move],
       shotType: entry ? entry.shotType : null,
-    });
+      emotion: p.emotionPlan && p.emotionPlan[spread] ? p.emotionPlan[spread] : null,
+    };
   });
-  const sum = segments.reduce((a, s) => a + s.seconds, 0) - XFADE_SECONDS * (segments.length - 1);
-  return { segments, totalSeconds: Math.round(sum * 1000) / 1000, xfadeSeconds: XFADE_SECONDS, fadeSeconds: FADE_SECONDS, picks };
+  const segment = {
+    index: 0,
+    kind: 'journey',
+    spread: null,
+    spreads: scenes,
+    seconds,
+    requestedSeconds: requestedClipSeconds(seconds),
+    motion: 'journey',
+    acts,
+  };
+  return { segments: [segment], totalSeconds: seconds, fadeSeconds: FADE_SECONDS };
 }
 
 module.exports = {
   buildFilmPlan,
   pickStorySpreads,
-  motionForShot,
+  angleForShot,
+  moveInto,
+  actWindows,
   requestedClipSeconds,
   TOTAL_SECONDS,
-  XFADE_SECONDS,
   FADE_SECONDS,
-  DURATIONS,
-  MOTIONS,
-  MOTIONS_YOUNG,
+  ANGLES,
+  ANGLE_ORDER,
+  ANGLES_YOUNG,
+  MOVES,
+  MOVES_YOUNG,
   PEAK_PREFERENCE,
 };

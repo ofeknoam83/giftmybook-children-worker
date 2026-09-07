@@ -134,12 +134,20 @@
  *  - CATALOG_VIDEO_ELEMENTS=0      — (gv-1) stop attaching the identity kit as
  *                                   the video model's reference elements
  *                                   (start frame + prompt only).
- *  - CATALOG_VIDEO_CLIP_CANDIDATES=N — (gv-1) candidate clips per segment (1-3, default 2).
- *  - CATALOG_VIDEO_CLIP_MAX_REPAIRS=N — (gv-1) repair passes per segment while a
- *                                   BLOCKING defect remains (0-4, default 2).
+ *  - CATALOG_VIDEO_SCENES=N        — (gv-2) illustrations the single take
+ *                                   travels through (1-4, default 3) — the
+ *                                   still-selection gate picks the best N.
+ *  - CATALOG_VIDEO_END_FRAME=0     — (gv-2) stop sending the last picked
+ *                                   still as the take's END frame (start
+ *                                   frame + prompt only).
+ *  - CATALOG_VIDEO_CLIP_CANDIDATES=N — (gv-1) candidate clips per take (1-3,
+ *                                   default 1 since gv-2: ONE film per run).
+ *  - CATALOG_VIDEO_CLIP_MAX_REPAIRS=N — (gv-1) repair passes while a BLOCKING
+ *                                   defect remains (0-4, default 1 since gv-2).
  *  - CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS=N — (gv-1) per-clip vendor deadline (60-1800, default 480).
  *  - CATALOG_VIDEO_MAX_CLIP_SECONDS=N — (gv-1) generated seconds allowed per film,
- *                                   candidates and repairs included (0-600, default 60).
+ *                                   candidates and repairs included (0-600,
+ *                                   default 30 since gv-2: one 10 s take, one repair).
  *  - CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1 — (gv-1, OPT-IN) stitch a segment whose
  *                                   BLOCKING defects survived every candidate
  *                                   and repair (advisory) instead of failing
@@ -219,10 +227,13 @@ module.exports = {
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
   videoModel: () => String(process.env.CATALOG_VIDEO_MODEL || 'kwaivgi/kling-v3-video').trim(),
   videoElementsEnabled: () => !envOff('CATALOG_VIDEO_ELEMENTS'),
-  videoClipCandidates: () => envInt('CATALOG_VIDEO_CLIP_CANDIDATES', 2, 1, 3),
-  videoClipMaxRepairs: () => envInt('CATALOG_VIDEO_CLIP_MAX_REPAIRS', 2, 0, 4),
+  // gv-2 — one single-take film through the best stills
+  videoSceneCount: () => envInt('CATALOG_VIDEO_SCENES', 3, 1, 4),
+  videoEndFrameEnabled: () => !envOff('CATALOG_VIDEO_END_FRAME'),
+  videoClipCandidates: () => envInt('CATALOG_VIDEO_CLIP_CANDIDATES', 1, 1, 3),
+  videoClipMaxRepairs: () => envInt('CATALOG_VIDEO_CLIP_MAX_REPAIRS', 1, 0, 4),
   videoClipTimeoutSeconds: () => envInt('CATALOG_VIDEO_CLIP_TIMEOUT_SECONDS', 480, 60, 1800),
-  videoMaxClipSeconds: () => envInt('CATALOG_VIDEO_MAX_CLIP_SECONDS', 60, 0, 600),
+  videoMaxClipSeconds: () => envInt('CATALOG_VIDEO_MAX_CLIP_SECONDS', 30, 0, 600),
   videoShipOnExhaustion: () => envOn('CATALOG_VIDEO_SHIP_ON_EXHAUSTION'),
   videoMusic: () => String(process.env.CATALOG_VIDEO_MUSIC || 'none').trim() || 'none',
 };

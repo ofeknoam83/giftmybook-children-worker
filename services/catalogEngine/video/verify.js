@@ -1,19 +1,23 @@
 /**
- * Clip verification (gift video, gv-1 — docs/GIFT_VIDEO_PLAN.md §4.5): the
+ * Clip verification (gift video, gv-2 — docs/GIFT_VIDEO_PLAN.md §4.5): the
  * ce-9 selection gate applied to motion.
  *
  * Three judgments, all against pinned data:
- *  1. sampled frames (0 / 25 / 50 / 75 / 100 % of the USED segment) through
+ *  1. sampled frames (0 / 25 / 50 / 75 / 100 % of the USED take) through
  *     the book's own structured verdict `checkSpreadRenderV2` with the
  *     character sheet, prop and companion sheets attached — identity,
  *     outfit garment by garment, props, companion, action, emotion,
- *     anatomy, painted text; the clip's frame verdict is the UNION of the
- *     frames' defects (the last frame is where drift lives);
+ *     anatomy, painted text; each frame is checked against the ACT its
+ *     timestamp falls in (that moment's beat, emotion and companion), and
+ *     the clip's frame verdict is the UNION of the frames' defects (the
+ *     last frame is where drift lives);
  *  2. the same frames' painted-text checks double as the text gate;
  *  3. ONE video-level judge call with the clip itself as inline input for
  *     the temporal defects a still cannot show: morphing, identity drift
  *     over time, an outfit change, a new character, text appearing, speech,
- *     a frozen (near-still) clip, and the camera move (advisory).
+ *     a frozen (near-still) clip, a CUT (the take must be one unbroken
+ *     shot — blocking), and — advisory — whether the child advances into
+ *     new surroundings and whether the camera angle changes along the way.
  *
  * Scoring reuses select.js — blocking defects sink a candidate below zero,
  * advisories shade it, an unchecked clip ranks below any checked one.
@@ -32,7 +36,10 @@ const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash'
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /** Video-level defect strings that BLOCK, beyond spreadQa's own prefixes. */
-const VIDEO_BLOCKING_PREFIXES = ['motion break', 'identity drift', 'new character', 'speech:', 'frozen clip'];
+const VIDEO_BLOCKING_PREFIXES = ['motion break', 'identity drift', 'new character', 'speech:', 'frozen clip', 'cut break'];
+
+/** Legacy per-moment camera moves (still judged when a brief names one). */
+const CAMERA_HINTS = { 'push-in': 'slowly closer', 'pull-out': 'slowly wider', 'pan-left': 'a slow horizontal pan left', 'pan-right': 'a slow horizontal pan right', rise: 'a slow tilt up', hold: 'no camera movement' };
 
 /**
  * Split clip defects into blocking vs advisory (spreadQa's classes plus the
@@ -63,12 +70,17 @@ function sampleTimes(seconds) {
 /**
  * The video-level judge: strict JSON over the whole clip.
  * @param {Buffer} clipBuffer mp4 bytes (inline; clips are a few MB)
- * @param {{cameraMotion: string, label?: string, costTracker?: object}} opts
+ * @param {{cameraMotion: string, angles?: string[], label?: string, costTracker?: object}} opts `cameraMotion: 'journey'` + `angles` for the single take; a legacy move name otherwise
  * @returns {Promise<{defects: string[], verdict: object|null, unavailable?: string}>}
  */
 async function judgeClip(clipBuffer, opts = {}) {
   const label = opts.label || 'videoJudge';
-  const camera = String(opts.cameraMotion || 'push-in').replace(/[^a-z-]/g, '');
+  const camera = String(opts.cameraMotion || 'journey').replace(/[^a-z-]/g, '');
+  const journey = camera === 'journey';
+  const angles = (Array.isArray(opts.angles) ? opts.angles : []).map(a => String(a).replace(/[^a-z-]/g, '')).filter(Boolean);
+  const cameraQuestion = journey
+    ? `"camera_matches": <the camera ANGLE visibly changes during the clip with smooth camera travel${angles.length > 1 ? ` (planned: ${angles.join(' → ')})` : ''} — false when the camera stays static or only drifts within one angle>`
+    : `"camera_matches": <the camera move reads as "${camera}" (${CAMERA_HINTS[camera] || 'as named'})>`;
   const prompt = 'You are checking one short animated clip generated from a children\'s picture-book illustration. '
     + 'Watch the whole clip. Answer with strict JSON only, every field a boolean: '
     + '{"morphing": <the child\'s face, hands or body melt, deform or morph at any point>, '
@@ -78,7 +90,9 @@ async function judgeClip(clipBuffer, opts = {}) {
     + '"text_appears": <legible letters, words, captions, signs or logos appear in any frame>, '
     + '"speech": <the child\'s mouth moves as if talking or singing>, '
     + '"frozen": <the clip is a near-still: no visible motion of the child at all>, '
-    + `"camera_matches": <the camera move reads as "${camera}" (push-in = slowly closer, pull-out = slowly wider, pan-left/pan-right = slow horizontal pan, rise = slow tilt up, hold = no camera movement)>}`;
+    + '"cuts": <a hard cut, fade, wipe, dissolve, split screen or sudden scene jump occurs — the clip is NOT one continuous shot>, '
+    + '"scene_progression": <the surroundings visibly change over the clip because the child moves forward into a new part of the world (not merely the camera drifting inside one static scene)>, '
+    + `${cameraQuestion}}`;
   try {
     const apiKey = getNextApiKey();
     const resp = await fetchWithTimeout(
@@ -99,6 +113,10 @@ async function judgeClip(clipBuffer, opts = {}) {
     const json = parseJsonText(responseText(data));
     const bools = ['morphing', 'identity_drift', 'outfit_change', 'new_character', 'text_appears', 'speech', 'frozen', 'camera_matches'];
     if (!json || !bools.every(k => typeof json[k] === 'boolean')) return { defects: [], verdict: null, unavailable: 'video judge returned a malformed verdict' };
+    // The two take-level fields are soft: a model that omits them never
+    // voids the strict verdict above.
+    const cuts = json.cuts === true;
+    const progression = typeof json.scene_progression === 'boolean' ? json.scene_progression : null;
     const defects = [];
     if (json.morphing) defects.push('motion break: the face or body morphs or deforms during the clip');
     if (json.identity_drift) defects.push('identity drift: the child reads as a different child by the end of the clip');
@@ -107,12 +125,25 @@ async function judgeClip(clipBuffer, opts = {}) {
     if (json.text_appears) defects.push('painted text in the illustration');
     if (json.speech) defects.push('speech: the child appears to talk');
     if (json.frozen) defects.push('frozen clip: no visible motion');
-    if (json.camera_matches === false) defects.push(`composition break: the camera move does not read as the assigned ${camera}`);
-    return { defects, verdict: json };
+    if (cuts) defects.push('cut break: the clip contains a cut or transition instead of one continuous shot');
+    if (journey && progression === false) defects.push('journey break: the surroundings never change — the child does not advance into the next moment');
+    if (json.camera_matches === false) defects.push(journey ? 'composition break: the camera angle does not change along the take' : `composition break: the camera move does not read as the assigned ${camera}`);
+    return { defects, verdict: { ...json, cuts, scene_progression: progression } };
   } catch (err) {
     console.warn(`[${label}] video judge failed to run: ${err.message}`);
     return { defects: [], verdict: null, unavailable: `video judge errored: ${err.message}` };
   }
+}
+
+/**
+ * The act a sampled timestamp falls in (the last act owns the tail).
+ * @param {Array<{from: number, to: number}>|null} acts
+ * @param {number} t
+ * @returns {object|null}
+ */
+function actAt(acts, t) {
+  if (!Array.isArray(acts) || acts.length === 0) return null;
+  return acts.find(a => t >= a.from && t < a.to) || acts[acts.length - 1];
 }
 
 /**
@@ -123,10 +154,10 @@ async function judgeClip(clipBuffer, opts = {}) {
  * @param {string} p.label
  * @param {{index: number, seconds: number, kind: string}} p.segment
  * @param {object} p.brief
- * @param {object} p.checks pinned QA inputs: {sheet, outfitSpec, props, companion, beat, emotion}
+ * @param {object} p.checks pinned QA inputs: {sheet, outfitSpec, props, companion, beat, emotion, acts?: [{index, from, to, beat, emotion, companion, outfitSpec?}]} — `acts` (the single take) picks the beat / emotion / companion (and a bath act's null outfit spec) per sampled frame
  * @param {object} [p.costTracker]
  * @param {Function} [p.log]
- * @returns {Promise<{pass: boolean, defects: string[], blocking: string[], advisory: string[], frames: Array<{t: number, defects: string[], unavailable: string|null}>, judge: object, qaUnavailable?: string, score: number}>}
+ * @returns {Promise<{pass: boolean, defects: string[], blocking: string[], advisory: string[], frames: Array<{t: number, act: number|null, defects: string[], unavailable: string|null}>, judge: object, qaUnavailable?: string, score: number}>}
  */
 async function verifyClip(p) {
   const log = p.log || (() => {});
@@ -142,23 +173,25 @@ async function verifyClip(p) {
     return { pass: true, defects: [], blocking: [], advisory: [], frames: [], judge: { defects: [], verdict: null, unavailable }, qaUnavailable: unavailable, score: scoreCandidate({ qa: { pass: true, qaUnavailable: unavailable } }) };
   }
   const c = p.checks || {};
+  const story = p.segment.kind === 'spread' || p.segment.kind === 'journey';
   const frameResults = [];
   for (const f of frames) {
+    const act = actAt(c.acts, f.t);
     const r = await checkSpreadRenderV2(f.buffer, {
       label: `${p.label}@${f.t}s`,
       expectedText: null,
-      shotType: null, // motion changes framing; the video judge checks the camera move instead
-      outfitSpec: c.outfitSpec || null,
+      shotType: null, // motion changes framing; the video judge checks the camera instead
+      outfitSpec: act && Object.prototype.hasOwnProperty.call(act, 'outfitSpec') ? (act.outfitSpec || null) : (c.outfitSpec || null),
       sheet: c.sheet || null,
       props: c.props || [],
-      companion: c.companion || null,
-      beat: p.segment.kind === 'spread' ? (c.beat || null) : null,
-      emotion: p.segment.kind === 'spread' ? (c.emotion || null) : null,
+      companion: act ? (act.companion || null) : (c.companion || null),
+      beat: story ? (act ? act.beat || null : c.beat || null) : null,
+      emotion: story ? (act ? act.emotion || null : c.emotion || null) : null,
       emotionVocabulary: EMOTIONS,
     });
-    frameResults.push({ t: f.t, defects: r.defects || [], unavailable: r.qaUnavailable || null });
+    frameResults.push({ t: f.t, act: act && Number.isInteger(act.index) ? act.index : null, defects: r.defects || [], unavailable: r.qaUnavailable || null });
   }
-  const judge = await judgeClip(p.buffer, { cameraMotion: p.brief.cameraMotion, label: `${p.label}:judge`, costTracker: p.costTracker });
+  const judge = await judgeClip(p.buffer, { cameraMotion: p.brief.cameraMotion, angles: p.brief.angles || [], label: `${p.label}:judge`, costTracker: p.costTracker });
   const framesChecked = frameResults.filter(f => !f.unavailable).length;
   const defects = [...new Set([...frameResults.flatMap(f => f.defects), ...judge.defects])];
   const { blocking, advisory } = classifyClipDefects(defects);
@@ -169,4 +202,4 @@ async function verifyClip(p) {
   return { pass: defects.length === 0, defects, blocking, advisory, frames: frameResults, judge, ...(qaUnavailable ? { qaUnavailable } : {}), score: scoreCandidate({ qa }) };
 }
 
-module.exports = { verifyClip, judgeClip, classifyClipDefects, sampleTimes, VIDEO_BLOCKING_PREFIXES };
+module.exports = { verifyClip, judgeClip, classifyClipDefects, sampleTimes, actAt, VIDEO_BLOCKING_PREFIXES };

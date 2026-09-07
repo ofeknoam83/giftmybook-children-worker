@@ -1,5 +1,5 @@
 /**
- * Clip generation (gift video, gv-1 — docs/GIFT_VIDEO_PLAN.md §4.4).
+ * Clip generation (gift video, gv-2 — docs/GIFT_VIDEO_PLAN.md §4.4).
  *
  * For one segment, submit N candidate clips to the provider concurrently,
  * poll each to completion under a per-clip deadline (touching the book
@@ -11,7 +11,12 @@
  * the segment's canonical clip key, so a rejected repair never overwrites
  * better pixels and a failure payload's candidates are exactly what was
  * scored. A vendor moderation refusal is `filtered` — recorded with the
- * vendor's reason, never retried as a transient error.
+ * vendor's reason, never retried as a transient error. gv-2: the single
+ * take may carry an END frame (the last picked still) beside the start
+ * frame; a model input the vendor rejects (422) while an end frame rides
+ * it is resubmitted ONCE without the end frame (the field name is a
+ * verify-at-deploy fact — see providers/models.js), flagged
+ * `endFrameDropped` so the run reports it, never silently.
  */
 
 const { downloadBuffer, uploadBuffer } = require('../../gcsStorage');
@@ -27,12 +32,13 @@ function videoBase(bookId) {
 
 /**
  * Content identity of a clip: provider, model, the brief, the start frame,
- * the references, the requested length and aspect — same inputs, same key.
- * @param {{provider: string, model: string, briefHash: string, startFrameHash: string, referenceHashes: string[], seconds: number, aspect: string}} p
+ * the end frame (when one rides), the references, the requested length and
+ * aspect — same inputs, same key.
+ * @param {{provider: string, model: string, briefHash: string, startFrameHash: string, endFrameHash?: string|null, referenceHashes: string[], seconds: number, aspect: string}} p
  * @returns {string}
  */
 function clipHashFor(p) {
-  return fnv1a(JSON.stringify({ v: VIDEO_VERSION, p: p.provider, m: p.model, b: p.briefHash, s: p.startFrameHash, r: p.referenceHashes || [], d: p.seconds, a: p.aspect })).toString(36);
+  return fnv1a(JSON.stringify({ v: VIDEO_VERSION, p: p.provider, m: p.model, b: p.briefHash, s: p.startFrameHash, e: p.endFrameHash || null, r: p.referenceHashes || [], d: p.seconds, a: p.aspect })).toString(36);
 }
 
 /**
@@ -81,6 +87,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * @param {{index: number, requestedSeconds: number}} p.segment
  * @param {object} p.brief from brief.js (base or repair)
  * @param {{url: string, hash: string}} p.startFrame prepared start frame (signed URL + content hash)
+ * @param {{url: string, hash: string}|null} [p.endFrame] prepared end frame (the last act's still), when the model takes one
  * @param {Array<{kind: string, urls: string[], hash: string}>} p.references reference elements
  * @param {{provider: string, model: string, adapter: object, profile: object}} p.provider
  * @param {string} p.aspect '16:9' | '9:16'
@@ -96,7 +103,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * @param {boolean} [p.forceNew] ignore cached candidate bytes
  * @param {string} [p.clipHash] the segment's clip identity (repair passes reuse the base pass's)
  * @param {string} [p.canonicalKey] the segment's canonical clip key (repair passes reuse the base pass's)
- * @returns {Promise<{clipHash: string, canonicalKey: string, seconds: number, candidates: Array<{k: number, pass: number, storageKey: string, buffer: Buffer|null, status: string, error: string|null, providerJobId: string|null, cached: boolean}>}>}
+ * @returns {Promise<{clipHash: string, canonicalKey: string, seconds: number, candidates: Array<{k: number, pass: number, storageKey: string, buffer: Buffer|null, status: string, error: string|null, providerJobId: string|null, cached: boolean, endFrameDropped?: boolean}>}>}
  */
 async function generateCandidates(p) {
   const { provider } = p;
@@ -105,9 +112,11 @@ async function generateCandidates(p) {
   // candidates (`.rPcK`) sit beside the same canonical key, so an admin-
   // picked repair candidate replays on the next dispatch (the replay probe
   // is computed from the base brief).
+  const endFrame = p.endFrame && p.endFrame.url ? p.endFrame : null;
   const clipHash = p.clipHash || clipHashFor({
     provider: provider.provider, model: provider.model, briefHash: p.brief.hash,
-    startFrameHash: p.startFrame.hash, referenceHashes: (p.references || []).map(r => r.hash), seconds, aspect: p.aspect,
+    startFrameHash: p.startFrame.hash, endFrameHash: endFrame ? endFrame.hash : null,
+    referenceHashes: (p.references || []).map(r => r.hash), seconds, aspect: p.aspect,
   });
   const canonicalKey = p.canonicalKey || clipKey(p.bookId, p.segment.index, clipHash);
   const pass = p.pass || 0;
@@ -128,13 +137,29 @@ async function generateCandidates(p) {
         return { k, pass, storageKey, buffer: cached, status: 'done', error: null, providerJobId: null, cached: true, seconds };
       }
     }
-    const input = provider.profile.input({
-      brief: p.brief, startFrameUrl: p.startFrame.url, referenceUrls: p.references || [],
+    const job = {
+      brief: p.brief, startFrameUrl: p.startFrame.url, endFrameUrl: endFrame ? endFrame.url : null, referenceUrls: p.references || [],
       seconds, aspect: p.aspect, seed: Number.isInteger(p.seed) ? p.seed + k + pass * 10 : null,
-    }, { elements: flags.videoElementsEnabled() });
+    };
+    const opts = { elements: flags.videoElementsEnabled() };
+    let input = provider.profile.input(job, opts);
     let ref;
+    let endFrameDropped = false;
     try {
-      ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
+      try {
+        ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
+      } catch (err) {
+        // The end-frame field name is a verify-at-deploy fact: a 422 while
+        // an end frame rides the input is retried ONCE without it, flagged.
+        if (err.failureCode === 'video_provider_input_rejected' && endFrame) {
+          log('warn', `segment ${p.segment.index}: candidate ${k} input rejected with an end frame (${err.message}) — resubmitting without it`);
+          input = provider.profile.input({ ...job, endFrameUrl: null }, opts);
+          endFrameDropped = true;
+          ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
+        } else {
+          throw err;
+        }
+      }
     } catch (err) {
       // A rejected input or a dead account is a configuration failure, not a
       // bad candidate — surface it as the run's failure so the admin sees it.
@@ -145,7 +170,7 @@ async function generateCandidates(p) {
     const started = Date.now();
     log('info', `segment ${p.segment.index}: candidate ${k} (pass ${pass}) submitted to ${provider.provider} as ${ref.jobId}`);
     while (Date.now() - started < deadlineMs) {
-      if (abortSignal && abortSignal.aborted) return { k, pass, storageKey, buffer: null, status: 'failed', error: 'aborted', providerJobId: ref.jobId, cached: false, seconds };
+      if (abortSignal && abortSignal.aborted) return { k, pass, storageKey, buffer: null, status: 'failed', error: 'aborted', providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
       await sleep(pollIntervalMs);
       touch();
       let r;
@@ -160,7 +185,7 @@ async function generateCandidates(p) {
         try {
           buffer = await provider.adapter.download(r.videoUrl);
         } catch (err) {
-          return { k, pass, storageKey, buffer: null, status: 'failed', error: `download failed: ${err.message}`, providerJobId: ref.jobId, cached: false, seconds };
+          return { k, pass, storageKey, buffer: null, status: 'failed', error: `download failed: ${err.message}`, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
         }
         if (p.costTracker) p.costTracker.addVideoSeconds(provider.model, seconds);
         try {
@@ -168,14 +193,14 @@ async function generateCandidates(p) {
         } catch (err) {
           log('warn', `segment ${p.segment.index}: candidate ${k} upload failed (${err.message}) — bytes kept in memory only`);
         }
-        return { k, pass, storageKey, buffer, status: 'done', error: null, providerJobId: ref.jobId, cached: false, seconds };
+        return { k, pass, storageKey, buffer, status: 'done', error: null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
       }
       if (r.status === 'filtered' || r.status === 'failed') {
         log('warn', `segment ${p.segment.index}: candidate ${k} ${r.status} at the vendor (${r.error})`);
-        return { k, pass, storageKey, buffer: null, status: r.status, error: r.error || null, reasons: r.reasons || null, providerJobId: ref.jobId, cached: false, seconds };
+        return { k, pass, storageKey, buffer: null, status: r.status, error: r.error || null, reasons: r.reasons || null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
       }
     }
-    return { k, pass, storageKey, buffer: null, status: 'failed', error: `vendor did not finish within ${Math.round(deadlineMs / 1000)}s`, providerJobId: ref.jobId, cached: false, seconds };
+    return { k, pass, storageKey, buffer: null, status: 'failed', error: `vendor did not finish within ${Math.round(deadlineMs / 1000)}s`, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
   };
 
   const candidates = await Promise.all(Array.from({ length: n }, (_, i) => run(() => one(i + 1))));

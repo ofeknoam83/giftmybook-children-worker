@@ -1,14 +1,16 @@
 /**
- * The gift video orchestrator (gv-1) end to end with every external
+ * The gift video orchestrator (gv-2) end to end with every external
  * boundary mocked: the vendor adapter, the verifier, ffmpeg, GCS, the
- * bible builder, and the text gate's vision call. Covers the happy path
- * (cover + three moments → one 10 s film, every candidate billed), the
- * film-level replay, embedded start frames re-rendered text-free, the text
- * gate blocking a spread, an unresolved segment failing closed with its
- * scored candidates, and a vendor that refuses every candidate.
+ * bible builder, and the still judge's vision call. Covers the happy path
+ * (twelve renders judged → the best three picked → ONE 10 s take with a
+ * start and an end frame → the film), the film-level replay, pinned still
+ * verdicts, embedded books re-rendering their arc trio text-free, painted
+ * text excluding a render (and failing the film when every render has
+ * it), an unresolved take failing closed with its scored candidates, and a
+ * vendor that refuses every candidate.
  */
 
-process.env.CATALOG_VIDEO_CLIP_CANDIDATES = '2';
+process.env.CATALOG_VIDEO_CLIP_CANDIDATES = '1';
 process.env.CATALOG_VIDEO_CLIP_MAX_REPAIRS = '1';
 process.env.REPLICATE_API_TOKEN = 'tok';
 
@@ -79,8 +81,20 @@ const profile = { name: 'Emma', age: 2, pronouns: { subject: 'she', object: 'her
 const key = (n, aspect = 'wide-plain') => `children-jobs/b1/ce-renders/ce-9/fp-b1/spread-${n}.${aspect}.png`;
 const renders = (aspect) => Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, storageKey: key(i + 1, aspect) }));
 
-let PNG;
-let PNG_B64;
+/** One distinct PNG per spread (+ the cover) so the mocked judge can tell them apart. */
+const PNGS = new Map();
+let COVER_PNG;
+const spreadOfImage = (b64) => { for (const [n, png] of PNGS) if (png.toString('base64') === b64) return n; return null; };
+
+const CLEAN_STILL = { text_present: false, transcript: '', child_visible: true, child_cut_off: false, reserved_side: 'none', band_or_panel: false, complete_picture: true, quality: 4 };
+const stillReply = (json) => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(json) }] } }] }) });
+/** Mock the still judge per spread: `fn(spread) → partial verdict` (undefined ⇒ clean). */
+const judgeBySpread = (fn) => fetchWithTimeout.mockImplementation(async (url, opts) => {
+  const b64 = JSON.parse(opts.body).contents[0].parts[1].inline_data.data;
+  const spread = spreadOfImage(b64);
+  return stillReply({ ...CLEAN_STILL, ...(fn(spread) || {}) });
+});
+
 const cleanVerdict = () => ({ pass: true, defects: [], blocking: [], advisory: [], frames: [], judge: { defects: [] }, score: 100 });
 const blockingVerdict = (d) => ({ pass: false, defects: [d], blocking: [d], advisory: [], frames: [], judge: { defects: [] }, score: -20 });
 
@@ -91,23 +105,26 @@ const params = (over = {}) => ({
 });
 
 beforeAll(async () => {
-  PNG = await sharp({ create: { width: 192, height: 108, channels: 3, background: '#4466aa' } }).png().toBuffer();
-  PNG_B64 = PNG.toString('base64');
+  for (let n = 1; n <= 12; n++) {
+    PNGS.set(n, await sharp({ create: { width: 192, height: 108, channels: 3, background: { r: 20 * n, g: 60, b: 255 - 15 * n } } }).png().toBuffer());
+  }
+  COVER_PNG = await sharp({ create: { width: 192, height: 108, channels: 3, background: '#aa2244' } }).png().toBuffer();
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  downloadPhotoAsBase64.mockResolvedValue({ base64: PNG_B64, mimeType: 'image/png' });
-  fetchWithTimeout.mockRejectedValue(new Error('offline')); // text gate unavailable → passes with an advisory
+  downloadPhotoAsBase64.mockResolvedValue({ base64: COVER_PNG.toString('base64'), mimeType: 'image/png' });
+  judgeBySpread(() => ({ quality: 4 })); // every render clean and complete
   downloadBuffer.mockImplementation(async (k) => {
     if (k.endsWith('.qa.json') || k.endsWith('.mp4') || k.endsWith('video.json')) throw new Error('miss');
-    return PNG; // render keys + the cover URL
+    const m = /spread-(\d+)\./.exec(k);
+    return m ? PNGS.get(Number(m[1])) : COVER_PNG;
   });
   loadJson.mockRejectedValue(new Error('no manifest'));
   objectExists.mockResolvedValue(false);
   buildBookBible.mockResolvedValue({
     manifest: {}, hash: 'bh',
-    sheet: { base64: PNG_B64, mimeType: 'image/png', hash: 'sh', storageKey: 'sheet.png' },
+    sheet: { base64: PNGS.get(1).toString('base64'), mimeType: 'image/png', hash: 'sh', storageKey: 'sheet.png' },
     outfit: { outfit: 'a blue sweater', hash: 'oh' }, props: [], companion: null, worldPlate: null,
     emotion: { plan: { 7: { emotion: 'joy', intensity: 'big' } }, hash: 'eh' }, advisories: [],
   });
@@ -120,114 +137,198 @@ beforeEach(() => {
 });
 
 describe('generateGiftVideo', () => {
-  test('cover + three moments → one 10 s film, every candidate billed, manifest written', async () => {
+  test('twelve renders judged → the best three picked → ONE 10 s take with start + end frames → the film', async () => {
+    judgeBySpread(s => ({ quality: s === 7 ? 5 : 4, reserved_side: s === 3 ? 'right' : 'none' }));
     const p = params();
     const r = await generateGiftVideo(p);
     expect(r.video).toMatchObject({ durationSeconds: 10, width: 1920, height: 1080, fps: 30, cached: false, version: VIDEO_VERSION, music: 'none' });
     expect(r.video.storageKey).toMatch(new RegExp(`^children-jobs/b1/gift-video/${VIDEO_VERSION}/[a-z0-9]+/video\\.mp4$`));
-    expect(r.plan.map(s => [s.kind, s.spread])).toEqual([['cover', null], ['spread', 1], ['spread', 7], ['spread', 12]]);
-    expect(r.plan.every(s => s.clip && s.clip.candidates === 2 && s.clip.repairs === 0)).toBe(true);
+    // the still gate: every render judged once, the best three picked in story order
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(12);
+    expect(r.stills).toHaveLength(12);
+    expect(r.stills.filter(s => s.picked).map(s => s.spread)).toEqual([1, 7, 12]);
+    expect(r.stills.find(s => s.spread === 3)).toMatchObject({ score: 55, reasons: ['right side reserved for text'], picked: false, storageKey: key(3) });
+    expect(saveJson).toHaveBeenCalledWith(expect.objectContaining({ verdict: expect.any(Object) }), expect.stringMatching(/\/stills\/[a-z0-9]+\.json$/));
+    // the plan: one journey segment, one act per pick, distinct angles
+    expect(r.plan).toHaveLength(1);
+    expect(r.plan[0]).toMatchObject({ index: 0, kind: 'journey', spread: null, spreads: [1, 7, 12], seconds: 10, motion: 'journey' });
+    expect(r.plan[0].acts.map(a => a.spread)).toEqual([1, 7, 12]);
+    expect(new Set(r.plan[0].acts.map(a => a.angle)).size).toBe(3);
+    expect(r.plan[0].startFrame).toMatchObject({ storageKey: key(1), rerendered: false });
+    expect(r.plan[0].endFrame).toMatchObject({ storageKey: key(12), rerendered: false });
+    expect(r.plan[0].clip).toMatchObject({ candidates: 1, repairs: 0, replayed: false });
+    expect(r.textGate).toEqual([{ segment: 0, kind: 'spread', spread: 1, pass: true }, { segment: 0, kind: 'spread', spread: 7, pass: true }, { segment: 0, kind: 'spread', spread: 12, pass: true }]);
     expect(r.unresolved).toEqual([]);
-    expect(r.textGate).toHaveLength(4);
-    expect(r.textGate.every(t => t.pass && t.unavailable)).toBe(true);
-    expect(replicate.submit).toHaveBeenCalledTimes(8);
-    // the start frame + the identity kit ride every submission
+    // ONE vendor clip: start frame + end frame + the identity kit
+    expect(replicate.submit).toHaveBeenCalledTimes(1);
     const input = replicate.submit.mock.calls[0][0].input;
-    expect(input.start_image).toMatch(/^https:\/\/signed\//);
+    expect(input.start_image).toMatch(/^https:\/\/signed\/.*\/frames\//);
+    expect(input.end_image).toMatch(/^https:\/\/signed\/.*\/frames\//);
+    expect(input.end_image).not.toBe(input.start_image);
+    expect(input.duration).toBe(10);
     expect(input.elements[0].images).toHaveLength(2);
     expect(input.generate_audio).toBe(false);
-    expect(p.costTracker.getSummary().breakdown['kwaivgi/kling-v3-video'].videoSeconds).toBe(32);
-    expect(runFfmpeg).toHaveBeenCalledTimes(2); // stitch + poster
+    expect(input.prompt).toContain('ONE continuous, unbroken 10-second shot');
+    expect(input.prompt).toContain('MOMENT 3 (6.7–10s)');
+    expect(p.costTracker.getSummary().breakdown['kwaivgi/kling-v3-video'].videoSeconds).toBe(10);
+    // the verifier saw the take with its acts
+    expect(verifyClip).toHaveBeenCalledTimes(1);
+    expect(verifyClip.mock.calls[0][0].checks.acts.map(a => a.spread)).toEqual([1, 7, 12]);
+    expect(verifyClip.mock.calls[0][0].checks.acts[1].emotion).toMatchObject({ emotion: 'joy', intensity: 'big' });
+    expect(runFfmpeg).toHaveBeenCalledTimes(2); // finish + poster
     const stitchArgs = runFfmpeg.mock.calls[0][0];
     expect(stitchArgs[stitchArgs.length - 2]).toBe('10.000');
-    expect(saveJson).toHaveBeenCalledWith(expect.objectContaining({ videoVersion: VIDEO_VERSION, provider: 'replicate' }), expect.stringMatching(/video\.json$/));
-    // promoted clips + markers
-    expect(uploadBuffer.mock.calls.filter(c => /clips\/s\d+-[a-z0-9]+\.mp4$/.test(c[1]))).toHaveLength(4);
-    expect(uploadBuffer.mock.calls.filter(c => /clips\/s\d+-[a-z0-9]+\.mp4\.qa\.json$/.test(c[1]))).toHaveLength(4);
+    expect(saveJson).toHaveBeenCalledWith(expect.objectContaining({ videoVersion: VIDEO_VERSION, provider: 'replicate', stills: expect.any(Array) }), expect.stringMatching(/video\.json$/));
+    // one promoted clip + marker
+    expect(uploadBuffer.mock.calls.filter(c => /clips\/s0-[a-z0-9]+\.mp4$/.test(c[1]))).toHaveLength(1);
+    const marker = uploadBuffer.mock.calls.find(c => /clips\/s0-[a-z0-9]+\.mp4\.qa\.json$/.test(c[1]));
+    expect(JSON.parse(marker[0].toString())).toMatchObject({ unresolved: false, spreads: [1, 7, 12], endFrame: true });
     expect(r.provider).toBe('replicate');
   });
 
+  test('a pinned still verdict replays without a judge call and ranks the same', async () => {
+    const pinned = { textPresent: false, transcript: null, childVisible: true, childCutOff: false, reservedSide: 'none', bandOrPanel: false, completePicture: true, quality: 5 };
+    loadJson.mockImplementation(async (k) => { if (/\/stills\/[a-z0-9]+\.json$/.test(k)) return { qaVersion: require('../../../../services/catalogEngine/versions').QA_VERSION, verdict: pinned }; throw new Error('miss'); });
+    const r = await generateGiftVideo(params());
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+    expect(r.stills.every(s => s.quality === 5 && !s.unchecked)).toBe(true);
+    expect(r.stills.filter(s => s.picked).map(s => s.spread)).toEqual([1, 6, 12]);
+  });
+
+  test('CATALOG_VIDEO_END_FRAME=0 sends the start frame alone with an advisory', async () => {
+    process.env.CATALOG_VIDEO_END_FRAME = '0';
+    try {
+      const r = await generateGiftVideo(params());
+      expect('end_image' in replicate.submit.mock.calls[0][0].input).toBe(false);
+      expect(r.plan[0].endFrame).toBeNull();
+      expect(r.advisories.some(a => /no end frame/.test(a.note))).toBe(true);
+    } finally {
+      delete process.env.CATALOG_VIDEO_END_FRAME;
+    }
+  });
+
   test('a film whose manifest and mp4 exist replays without a vendor call', async () => {
-    loadJson.mockResolvedValue({ video: { storageKey: 'k', hash: 'h', durationSeconds: 10 }, plan: [{ index: 0 }], textGate: [], advisories: [] });
+    loadJson.mockImplementation(async (k) => { if (k.endsWith('video.json')) return { video: { storageKey: 'k', hash: 'h', durationSeconds: 10 }, plan: [{ index: 0 }], textGate: [], advisories: [] }; throw new Error('miss'); });
     objectExists.mockResolvedValue(true);
     const r = await generateGiftVideo(params());
     expect(r.video.cached).toBe(true);
     expect(r.video.url).toMatch(/^https:\/\/signed\//);
+    expect(r.stills).toHaveLength(12);
     expect(replicate.submit).not.toHaveBeenCalled();
     expect(runFfmpeg).not.toHaveBeenCalled();
   });
 
-  test('forceNew skips the replay', async () => {
-    loadJson.mockResolvedValue({ video: { storageKey: 'k' }, plan: [] });
+  test('forceNew skips the replay and re-judges the stills', async () => {
+    loadJson.mockResolvedValue({ video: { storageKey: 'k' }, plan: [], qaVersion: 'x', verdict: { quality: 1 } });
     objectExists.mockResolvedValue(true);
     const r = await generateGiftVideo(params({ forceNew: true }));
     expect(r.video.cached).toBe(false);
     expect(replicate.submit).toHaveBeenCalled();
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(12);
   });
 
-  test('embedded renders are re-rendered text-free through the half layout before animating', async () => {
+  test('embedded renders re-render the story arc text-free through the half layout, then gate the frames', async () => {
     renderStorySpreads.mockImplementation(async ({ spreads }) => ({
-      results: spreads.map(s => ({ spread: s, buffer: PNG, storageKey: key(s), url: 'u', advisories: [] })),
+      results: spreads.map(s => ({ spread: s, buffer: PNGS.get(s), storageKey: key(s), url: 'u', advisories: [] })),
       unresolved: [], bookBible: null,
     }));
     const r = await generateGiftVideo(params({ renders: renders('wide'), textLayout: 'embedded', identityKeyed: true, probeNonce: 'n1', seed: 7 }));
     expect(renderStorySpreads).toHaveBeenCalledTimes(1);
     expect(renderStorySpreads.mock.calls[0][0]).toMatchObject({ textLayout: 'half', spreads: [1, 7, 12], identityKeyed: true, probeNonce: 'n1', seed: 7 });
-    expect(r.plan.filter(s => s.kind === 'spread').every(s => s.startFrame.rerendered)).toBe(true);
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(3); // only the re-rendered frames are judged
+    expect(r.plan[0].spreads).toEqual([1, 7, 12]);
+    expect(r.plan[0].startFrame.rerendered).toBe(true);
+    expect(r.plan[0].endFrame.rerendered).toBe(true);
+    expect(r.stills).toHaveLength(3);
+    expect(r.stills.every(s => s.rerendered && s.picked)).toBe(true);
+    expect(r.advisories.some(a => /re-rendered text-free/.test(a.note))).toBe(true);
   });
 
-  test('painted text on a spread fails the film video_text_visible', async () => {
-    const gate = (present, transcript) => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ text_present: present, transcript }) }] } }] }) });
-    fetchWithTimeout.mockImplementation(async () => gate(true, 'Hello farm!'));
+  test('painted text on some renders excludes them; on every render it fails the film video_text_visible', async () => {
+    judgeBySpread(s => (s === 1 || s === 12 ? { text_present: true, transcript: 'Hello farm!' } : {}));
+    const r = await generateGiftVideo(params());
+    expect(r.stills.filter(s => s.picked).map(s => s.spread)).not.toEqual(expect.arrayContaining([1, 12]));
+    expect(r.stills.find(s => s.spread === 1)).toMatchObject({ disqualified: true, reasons: ['painted text ("Hello farm!")'] });
+    expect(r.video.durationSeconds).toBe(10);
+
+    jest.clearAllMocks();
+    replicate.submit.mockImplementation(async () => ({ jobId: 'j', pollUrl: 'p' }));
+    judgeBySpread(() => ({ text_present: true, transcript: 'Hello farm!' }));
     await expect(generateGiftVideo(params())).rejects.toMatchObject({ failureCode: 'video_text_visible' });
     expect(replicate.submit).not.toHaveBeenCalled();
   });
 
-  test('painted text on the cover alone drops the opener with an advisory and the film still ships', async () => {
-    const PNG2 = await sharp({ create: { width: 192, height: 108, channels: 3, background: '#aa2244' } }).png().toBuffer();
-    downloadBuffer.mockImplementation(async (k) => {
-      if (k.endsWith('.qa.json') || k.endsWith('.mp4') || k.endsWith('video.json')) throw new Error('miss');
-      return k.startsWith('https://cover') ? PNG2 : PNG;
-    });
-    const gate = (present, transcript) => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ text_present: present, transcript }) }] } }] }) });
-    fetchWithTimeout.mockImplementation(async (url, opts) => {
-      const img = JSON.parse(opts.body).contents[0].parts[1].inline_data.data;
-      return gate(img === PNG2.toString('base64'), 'Hello farm!');
-    });
+  test('renders the judge cannot use at all (no child, a band) are video_no_sources with the reasons', async () => {
+    judgeBySpread(s => (s % 2 ? { child_visible: false } : { band_or_panel: true }));
+    let err;
+    try { await generateGiftVideo(params()); } catch (e) { err = e; }
+    expect(err.failureCode).toBe('video_no_sources');
+    expect(err.message).toMatch(/child not visible/);
+    expect(err.details.stills).toHaveLength(12);
+    expect(replicate.submit).not.toHaveBeenCalled();
+  });
+
+  test('a judge outage ranks every still unchecked, picks the arc, and the film still ships with an advisory', async () => {
+    fetchWithTimeout.mockRejectedValue(new Error('offline'));
     const r = await generateGiftVideo(params());
-    expect(r.plan.map(s => s.kind)).toEqual(['spread', 'spread', 'spread']);
-    expect(r.advisories.some(a => /cover_text_visible/.test(a.note))).toBe(true);
+    expect(r.stills.every(s => s.unchecked)).toBe(true);
+    expect(r.plan[0].spreads).toEqual([1, 6, 12]);
+    expect(r.textGate.every(t => t.pass && t.unavailable)).toBe(true);
+    expect(r.advisories.some(a => /still judge unavailable for 12/.test(a.note))).toBe(true);
     expect(r.video.durationSeconds).toBe(10);
   });
 
-  test('a segment that stays blocking after the repair budget fails closed with its scored candidates', async () => {
-    verifyClip.mockImplementation(async ({ segment }) => (segment.spread === 7 ? blockingVerdict('identity break: the child does not match the character model sheet') : cleanVerdict()));
+  test('a take that stays blocking after the repair budget fails closed with its scored candidates', async () => {
+    verifyClip.mockResolvedValue(blockingVerdict('identity break: the child does not match the character model sheet'));
     let err;
     try { await generateGiftVideo(params()); } catch (e) { err = e; }
     expect(err.failureCode).toBe('video_unresolved');
     expect(err.details.unresolved).toHaveLength(1);
     const u = err.details.unresolved[0];
-    expect(u.spread).toBe(7);
+    expect(u).toMatchObject({ segment: 0, spread: null, spreads: [1, 6, 12] });
     expect(u.defects).toEqual(['identity break: the child does not match the character model sheet']);
-    expect(u.candidates).toHaveLength(4); // 2 base + 2 repair candidates, each with its own key
-    expect(u.candidates.map(c => c.storageKey)).toEqual(expect.arrayContaining([expect.stringMatching(/\.c1\.mp4$/), expect.stringMatching(/\.r1c2\.mp4$/)]));
-    // every pass shares the base clip identity: the repair candidates sit
+    expect(u.candidates).toHaveLength(2); // 1 base + 1 repair candidate, each with its own key
+    expect(u.candidates.map(c => c.storageKey)).toEqual([expect.stringMatching(/\.c1\.mp4$/), expect.stringMatching(/\.r1c1\.mp4$/)]);
+    // every pass shares the base clip identity: the repair candidate sits
     // beside the SAME canonical key, so a pick-clip of one replays later
     const bases = new Set(u.candidates.map(c => c.storageKey.replace(/\.(?:r\d+)?c\d\.mp4$/, '.mp4')));
     expect(bases.size).toBe(1);
-    expect([...bases][0]).toBe(err.details.plan.find(s => s.spread === 7).clip.storageKey);
+    expect([...bases][0]).toBe(err.details.plan[0].clip.storageKey);
     expect(u.candidates.every(c => c.url && typeof c.score === 'number')).toBe(true);
-    expect(err.details.plan.find(s => s.spread === 7).clip.repairs).toBe(1);
+    expect(err.details.plan[0].clip.repairs).toBe(1);
+    expect(err.details.stills).toHaveLength(12);
+    expect(replicate.submit).toHaveBeenCalledTimes(2);
+    expect(replicate.submit.mock.calls[1][0].input.prompt).toContain('IDENTITY REPAIR');
     expect(runFfmpeg).not.toHaveBeenCalled();
     // the promoted marker records the unresolved state
-    const marker = uploadBuffer.mock.calls.find(c => /s2-[a-z0-9]+\.mp4\.qa\.json$/.test(c[1]));
+    const marker = uploadBuffer.mock.calls.find(c => /s0-[a-z0-9]+\.mp4\.qa\.json$/.test(c[1]));
     expect(JSON.parse(marker[0].toString())).toMatchObject({ unresolved: true });
   });
 
-  test('CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1 stitches the residual with a shipPolicy advisory', async () => {
+  test('a promoted clip whose marker vouches for it replays and only re-finishes the film', async () => {
+    const { QA_VERSION } = require('../../../../services/catalogEngine/versions');
+    const { fnv1a } = require('../../../../services/catalogEngine/selection');
+    const clip = Buffer.from('picked-clip');
+    loadJson.mockImplementation(async (k) => {
+      if (/clips\/s0-[a-z0-9]+\.mp4\.qa\.json$/.test(k)) return { qaVersion: QA_VERSION, adminPicked: true, renderHash: fnv1a(clip.toString('base64')).toString(36), score: 100 };
+      throw new Error('miss');
+    });
+    downloadBuffer.mockImplementation(async (k) => {
+      if (/clips\/s0-[a-z0-9]+\.mp4$/.test(k)) return clip;
+      if (k.endsWith('.qa.json') || k.endsWith('.mp4') || k.endsWith('video.json')) throw new Error('miss');
+      const m = /spread-(\d+)\./.exec(k);
+      return m ? PNGS.get(Number(m[1])) : COVER_PNG;
+    });
+    const r = await generateGiftVideo(params());
+    expect(replicate.submit).not.toHaveBeenCalled();
+    expect(r.plan[0].clip).toMatchObject({ replayed: true, adminPicked: true, candidates: 0 });
+    expect(r.video.durationSeconds).toBe(10);
+  });
+
+  test('CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1 finishes the residual with a shipPolicy advisory', async () => {
     process.env.CATALOG_VIDEO_SHIP_ON_EXHAUSTION = '1';
     try {
-      verifyClip.mockImplementation(async ({ segment }) => (segment.spread === 12 ? blockingVerdict('frozen clip: no visible motion') : cleanVerdict()));
+      verifyClip.mockResolvedValue(blockingVerdict('frozen clip: no visible motion'));
       const r = await generateGiftVideo(params());
       expect(r.unresolved).toHaveLength(1);
       expect(r.advisories.some(a => a.stage === 'shipPolicy')).toBe(true);
@@ -237,8 +338,8 @@ describe('generateGiftVideo', () => {
     }
   });
 
-  test('a vendor that refuses every candidate of a segment is unresolved, not an outage', async () => {
-    replicate.poll.mockImplementation(async ({ jobId }) => (Number(jobId.slice(1)) <= 2 ? { status: 'filtered', error: 'content moderation', reasons: ['moderation'] } : { status: 'done', videoUrl: 'u' }));
+  test('a vendor that refuses every candidate is unresolved, not an outage', async () => {
+    replicate.poll.mockResolvedValue({ status: 'filtered', error: 'content moderation', reasons: ['moderation'] });
     let err;
     try { await generateGiftVideo(params()); } catch (e) { err = e; }
     expect(err.failureCode).toBe('video_unresolved');
@@ -256,7 +357,15 @@ describe('generateGiftVideo', () => {
   });
 
   test('a missing render is video_source_missing', async () => {
-    downloadBuffer.mockImplementation(async (k) => { if (k.includes('spread-12')) throw new Error('404'); if (k.endsWith('.qa.json') || k.endsWith('.mp4') || k.endsWith('video.json')) throw new Error('miss'); return PNG; });
+    downloadBuffer.mockImplementation(async (k) => { if (k.includes('spread-12')) throw new Error('404'); if (k.endsWith('.qa.json') || k.endsWith('.mp4') || k.endsWith('video.json')) throw new Error('miss'); const m = /spread-(\d+)\./.exec(k); return m ? PNGS.get(Number(m[1])) : COVER_PNG; });
     await expect(generateGiftVideo(params())).rejects.toMatchObject({ failureCode: 'video_source_missing' });
+  });
+
+  test('a subset of renders makes a shorter journey (two stills → two acts) on the same 10 s take', async () => {
+    const r = await generateGiftVideo(params({ renders: [{ spread: 4, storageKey: key(4) }, { spread: 9, storageKey: key(9) }] }));
+    expect(r.plan[0].spreads).toEqual([4, 9]);
+    expect(r.plan[0].acts.map(a => [a.from, a.to])).toEqual([[0, 5], [5, 10]]);
+    expect(replicate.submit).toHaveBeenCalledTimes(1);
+    expect(r.video.durationSeconds).toBe(10);
   });
 });

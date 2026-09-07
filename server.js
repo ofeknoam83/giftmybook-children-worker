@@ -875,17 +875,20 @@ app.post('/v13/pick-candidate', authenticate, async (req, res) => {
   }
 });
 
-// POST /v13/generate-video — the GIFT VIDEO (gv-1, docs/GIFT_VIDEO_PLAN.md):
-// a 10-second, text-free, fully animated film of a finished book — the
-// approved cover coming alive, the opening spread, the emotional peak, the
-// resolution — one image-to-video clip per segment starting on the exact
-// shipped render, identity pinned by the Book Bible's character sheet as
-// the video model's reference and verified per clip, stitched by ffmpeg.
+// POST /v13/generate-video — the GIFT VIDEO (gv-2, docs/GIFT_VIDEO_PLAN.md
+// revision 4): a 10-second, text-free, fully animated film of a finished
+// book as ONE continuous take — the still-selection gate first judges every
+// shipped render and picks the best three COMPLETE pictures (no painted
+// text, no side reserved for a text panel, no band, the child fully in
+// frame), then one image-to-video clip carries the child through them
+// (start frame = the first pick, end frame = the last, the camera angle
+// changing per act), identity pinned by the Book Bible's character sheet
+// as the video model's reference and verified per clip, finished by ffmpeg.
 // 202 + callback like /v13/render-spreads: every validation happens BEFORE
 // the 202 (the app's render KEYS are validated as canonical keys of THIS
 // book; a story pair is re-validated; the provider/model must be enabled);
 // the run registers a book context so the idle watchdog sees a job that
-// polls a vendor for minutes. A segment whose candidates all fail
+// polls a vendor for minutes. A take whose candidates all fail
 // verification fails the film `video_unresolved` with the scored candidates
 // attached — never a silent degrade to stills.
 app.post('/v13/generate-video', authenticate, async (req, res) => {
@@ -1013,7 +1016,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       });
       payload = {
         success: true, ...stable, provider: r.provider, model: r.model,
-        video: r.video, plan: r.plan, textGate: r.textGate, bookBible: r.bookBible,
+        video: r.video, plan: r.plan, stills: r.stills || [], textGate: r.textGate, bookBible: r.bookBible,
         unresolved: r.unresolved || [], advisories: r.advisories, warnings: r.warnings,
         costs: costTracker.getSummary(), failureCode: null, error: null,
       };
@@ -1023,7 +1026,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       const d = err.details || {};
       payload = {
         success: false, ...stable,
-        video: null, plan: d.plan || [], textGate: d.textGate || [], bookBible: d.bookBible || null,
+        video: null, plan: d.plan || [], stills: d.stills || [], textGate: d.textGate || [], bookBible: d.bookBible || null,
         unresolved: d.unresolved || [], advisories: d.advisories || [], warnings: d.warnings || [],
         costs: costTracker.getSummary(), failureCode: err.failureCode || null, error: err.message,
       };
@@ -1035,9 +1038,9 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
 });
 
 // POST /v13/pick-clip — promote one scored candidate clip (from a
-// video_unresolved failure payload) to its segment's canonical clip key
+// video_unresolved failure payload) to the take's canonical clip key
 // with an admin-vouched marker, so the next /v13/generate-video dispatch
-// (no forceNew) replays it and only re-stitches (gv-1, mirrors
+// (no forceNew) replays it and only re-finishes the film (gv-1, mirrors
 // /v13/pick-candidate).
 app.post('/v13/pick-clip', authenticate, async (req, res) => {
   if (!catalogEngine.flags.giftVideoEnabled()) {

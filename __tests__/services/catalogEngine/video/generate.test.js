@@ -22,7 +22,7 @@ const adapter = () => ({
   poll: jest.fn(),
   download: jest.fn(async () => Buffer.from('mp4-bytes')),
 });
-const provider = (a) => ({ provider: 'replicate', model: 'kwaivgi/kling-v3-video', adapter: a, profile: { durations: [3, 4, 5, 6], input: () => ({ prompt: 'p' }) } });
+const provider = (a) => ({ provider: 'replicate', model: 'kwaivgi/kling-v3-video', adapter: a, profile: { durations: [3, 4, 5, 6], input: (job) => ({ prompt: 'p', ...(job.endFrameUrl ? { end_image: job.endFrameUrl } : {}) }) } });
 const brief = { hash: 'bh', prompt: 'p', negativePrompt: 'n', params: { cfgScale: 0.5 } };
 const base = (a, over = {}) => ({
   bookId: 'b1', segment: { index: 1, requestedSeconds: 4 }, brief, startFrame: { url: 'https://s/f.jpg', hash: 'sf' },
@@ -37,6 +37,8 @@ describe('keys', () => {
     const h = clipHashFor({ provider: 'replicate', model: 'm', briefHash: 'b', startFrameHash: 's', referenceHashes: ['r'], seconds: 4, aspect: '16:9' });
     expect(h).toBe(clipHashFor({ provider: 'replicate', model: 'm', briefHash: 'b', startFrameHash: 's', referenceHashes: ['r'], seconds: 4, aspect: '16:9' }));
     expect(h).not.toBe(clipHashFor({ provider: 'replicate', model: 'm', briefHash: 'b', startFrameHash: 's', referenceHashes: ['r'], seconds: 5, aspect: '16:9' }));
+    // gv-2: the end frame is part of the clip's identity
+    expect(h).not.toBe(clipHashFor({ provider: 'replicate', model: 'm', briefHash: 'b', startFrameHash: 's', endFrameHash: 'e', referenceHashes: ['r'], seconds: 4, aspect: '16:9' }));
     const canonical = clipKey('b1', 2, h);
     expect(canonical).toBe(`children-jobs/b1/gift-video/${VIDEO_VERSION}/clips/s2-${h}.mp4`);
     expect(candidateClipKey(canonical, 1)).toBe(canonical.replace('.mp4', '.c1.mp4'));
@@ -100,6 +102,28 @@ describe('generateCandidates', () => {
     a.submit.mockRejectedValue(new Error('network'));
     const r = await generateCandidates(base(a, { n: 1 }));
     expect(r.candidates[0]).toMatchObject({ status: 'failed', error: 'network' });
+  });
+  test('the end frame rides the input and its hash; a 422 with it is resubmitted ONCE without it, flagged', async () => {
+    const a = adapter();
+    a.poll.mockResolvedValue({ status: 'done', videoUrl: 'u' });
+    const withEnd = await generateCandidates(base(a, { n: 1, endFrame: { url: 'https://s/e.jpg', hash: 'eh' } }));
+    expect(a.submit.mock.calls[0][0].input.end_image).toBe('https://s/e.jpg');
+    expect(withEnd.candidates[0].endFrameDropped).toBe(false);
+    const without = await generateCandidates(base(a, { n: 1 }));
+    expect(withEnd.clipHash).not.toBe(without.clipHash);
+
+    const b = adapter();
+    b.submit.mockRejectedValueOnce(Object.assign(new Error('422: end_image is not a valid field'), { failureCode: 'video_provider_input_rejected' }));
+    b.poll.mockResolvedValue({ status: 'done', videoUrl: 'u' });
+    const r = await generateCandidates(base(b, { n: 1, endFrame: { url: 'https://s/e.jpg', hash: 'eh' } }));
+    expect(b.submit).toHaveBeenCalledTimes(2);
+    expect('end_image' in b.submit.mock.calls[1][0].input).toBe(false);
+    expect(r.candidates[0]).toMatchObject({ status: 'done', endFrameDropped: true });
+    // without an end frame a 422 stays the run's failure
+    const c = adapter();
+    c.submit.mockRejectedValue(Object.assign(new Error('422'), { failureCode: 'video_provider_input_rejected' }));
+    await expect(generateCandidates(base(c, { n: 1 }))).rejects.toMatchObject({ failureCode: 'video_provider_input_rejected' });
+    expect(c.submit).toHaveBeenCalledTimes(1);
   });
   test('poll errors are retried until the deadline', async () => {
     const a = adapter();
