@@ -201,3 +201,68 @@ test('critical checks reject unavailable and legacy verdicts but accept an inten
   expect(criticalObjectFailures([{ spread: 2, qa: { verdict: { props } } }], plan())).toEqual([]);
   expect(criticalObjectFailures([{ spread: 2, qa: { verdict: { props }, qaUnavailable: 'timeout' } }], plan())).toHaveLength(1);
 });
+
+describe('source-backed occurrence evidence', () => {
+  test('source IDs attach exact manuscript punctuation and preserve off-screen state', async () => {
+    const { p, complete } = bellsFixture();
+    p.story.spreads[0].text = '“The bells aren’t here,” she said.\nTing—ting!';
+    complete.objects[0].occurrences.forEach(o => { o.evidence = `s${o.spread}_text_1`; });
+    fetchWithTimeout.mockResolvedValue(response(complete));
+    const result = await resolveStoryObjects(p);
+    expect(result.objects[0].occurrences[0]).toMatchObject({ evidence: p.story.spreads[0].text, required: false });
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('"id":"s1_text_1"');
+    expect(prompt).toContain('copy exactly ONE evidenceSources id');
+    const saved = JSON.parse([...storage.values()][0].toString());
+    expect(saved.plan.objects[0].occurrences[0].evidence).toBe(p.story.spreads[0].text);
+    expect((await resolveStoryObjects(p)).hash).toBe(result.hash);
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+  });
+  test.each(['s10_text_1', 's1_text_99', 'The bells were somewhere else.', '   '])('wrong-spread, unknown, fabricated and blank citations stay invalid: %s', evidence => {
+    const { p, complete } = bellsFixture();
+    complete.objects[0].occurrences[0].evidence = evidence;
+    expect(() => validatePlan(complete, inputsFor(p))).toThrow('Ungrounded object occurrence on spread 1: forest_bells');
+  });
+  test('reports every invalid citation and repairs only evidence without redesigning the objects', async () => {
+    const { p, complete } = bellsFixture();
+    const invalid = JSON.parse(JSON.stringify(complete));
+    invalid.objects[0].occurrences[0].evidence = 'Paraphrased ringing.';
+    invalid.objects[0].occurrences[1].evidence = 'Paraphrased distant sound.';
+    complete.objects[0].occurrences[0].evidence = 's1_text_1';
+    complete.objects[0].occurrences[1].evidence = 's9_text_1';
+    fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(complete));
+    const log = jest.fn();
+    const result = await resolveStoryObjects({ ...p, log });
+    expect(result.objects[0].design).toEqual(invalid.objects[0].design);
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('Ungrounded object occurrence on spread 1: forest_bells');
+    expect(prompt).toContain('Ungrounded object occurrence on spread 9: forest_bells');
+    expect(prompt).toContain('"allowedEvidenceIds":["s9_text_1"]');
+    expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('attempt 1/2'));
+  });
+  test.each(['state', 'required', 'design', 'drop'])('evidence repair cannot change %s', async field => {
+    const { p, complete } = bellsFixture();
+    const invalid = JSON.parse(JSON.stringify(complete));
+    invalid.objects[0].occurrences[0].evidence = 'Invented quotation';
+    complete.objects[0].occurrences[0].evidence = 's1_text_1';
+    if (field === 'state') complete.objects[0].occurrences[0].state = 'Now visible.';
+    if (field === 'required') complete.objects[0].occurrences[0].required = true;
+    if (field === 'design') complete.objects[0].design.colors = 'Silver';
+    if (field === 'drop') complete.objects = [];
+    fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(complete));
+    await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+    expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+  });
+  test('long passages yield bounded exact substrings and beat references remain distinct', () => {
+    const { evidenceSources } = require('../../../services/catalogEngine/illustrator/storyObjects');
+    const spread = { spread: 8, text: 'The lantern glowed. '.repeat(60), beat: 'A ribbon marks the path.' };
+    const sources = evidenceSources(spread);
+    expect(sources.filter(s => s.id.includes('_text_')).length).toBeGreaterThan(1);
+    for (const source of sources) {
+      expect(source.quote.length).toBeLessThanOrEqual(600);
+      expect(source.quote.length).toBeGreaterThan(0);
+      expect(source.id.includes('_text_') ? spread.text.includes(source.quote) : spread.beat.includes(source.quote)).toBe(true);
+    }
+    expect(sources.at(-1)).toEqual({ id: 's8_beat_1', quote: spread.beat });
+  });
+});

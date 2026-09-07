@@ -171,7 +171,7 @@ async function buildBookBible(p) {
   // A legacy PDF-only rebuild must preserve the old namespace and paid-for
   // artwork. Explicit illustration regeneration upgrades it to object locks.
   const storyObjects = p.legacyReviewed ? { objects: [], hash: 'legacy', version: null }
-    : await resolveStoryObjects({ book: p.book, story: p.story, theme: p.theme, costTracker: p.costTracker });
+    : await resolveStoryObjects({ book: p.book, story: p.story, theme: p.theme, costTracker: p.costTracker, log });
   if (!flags.propSheetsEnabled() && storyObjects.objects.some(d => d.critical)) {
     const err = new Error('Critical story objects require reference sheets; prop sheets are disabled');
     err.failureCode = 'identity_kit_failed';
