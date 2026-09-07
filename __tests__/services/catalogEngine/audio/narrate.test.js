@@ -139,3 +139,16 @@ describe('renderSegment', () => {
     await expect(narrate.renderChunk({ ...base({ adapter: flaky }), chunk: narrate.chunkLines(segment)[0], voice: cast.narrator, forceRetake: true })).rejects.toMatchObject({ failureCode: 'audiobook_render_failed' });
   });
 });
+
+
+test('full-film exact text rejects a permissive cached take and repairs missing words', async () => {
+  const buffer = take(3);
+  gcs.loadJson.mockResolvedValue({ audioQaVersion: AUDIO_QA_VERSION, renderHash: narrate.contentHash(buffer), unresolved: false, transcript: 'Emma looked.', qa: { blocking: [] } });
+  gcs.downloadBuffer.mockResolvedValue(buffer);
+  judgeAudio.mockResolvedValue(verdict('Emma looked around.'));
+  const a = adapter();
+  const result = await narrate.renderChunk({ ...base({ adapter: a }), chunk: narrate.chunkLines(segment)[0], voice: cast.narrator, opts: { candidates: 1, maxRepairs: 1, budget: 2, requireExactText: true } });
+  expect(a.synthesize).toHaveBeenCalled();
+  expect(result.cached).toBe(false);
+  expect(result.transcript).toBe('Emma looked around.');
+});

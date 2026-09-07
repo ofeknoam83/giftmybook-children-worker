@@ -20,6 +20,7 @@ jest.mock('../services/catalogEngine/illustrator', () => ({ renderStorySpreads: 
 jest.mock('../services/catalogEngine/illustrator/bible', () => ({ prepareIdentity: jest.fn() }));
 jest.mock('../services/catalogEngine/illustrator/candidates', () => ({ pickCandidate: jest.fn() }));
 jest.mock('../services/catalogEngine/video', () => ({ generateGiftVideo: jest.fn() }));
+jest.mock('../services/catalogEngine/video/fullStory', () => ({ ...jest.requireActual('../services/catalogEngine/video/fullStory'), generateFullStoryFilm: jest.fn() }));
 jest.mock('../services/catalogEngine/video/clips', () => ({ pickClip: jest.fn() }));
 jest.mock('../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn(),
@@ -145,7 +146,7 @@ describe('POST /v13/generate-video', () => {
     const res = await post(validBody());
     expect(res.status).toBe(202);
     expect(res.body).toEqual({
-      success: true, bookId: 'video-book-1', dispatchId: 'gv_test_1', engine: 'catalog-v13', videoVersion: VIDEO_VERSION,
+      success: true, bookId: 'video-book-1', mode: 'trailer', dispatchId: 'gv_test_1', engine: 'catalog-v13', videoVersion: VIDEO_VERSION,
       provider: 'replicate', model: 'kwaivgi/kling-v3-video', accepted: { spreads: [1, 7, 12] },
     });
     await settle();
@@ -165,7 +166,7 @@ describe('POST /v13/generate-video', () => {
     expect(opts.headers['x-api-key']).toBe('test-api-key');
     const payload = JSON.parse(opts.body);
     expect(payload).toMatchObject({
-      success: true, bookId: 'video-book-1', dispatchId: 'gv_test_1', engine: 'catalog-v13', videoVersion: VIDEO_VERSION,
+      success: true, bookId: 'video-book-1', mode: 'trailer', dispatchId: 'gv_test_1', engine: 'catalog-v13', videoVersion: VIDEO_VERSION,
       provider: 'replicate', model: 'kwaivgi/kling-v3-video', failureCode: null, error: null, unresolved: [],
     });
     expect(payload.video.durationSeconds).toBe(10);
@@ -213,5 +214,35 @@ describe('POST /v13/pick-clip', () => {
     expect((await pick({ bookId: 'b1', storageKey: 'nope' })).status).toBe(400);
     process.env.CATALOG_GIFT_VIDEO = '0';
     expect((await pick({ bookId: 'b1', storageKey: 'x' })).status).toBe(503);
+  });
+});
+
+
+describe('full-story film API', () => {
+  test('advertises the supported mode before the app starts a paid generation', async () => {
+    delete process.env.CATALOG_GIFT_VIDEO;
+    const res = await request(app).post('/v13/video-capabilities').set('x-api-key', 'test-api-key').send({});
+    expect(res.body.modes).toContain('full-story');
+  });
+  test('rejects incomplete manuscripts and unknown modes before accepting a job', async () => {
+    delete process.env.CATALOG_GIFT_VIDEO;
+    resolveStory.mockResolvedValue(storyPair);
+    const badMode = await post({ ...validBody(), mode: 'movie-ish' });
+    expect(badMode.status).toBe(400);
+    const incomplete = await post({ ...validBody(), mode: 'full-story', ELEVENLABS_API_KEY: 'test' });
+    expect(incomplete.status).toBe(400);
+    expect(incomplete.body.error).toMatch(/12 manuscript/);
+  });
+  test('dispatches all 12 spreads, the injected speech credentials, and narrator plus cast', async () => {
+    delete process.env.CATALOG_GIFT_VIDEO;
+    const full = { ...storyPair, response: { ...storyPair.response, spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text: 'Hello.' })) } };
+    resolveStory.mockResolvedValue(full);
+    const { generateFullStoryFilm } = require('../services/catalogEngine/video/fullStory');
+    generateFullStoryFilm.mockResolvedValue({ ...readyResult(), mode: 'full-story', model: 'kwaivgi/kling-v3-omni-video', language: 'en', cast: [{ name: 'Emma', role: 'child' }] });
+    const res = await post({ ...validBody(), story: full, renders: full.response.spreads.map(s => ({ spread: s.spread, storageKey: key(s.spread) })), mode: 'full-story', voiceProvider: 'elevenlabs', apiKeys: { ELEVENLABS_API_KEY: 'injected-voice-key' } });
+    expect(res.status).toBe(202);
+    expect(res.body).toMatchObject({ mode: 'full-story', videoVersion: 'gfs-1', model: 'kwaivgi/kling-v3-omni-video' });
+    await settle();
+    expect(generateFullStoryFilm).toHaveBeenCalledWith(expect.objectContaining({ music: 'story-score', language: 'en', injectedKeys: expect.objectContaining({ apiKeys: { ELEVENLABS_API_KEY: 'injected-voice-key' } }) }));
   });
 });

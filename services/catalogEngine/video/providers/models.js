@@ -31,6 +31,23 @@ function clipSecondsFor(requested, supported) {
 const KLING_DURATIONS = Array.from({ length: 13 }, (_, i) => i + 3);
 
 const MODELS = {
+  'kwaivgi/kling-v3-omni-video': {
+    provider: 'replicate',
+    durations: KLING_DURATIONS,
+    aspectRatios: ['16:9', '9:16', '1:1'],
+    supportsReferences: true,
+    supportsEndFrame: true,
+    referenceMention: i => `<<<image_${i}>>>`,
+    /** Official Replicate Omni schema, verified 2026-09-07. One sheet per reference. */
+    input(job) {
+      const images = job.referenceUrls.map(r => (r.urls || [r.url])[0]);
+      if (images.length > 7) throw new Error('Kling Omni supports at most seven reference images');
+      const prompt = renderPromptForModel(job.brief, this.referenceMention);
+      if (prompt.length > 2500) throw new Error('Kling Omni prompt exceeds 2500 characters');
+      return { prompt, start_image: job.startFrameUrl, ...(job.endFrameUrl ? { end_image: job.endFrameUrl } : {}),
+        reference_images: images, duration: job.seconds, aspect_ratio: job.aspect, mode: 'pro', generate_audio: false };
+    },
+  },
   'kwaivgi/kling-v3-video': {
     provider: 'replicate',
     durations: KLING_DURATIONS,

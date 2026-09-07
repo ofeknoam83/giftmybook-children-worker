@@ -322,6 +322,8 @@ const QA_VERSION = 'qa-14';
  * stills (the still-selection gate) instead of four crossfaded clips.
  */
 const VIDEO_VERSION = 'gv-2';
+/** Full manuscript, pinned cast, measured speech, animated shots and lip sync. */
+const FULL_STORY_VIDEO_VERSION = 'gfs-1';
 
 /**
  * Coloring-book version (cb-1 — docs/COLORING_BOOK_V2_PLAN.md §5.4) — owns
@@ -371,6 +373,7 @@ module.exports = {
   SCENE_INTEGRATION_VERSION,
   QA_VERSION,
   VIDEO_VERSION,
+  FULL_STORY_VIDEO_VERSION,
   COLORING_VERSION,
   COLORING_QA_VERSION,
   AUDIO_VERSION,
