@@ -63,7 +63,7 @@ const { renderWorldCardBlock } = require('../../worldCards');
 const { STYLE_VERSION } = require('../../versions');
 const { fnv1a } = require('../../selection');
 const flags = require('../../flags');
-const { designText, hash: objectHash } = require('../storyObjects');
+const { VERSION: STORY_OBJECT_VERSION, designText, hash: objectHash } = require('../storyObjects');
 const { isHumanCompanionType, isChildCompanionType } = require('../../../shared/illustration/companionKind');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -963,7 +963,7 @@ async function getPropSheet({ kind, value, companion, theme, definition = null, 
       const inert = inertValue(value);
       const normalized = normalizePropValue(value);
       if (!inert || !normalized) return null;
-      const valueHash = definition ? objectHash({ version: 'so-1', name: normalized, design: definition.design }) : fnv1a(normalized).toString(36);
+      const valueHash = definition ? objectHash({ version: STORY_OBJECT_VERSION, name: normalized, design: definition.design }) : fnv1a(normalized).toString(36);
       return resolveSheet({
         cacheKey: `prop:${themeId}:${valueHash}`,
         kind,

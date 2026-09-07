@@ -1628,6 +1628,8 @@ async function renderStorySpreads(params) {
   const objectContactFailures = await verifyCriticalObjectSet(results, bible, onProgress);
   objectFailures.push(...objectContactFailures);
   for (const failure of objectFailures) {
+    const result = results.find(r => r.spread === failure.spread);
+    if (result) result.advisories.push({ stage: 'spreadQa', spread: failure.spread, note: failure.defects.join('; ') });
     for (const candidate of failure.candidates) {
       if (!candidate.url && candidate.storageKey) candidate.url = await getSignedUrl(candidate.storageKey, SIGNED_URL_TTL_MS).catch(() => null);
     }
