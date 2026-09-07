@@ -522,6 +522,9 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
         stories: [await require('./services/catalogEngine/upsellOffer').generateOfferStory({
           ...upsellOffer, profile, themeId: req.body.catalogThemeId,
           sessionId: sessionId || bookId, tuning: req.body?.writerTuning || null,
+          // The outline call plus up to 3 attempts + 2 repairs + polish can
+          // outlast the per-book idle window; every model call is a heartbeat.
+          onProgress: () => storiesContext.touchActivity(),
         })], failures: [],
       } : await catalogEngine.generateStories({
         bookIds,

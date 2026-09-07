@@ -4,7 +4,7 @@ jest.mock('../../../services/shared/llm/openaiClient', () => ({ callText: jest.f
 const sharp = require('sharp');
 const Ajv = require('ajv/dist/2020');
 const storage = require('../../../services/gcsStorage');
-const { prepareOfferDefinition, loadOfferDefinition, offerMap } = require('../../../services/catalogEngine/upsellOffer');
+const { prepareOfferDefinition, loadOfferDefinition, offerMap, generateOfferStory } = require('../../../services/catalogEngine/upsellOffer');
 const { buildStoryRequest, buildUserPrompt, generateStory } = require('../../../services/catalogEngine/writer');
 const { callText } = require('../../../services/shared/llm/openaiClient');
 const { resolveStory } = require('../../../services/catalogEngine/pipeline');
@@ -59,11 +59,49 @@ test('a changed or missing snapshot cannot substitute a different story at print
   expect(await getBookForTag(hit.book.id, tag)).toBeNull();
 });
 
-test('invalid outlines and changed advertised titles are rejected before writing a definition', async () => {
+test('invalid outlines are rejected before writing a definition', async () => {
   outline.beats.pop();
   await expect(prepareOfferDefinition(args())).rejects.toThrow('valid story outline');
   expect(storage.uploadBuffer).not.toHaveBeenCalled();
-  await expect(prepareOfferDefinition({ ...args(), title: 'The locked printed title' })).rejects.toThrow('changed the advertised title');
+});
+
+test('the locked advertised title wins over the model transcription, and string beat numbers are coerced', async () => {
+  // The model echoes the title with a curly apostrophe and an exclamation
+  // mark, and numbers its beats as strings — neither may fail the offer.
+  outline.title = 'Ziv and Her Moonlit Treasure Map!';
+  outline.beats = outline.beats.map(b => ({ ...b, spread: String(b.spread), beat: `  ${b.beat}  ` }));
+  const { hit, tag } = await prepareOfferDefinition({ ...args(), title: 'Ziv and Her Moonlit Treasure Map' });
+  expect(hit.book.title_template).toBe('{name} and Her Moonlit Treasure Map');
+  expect(hit.book.beats.map(b => b.spread)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1));
+  expect(hit.book.beats[0].beat).toBe(outline.beats[0].beat.trim());
+  const built = buildStoryRequest({ bookId: hit.book.id, profile, sessionId: 'locked-title', definition: hit, definitionTag: tag });
+  expect(built.request.rendered_title).toBe('Ziv and Her Moonlit Treasure Map');
+  // Out-of-order beats are still a broken outline, never silently re-numbered.
+  outline.beats = [outline.beats[1], outline.beats[0], ...outline.beats.slice(2)];
+  await expect(prepareOfferDefinition({ ...args(), title: 'Another locked title' })).rejects.toThrow('valid story outline');
+});
+
+test('a run without a locked title transcribes it from the cover, trimmed', async () => {
+  outline.title = '  Ziv and Her Moonlit Treasure Map  ';
+  const { hit } = await prepareOfferDefinition(args());
+  expect(hit.book.title_template).toBe('{name} and Her Moonlit Treasure Map');
+});
+
+test('the offer story heartbeats through onProgress from the outline to every writer call', async () => {
+  const p = { name: profile.name, age: profile.age, pronouns: profile.pronouns };
+  const onProgress = jest.fn();
+  const text = 'Ziv opened her moonlit map beside Pip in Moonlit Grove. A silver trail curved between the quiet trees. She checked the little marks, took one careful step, and smiled happily when the next gentle light appeared beside a smooth stone.';
+  callText.mockImplementation(async ({ userPrompt }) => {
+    const request = JSON.parse(/## REQUEST METADATA[^`]*```json\n([\s\S]*?)\n```/.exec(userPrompt)[1]);
+    const title = /## RENDERED TITLE \(echo exactly as "title"\)\n(.*)/.exec(userPrompt)[1];
+    return { json: { request_id: request.request_id, book_id: request.book_id, title, versions: request.versions,
+      spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text })), personalization_evidence: [], omitted_profile_fields: [] },
+    usage: { inputTokens: 1, outputTokens: 1 } };
+  });
+  const result = await generateOfferStory({ ...args(), profile: p, sessionId: 'heartbeat', onProgress });
+  expect(result.response.spreads).toHaveLength(12);
+  expect(onProgress.mock.calls.map(c => c[0].status)).toEqual(['outline', 'attempt']);
+  expect(onProgress.mock.calls[0][0].bookId).toBe(result.request.book_id);
 });
 
 test.each(['https://attacker.example/photo.png', `children-jobs/${sourceId}/upsell/../photo.png`, 'children-jobs/other-child/upsell/0/cover.png'])('rejects arbitrary or cross-book image input: %s', async path => {

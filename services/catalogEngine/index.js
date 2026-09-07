@@ -39,7 +39,7 @@ const versions = require('./versions');
 async function generateStories({ bookIds, profile, sessionId, locale, tuning, onProgress }) {
   const results = await Promise.allSettled(bookIds.map(async bookId => {
     onProgress?.({ bookId, status: 'generating' });
-    const story = await generateStory({ bookId, profile, sessionId, locale, tuning });
+    const story = await generateStory({ bookId, profile, sessionId, locale, tuning, onProgress });
     onProgress?.({ bookId, status: 'done' });
     return story;
   }));
