@@ -218,9 +218,13 @@ async function buildBookBible(p) {
         const limit = pLimit(2);
         const storyProps = await Promise.all(storyObjects.objects.map(definition => limit(async () => {
           const value = propName(definition);
-          const sheet = await getPropSheet({ kind: 'prop', value, definition, theme: p.theme, costTracker: p.costTracker, log });
+          let lastWarning = null;
+          const sheet = await getPropSheet({ kind: 'prop', value, definition, theme: p.theme, costTracker: p.costTracker, log: (level, message) => {
+            if (level === 'warn') lastWarning = message;
+            log(level, message);
+          } });
           if (!sheet && definition.critical) {
-            const err = new Error(`Critical story object has no verified reference sheet: ${definition.name}`);
+            const err = new Error(`Critical story object has no verified reference sheet: ${definition.name}${lastWarning ? ` — ${lastWarning}` : ''}`);
             err.failureCode = 'identity_kit_failed';
             err.advisories = [{ stage: 'storyObjects', note: err.message }];
             throw err;

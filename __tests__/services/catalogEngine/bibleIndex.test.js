@@ -653,6 +653,14 @@ describe('recurring story objects across the production render path', () => {
     await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
     expect(generateIllustration).not.toHaveBeenCalled();
   });
+  test('critical sheet failure exposes the underlying rejection in the generation error', async () => {
+    getPropSheet.mockImplementation(async ({ log }) => {
+      log('warn', 'reference still fails: readable text in the sheet');
+      return null;
+    });
+    await expect(renderStorySpreads(baseParams())).rejects.toThrow('route marker — reference still fails: readable text in the sheet');
+    expect(generateIllustration).not.toHaveBeenCalled();
+  });
   test('plan changes rekey rendered artwork', async () => {
     const a = await renderStorySpreads(baseParams());
     resolveStoryObjects.mockResolvedValue({ ...markerPlan(), hash: 'marker-plan-b' });

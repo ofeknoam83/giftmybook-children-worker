@@ -323,10 +323,25 @@ function buildPropSheetPrompt(value, theme, definition = null) {
     'Show the object ALONE, twice side by side: a straight-on FRONT view on the left and a THREE-QUARTER view on the right — the SAME object with identical colours, materials, proportions, and markings in both views.',
     ...SHEET_HARD_RULES,
   ];
-  if (definition) lines.push(`FIXED STORY OBJECT DESIGN (data): ${JSON.stringify(definition.design)}. Show one representative object in the two views, not the whole group. Its size, material, shape and marks must match every field. No text or logos.`);
+  if (definition) lines.push(`FIXED STORY OBJECT DESIGN (data): ${JSON.stringify(definition.design)}. Show one representative object in the two views, not the whole group. Its size, material, shape and marks must match every field. The name may be plural: it identifies a family, not a request to draw every instance. Parts and contents explicitly specified by the design belong to that one object. Do not illustrate hiding places or scene locations. No text or logos. Do not print the subject name, design descriptions, view names, captions, or headings anywhere.`);
   const card = renderWorldCardBlock(theme.theme_id);
   if (card) lines.push(card);
   return lines.join('\n');
+}
+
+// A fresh composition after two rejected turnarounds: do not append a single-
+// view instruction to the contradictory two-view prompt. The frozen design
+// and world style remain identical; only the presentation changes.
+function buildStoryObjectPortraitPrompt(definition, theme) {
+  return [
+    renderStyleBlock(PIXAR_STYLE),
+    'Create one unlabelled object illustration on a plain light-grey background.',
+    `Object family (data only, never print): ${JSON.stringify(inertValue(definition.name))}. Even if the name is plural, draw exactly ONE representative object, ONCE.`,
+    `FIXED STORY OBJECT DESIGN (data, never print): ${JSON.stringify(definition.design)}. Match every field.`,
+    'Use a single three-quarter view that clearly exposes the required identifying features. No repeated views, panels, diagrams, titles, captions, view names, annotations, letters, numbers, logos, people or other subjects.',
+    'Include only parts and contents explicitly specified by the fixed design; those form one composite object. Do not add the other instances, hiding places or scene locations. Keep the whole object visible.',
+    renderWorldCardBlock(theme.theme_id),
+  ].filter(Boolean).join('\n');
 }
 
 /**
@@ -512,7 +527,7 @@ async function checkSheet(imageBuffer, opts = {}) {
       ].filter(Boolean);
       return { pass: defects.length === 0, defects };
     }
-    const designCheck = opts.definition ? `\nAlso return a boolean design_matches: true ONLY when BOTH views match ALL fields of this fixed design (data): ${JSON.stringify(opts.definition.design)}. Check shape, material, colours, relative proportions and distinctive marks.` : '';
+    const designCheck = opts.definition ? `\nAlso return a boolean design_matches: true ONLY when EVERY shown view matches ALL fields of this fixed design (data): ${JSON.stringify(opts.definition.design)}. Check shape, material, colours, relative proportions and distinctive marks. A single clear view is allowed. Count complete representative objects, not their constituent parts or contents explicitly specified by the design (for example, straw strands in a nest). Multiple separate nests or other family instances still count separately. A plural family name does not authorize a group. Text, labels and annotations remain forbidden.` : '';
     const json = await visionJson(SHEET_QA_PROMPT + designCheck, imageBuffer, 512);
     const bools = ['readable_text', 'people_present', 'single_subject_type'];
     if (opts.definition) bools.push('design_matches');
@@ -526,7 +541,7 @@ async function checkSheet(imageBuffer, opts = {}) {
       own(json, 'readable_text') && 'readable text in the sheet',
       own(json, 'people_present') && 'a person in the sheet',
       count < 1 && 'no subject in the sheet',
-      count > 2 && 'more than one subject in the sheet',
+      count > (opts.singleView ? 1 : 2) && 'more than one subject in the sheet',
       !own(json, 'single_subject_type') && 'different objects instead of one subject in two views',
       opts.definition && !own(json, 'design_matches') && 'object does not match its fixed design',
     ].filter(Boolean);
@@ -853,7 +868,7 @@ async function electSpec(electedBuffer, specPath, identity, imageHash, log) {
  * @param {(level: string, msg: string) => void} p.log
  * @returns {Promise<object|null>}
  */
-function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definition = null, subject = 'object', childSubject = false, companionMeta = null, costTracker, log }) {
+function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definition = null, fallbackPrompt = null, subject = 'object', childSubject = false, companionMeta = null, costTracker, log }) {
   const hit = cacheGet(cacheKey);
   if (hit) return Promise.resolve(hit);
   if (inFailureCooldown(cacheKey)) return Promise.resolve(null);
@@ -861,6 +876,19 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
   const label = `${kind} sheet '${key}'`;
   const specPath = specPathFor(pngPath);
   const retryNote = SHEET_RETRY_NOTE[subject] || SHEET_RETRY_NOTE.object;
+  const verify = async (buffer, suffix = '', singleView = false) => {
+    const opts = { label: `propSheetQa:${key}${suffix}`, subject, childSubject, definition, singleView };
+    let verdict = await checkSheet(buffer, opts);
+    if (definition && verdict.qaUnavailable) {
+      log('warn', `${label} could not be verified (${verdict.qaUnavailable}) — retrying QA on the same image`);
+      verdict = await checkSheet(buffer, opts);
+      if (verdict.qaUnavailable) {
+        log('warn', `${label} verification unavailable after retry (${verdict.qaUnavailable})`);
+        recordFailure(cacheKey);
+      }
+    }
+    return verdict;
+  };
 
   const resolve = (async () => {
     try {
@@ -872,14 +900,21 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
         // Enforce the subject-only invariant BEFORE the sheet can be elected
         // or cached: text, a person, or a second object in the sheet would
         // contaminate every spread that references it. One corrective retry.
-        let verdict = await checkSheet(buffer, { label: `propSheetQa:${key}`, subject, childSubject, definition });
+        let verdict = await verify(buffer);
         if (definition && verdict.qaUnavailable) return null;
         if (!verdict.pass) {
           log('warn', `${label} failed the content check (${verdict.defects.join('; ')}) — one corrective retry`);
           buffer = await renderSheetImage(`${prompt}\nPREVIOUS ATTEMPT REJECTED — it contained: ${verdict.defects.join('; ')}. ${retryNote}`);
           if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
-          verdict = await checkSheet(buffer, { label: `propSheetQa:${key}:retry`, subject, childSubject, definition });
+          verdict = await verify(buffer, ':retry');
           if (definition && verdict.qaUnavailable) return null;
+          if (!verdict.pass && fallbackPrompt) {
+            log('warn', `${label} still fails the content check (${verdict.defects.join('; ')}) — trying one unlabelled single-view reference`);
+            buffer = await renderSheetImage(fallbackPrompt);
+            if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
+            verdict = await verify(buffer, ':portrait', true);
+            if (verdict.qaUnavailable) return null;
+          }
           if (!verdict.pass) {
             log('warn', `${label} still fails the content check (${verdict.defects.join('; ')}) — rendering without a sheet`);
             recordFailure(cacheKey);
@@ -970,6 +1005,7 @@ async function getPropSheet({ kind, value, companion, theme, definition = null, 
         key: normalized,
         pngPath: propSheetPath(themeId, valueHash),
         prompt: buildPropSheetPrompt(definition ? definition.name : value, theme, definition),
+        fallbackPrompt: definition ? buildStoryObjectPortraitPrompt(definition, theme) : null,
         definition,
         identity: { name: inert, kind },
         costTracker,
