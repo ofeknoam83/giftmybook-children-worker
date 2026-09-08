@@ -16,7 +16,17 @@ Existing elected identities remain readable. Missing references receive a typed 
 - Spread dependencies include the fixed child kit, style, outfit, world, companion and the objects/state relevant to that spread. Updating one story-object reference rekeys its dependent spreads. Compatible legacy render paths and QA markers are still read. A manuscript, identity or global styling change can legitimately invalidate more work.
 - Existing full-scene checks and candidate scoring continue to enforce identity, object state, anatomy, text, composition and aesthetics. Deliberately wrong or incompletely checked images do not become passing images through recovery.
 
-These are operation/attempt limits, not a promise of a fixed dollar price. Provider retries, character-sheet creation, existing text repair and other legacy stages retain their own limits. Costs record newly charged work separately from available reuse counters.
+These are operation/attempt limits, not a promise of a fixed dollar price. Provider retries, existing text repair and other legacy stages retain their own limits. Costs record newly charged work separately from available reuse counters.
+
+## Character-sheet recovery
+
+Character sheets now use the same typed verification and review state. The old ten-minute in-memory failure cooldown is removed. `CATALOG_SHEET_CANDIDATES` is a durable TOTAL image limit (default 3, bounded 1–4): one initial sheet, then targeted repairs of verified defects, stopping at the first sheet that passes every required check. Retries, process restarts and changed repair feedback do not reset that budget. A known completed render failure can advance to the next slot immediately. An active or ambiguous render reservation still prevents duplicate purchases until the request deadline plus 30 seconds has elapsed; this is not a failure cooldown.
+
+Candidate PNGs, complete verification requests/results and per-candidate verdict summaries are saved under a content-scoped `.recovery-v1` directory before election. A checker outage keeps the same image for its bounded recheck; a provider block stops and uses the existing exact-evidence admin review rules. Exhausted repairs retain the original findings in `needs_review`; they never elect an unchecked sheet. The admin evidence panel shows every saved sheet and its concrete clothing findings.
+
+Generation and QA explicitly separate visible cover clothing from consistent completion of cropped hems/legs/shoes, held story props, and lighting. A cover-outfit rejection must include a visible garment, attribute, expected detail and observed difference. Missing/contradictory evidence is an unavailable judgment, not permission to redraw or approve. A repair carries the approved cover as authority and the previous sheet solely as a repair source, preserving correct identity and inferred clothing. Photo likeness remains advisory; cover identity, outfit, anatomy, layout, text and minimum cover likeness remain required.
+
+The elected sheet paths/style version are unchanged, so previously verified character sheets and downstream artwork remain usable. Only previously missing sheets get this new recovery namespace. Historical rejected images were not retained and cannot be recovered retroactively. After deploying both changes, resume Karina book `7d27b971-c2c4-4ed9-bbf3-4d3ba7863780` for a controlled visual check; implementation tests use mocked providers and do not establish generated artwork quality.
 
 ## Film preparation
 

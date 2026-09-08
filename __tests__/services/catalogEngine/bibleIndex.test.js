@@ -804,3 +804,12 @@ test('object QA is retained on cache replay; an older marker is rechecked on the
   expect(checkSpreadRenderV2).toHaveBeenCalledTimes(calls + 1);
   expect(generateIllustration).toHaveBeenCalledTimes(renders);
 });
+
+test('character-sheet recovery reaches the caller intact and stops spending on other assets', async () => {
+  const recovery = { version: 1, status: 'verification_pending', stage: 'character_sheet', reason: 'verification_unavailable', retryable: true, issues: [{ status: 'transient', reason: 'Verifier HTTP 503', evidenceKey: 'catalog-assets/saved/request.json' }] };
+  const pending = Object.assign(new Error('Character reference needs attention; saved sheet retained'), { failureCode: 'visual_recovery_pending', recovery });
+  getCharacterSheet.mockRejectedValue(pending);
+  await expect(renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }))).rejects.toBe(pending);
+  expect(generateIllustration).not.toHaveBeenCalled();
+  expect(getBibleProps).not.toHaveBeenCalled();
+});

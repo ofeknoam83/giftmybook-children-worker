@@ -158,6 +158,7 @@ async function buildBookBible(p) {
       for (const a of (sheet && sheet.advisories) || []) advisories.push(a);
     } catch (err) {
       if (flags.sheetRequired()) {
+        if (err.recovery) throw err;
         const e = new Error(`character model sheet could not be built (${err.message}) — the book needs review rather than rendering on the cover alone`);
         e.failureCode = err.failureCode || 'identity_kit_failed';
         e.advisories = err.advisories || [];
