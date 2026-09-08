@@ -857,10 +857,11 @@ app.post('/v13/prepare-identity', authenticate, async (req, res) => {
     return res.json({ success: true, bookId, bookBible, costs: costTracker.getSummary() });
   } catch (err) {
     console.error(`[prepareIdentity:${bookId}] failed:`, err.message);
-    const status = err.failureCode === 'identity_kit_failed' ? 422 : (err.failureCode === 'missing_identity_reference' ? 400 : 500);
+    const status = err.recovery || err.failureCode === 'identity_kit_failed' ? 422 : (err.failureCode === 'missing_identity_reference' ? 400 : 500);
     return res.status(status).json({
       success: false, bookId, error: err.message,
       failureCode: err.failureCode || null,
+      ...(err.recovery ? { recovery: err.recovery } : {}),
       ...(Array.isArray(err.advisories) && err.advisories.length > 0 ? { advisories: err.advisories } : {}),
       costs: costTracker.getSummary(),
     });

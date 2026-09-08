@@ -1,4 +1,4 @@
-jest.mock('../../../services/gcsStorage', () => ({ downloadBuffer: jest.fn(), uploadBufferIfAbsent: jest.fn() }));
+jest.mock('../../../services/gcsStorage', () => ({ downloadBuffer: jest.fn(), uploadBufferIfAbsent: jest.fn(), uploadBuffer: jest.fn() }));
 jest.mock('../../../services/illustrationGenerator', () => ({ getNextApiKey: () => 'test-key', fetchWithTimeout: jest.fn() }));
 const storage = require('../../../services/gcsStorage');
 const { fetchWithTimeout: fetch } = require('../../../services/illustrationGenerator');
@@ -16,6 +16,7 @@ beforeEach(() => {
   delete process.env.CATALOG_QA_SECONDARY_MODEL;
   delete process.env.VISUAL_REVIEW_SECRET;
   storage.downloadBuffer.mockImplementation(async k => { if (files.has(k)) return files.get(k); throw Object.assign(new Error('not found'), { code: 404 }); });
+  storage.uploadBuffer.mockImplementation(async (b, k) => { files.set(k, b); });
   storage.uploadBufferIfAbsent.mockImplementation(async (b, k) => { if (files.has(k)) return { created: false }; files.set(k, b); return { created: true }; });
   fetch.mockResolvedValue(ok({ pass: true }));
 });

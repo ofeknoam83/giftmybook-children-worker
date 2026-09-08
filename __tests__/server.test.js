@@ -917,6 +917,14 @@ describe('ce-9 admin endpoints', () => {
     expect(res.body.advisories).toHaveLength(1);
   });
 
+  test('POST /v13/prepare-identity preserves actionable recovery in its error response', async () => {
+    const recovery = { version: 1, status: 'needs_review', stage: 'character_sheet', reason: 'confirmed_defect', retryable: false, issues: [{ evidenceKey: 'catalog-assets/sheet.recovery-v1', reason: 'Pink dress changed to blue' }] };
+    prepareIdentity.mockRejectedValue(Object.assign(new Error('Saved character sheet needs review'), { failureCode: 'visual_recovery_pending', recovery }));
+    const res = await request(app).post('/v13/prepare-identity').set(auth).send({ bookId: 'b1', approvedCoverUrl: 'https://x/cover.png' });
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ failureCode: 'visual_recovery_pending', recovery });
+  });
+
   test('POST /v13/pick-candidate validates its input and promotes the candidate', async () => {
     expect((await request(app).post('/v13/pick-candidate').set(auth).send({ bookId: 'b1' })).status).toBe(400);
     pickCandidate.mockRejectedValueOnce(Object.assign(new Error('storageKey is not a candidate render of this book'), { statusCode: 400 }));

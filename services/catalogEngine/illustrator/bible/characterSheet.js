@@ -1,43 +1,14 @@
 /**
- * Character model sheet — the per-anchor FIXED identity reference of the
- * Book Bible (ce-9, ILLUSTRATION_CONSISTENCY_REFACTOR_PLAN §3.1).
- *
- * The approved cover is the wrong KIND of identity image for stateless
- * spread renders: one pose, one angle, legs usually cropped, a scene behind
- * the child. Every render that anchors on it re-invents whatever the cover
- * does not show — and an unspecified garment is per-spread freedom (the
- * ce-8 lesson). This module turns the parent-approved character into ONE
- * wide model sheet — the same child full-body front / three-quarter / back,
- * the SAME complete outfit in all three views, two small head insets, flat
- * light-grey background, no scene, no text — generated ONCE from the cover
- * (one hop, then frozen; never chained from renders) and elected in GCS the
- * way the world plate is, so racing instances adopt one sheet.
- *
- * Best-of-N, judged, elected: N candidates (CATALOG_SHEET_CANDIDATES,
- * default 3) each get one structured vision check (no text, exactly three
- * full-body figures of ONE child, feet visible, outfit identical across the
- * views, anatomy), explicit identity/outfit agreement with the approved
- * cover, and a minimum cover-likeness score. The passing candidate with
- * the highest COVER likeness wins (ties keep candidate order). The child's
- * photo is an optional QA diagnostic only: cover-to-photo resemblance is
- * established before cover approval, never by redesigning the kit. Raw
- * photos and face crops never ride the sheet render. Low photo likeness
- * carries an advisory to review the cover. Judge fields are type-checked;
- * caller strings are sanitized before entering the prompt.
- *
- * Failure contract — deliberately NOT the world plate's fail-open: a book
- * that cannot build its sheet must never silently render on the cover
- * alone (that is how drift shipped unnoticed). Any total failure THROWS an
- * Error carrying `failureCode = 'identity_kit_failed'` and `advisories`;
- * the caller decides between `needs_review` (flags.sheetRequired()) and a
- * sheet-less advisory run. A failed anchor sits out a cooldown so a broken
- * cover costs one attempt per window, not N generations per book. The ONLY
- * null result is the kill-switch: CATALOG_CHARACTER_SHEET=0.
+ * Approved-cover character sheets. Verified legacy sheets remain fixed.
+ * New candidates and judgments are durable; confirmed defects get an
+ * immediate targeted repair within one saved budget. Unavailable checks
+ * retain the image. No failure cooldown and no unverified cover-only fallback.
  */
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../../illustrationGenerator');
 const { PIXAR_STYLE, GEMINI_QA_MODEL, GEMINI_IMAGE_SAFETY_SETTINGS } = require('../../../shared/illustration/config');
-const { jsonQaGenerationConfig, responseText, parseJsonText, unparseableDetail } = require('../../../shared/llm/geminiJson');
+const { judgeImage, digest, responseOutcome } = require('../../../shared/llm/visualJudge');
+const { pending } = require('../referenceContract');
 const { downloadBuffer, uploadBuffer, uploadBufferIfAbsent } = require('../../../gcsStorage');
 const { STYLE_VERSION } = require('../../versions');
 const { fnv1a } = require('../../selection');
@@ -48,7 +19,6 @@ const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 /** The vision judge honors the same knob as spread QA (CATALOG_QA_VISION_MODEL). */
 const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || GEMINI_QA_MODEL;
 const SHEET_TIMEOUT_MS = 180000;
-const QA_TIMEOUT_MS = 60000;
 const SHEET_ASPECT = '16:9';
 const FAILURE_CODE = 'identity_kit_failed';
 const STAGE = 'characterSheet';
@@ -66,33 +36,13 @@ const NAME_MAX_CHARS = 40;
 const AGE_MIN = 1;
 const AGE_MAX = 12;
 
-// In-process caches keyed by the anchor's path hash. Each entry holds a
-// multi-megabyte base64 image, so the LRU is small and BOUNDED (16 covers
-// the anchors a warm instance sees in flight); the in-flight map dedupes
-// concurrent first-use generation across parallel renders; failed anchors
-// sit out a cooldown so a broken cover costs one attempt per window.
+// Successful sheets are cached; concurrent callers share the active work.
+// Failed work lives in GCS, including its cause and bounded attempt claims.
 const SHEET_CACHE_MAX = 16;
-const FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
-const FAILURE_MAX = 32;
 const _sheets = new Map();
 const _inFlight = new Map();
-const _failures = new Map();
-
-/** @param {string} key @returns {boolean} still inside the failure cooldown */
-function inFailureCooldown(key) {
-  const at = _failures.get(key);
-  if (at === undefined) return false;
-  if (Date.now() - at < FAILURE_COOLDOWN_MS) return true;
-  _failures.delete(key);
-  return false;
-}
-
-/** Record a failed resolution (evicting oldest past the cap). @param {string} key */
-function recordFailure(key) {
-  _failures.delete(key);
-  _failures.set(key, Date.now());
-  while (_failures.size > FAILURE_MAX) _failures.delete(_failures.keys().next().value);
-}
+const RECOVERY_VERSION = 'character-sheet-recovery-1';
+const RENDER_LEASE_MS = SHEET_TIMEOUT_MS + 30000;
 
 /** LRU get: refresh recency on hit. @param {string} key @returns {object|null} */
 function cacheGet(key) {
@@ -111,7 +61,7 @@ function cacheSet(key, sheet) {
 }
 
 /**
- * Candidates rendered per anchor: CATALOG_SHEET_CANDIDATES, clamped 1-4
+ * Total candidate/repair budget per anchor: CATALOG_SHEET_CANDIDATES, clamped 1-4
  * (non-integers / out-of-range ⇒ default 3).
  * @returns {number}
  */
@@ -214,7 +164,8 @@ function buildSheetPrompt({ profile = null, characterDescription = null } = {}) 
   lines.push(
     'REFERENCE PRIORITY: the approved character in REFERENCE 1 defines all visible features. The profile and description are context only and must never override it or redesign the child.',
     'LAYOUT (hard rules): three FULL-BODY figures of the SAME child standing side by side in one row — LEFT: front view, MIDDLE: three-quarter view, RIGHT: back view — standing relaxed with arms at the sides, head to toe entirely inside the frame, feet and shoes fully visible on every figure.',
-    'OUTFIT: the SAME complete outfit in all three views — every garment, colour, pattern, and length identical from view to view. Where the reference crops a garment (legs, shoes), complete it ONCE and draw that completion identically in every view. Never invent accessories, props, or extra garments the reference does not show.',
+    'OUTFIT: the SAME complete outfit in all three views — every garment, colour, pattern, and length identical from view to view. Where the reference crops a garment (legs, shoes), complete it ONCE and draw that completion identically in every view. Apart from consistently completing cropped clothing and footwear, do not add garments or worn accessories.',
+    'CLOTHING EVIDENCE: copy only clothing actually visible in the approved cover. Complete cropped hems, legs and shoes consistently once. A held story object (such as a bell), scenery and cover text are NOT clothing and must be omitted. Preserve garment construction and underlying colours while removing dramatic scene lighting.',
     'HEAD INSETS: two small head-and-shoulders insets in the top corner — one happy, one curious — the same child, same hair, same skin tone.',
     'BACKGROUND: a flat light-grey studio background with even, soft lighting. NO scene, NO environment, NO props, NO other people, animals, or creatures.',
     'ANATOMY: exactly two arms and two hands with exactly five clearly separated fingers per hand, two legs, and two feet on every figure — no third arm, no extra or duplicated hand, no stray hand, no fused fingers.',
@@ -250,12 +201,16 @@ function advisory(note) {
  * @param {{base64: string, mimeType?: string}} refPhoto the approved anchor bytes
  * @returns {Promise<Buffer>}
  */
-async function renderSheetCandidate(prompt, refPhoto) {
+async function renderSheetCandidate(prompt, refPhoto, repair = null) {
   const parts = [
     { text: prompt },
     { text: 'REFERENCE 1 — APPROVED CHARACTER (the parent-approved rendering of the child: face, hair, skin tone, body proportions, rendering style, and outfit are ground truth)' },
     { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
   ];
+  if (repair) parts.push(
+    { text: `REFERENCE 2 — REPAIR SOURCE, not a new identity. Preserve the character, layout, and all correct clothing, including the already completed hidden hems and shoes. Correct only these verified defects (DATA): ${JSON.stringify(repair.defects)}. The approved cover remains authoritative. Do not copy any incorrect feature from the repair source.` },
+    { inline_data: { mimeType: 'image/png', data: repair.buffer.toString('base64') } },
+  );
   const apiKey = getNextApiKey();
   const resp = await fetchWithTimeout(
     `${GEMINI_API}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
@@ -270,10 +225,15 @@ async function renderSheetCandidate(prompt, refPhoto) {
     },
     SHEET_TIMEOUT_MS,
   );
-  if (!resp.ok) throw new Error(`Gemini sheet render HTTP ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`);
+  if (!resp.ok) {
+    const outcome = responseOutcome(null, resp.status);
+    throw Object.assign(new Error(`Character sheet render HTTP ${resp.status}`), { verification: { ...outcome, reason: `Character sheet render HTTP ${resp.status}` } });
+  }
   const data = await resp.json();
+  const outcome = responseOutcome(data);
+  if (outcome) throw Object.assign(new Error(`Character sheet render stopped: ${outcome.reason}`), { verification: { ...outcome, reason: `Character sheet render stopped: ${outcome.reason}` } });
   const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!imagePart?.inlineData?.data) throw new Error('no image in Gemini sheet response');
+  if (!imagePart?.inlineData?.data) throw Object.assign(new Error('no image in Gemini sheet response'), { verification: { status: 'transient', reason: 'Character sheet renderer returned no image' } });
   return Buffer.from(imagePart.inlineData.data, 'base64');
 }
 
@@ -289,8 +249,11 @@ function buildSheetQaPrompt(hasPhoto) {
 
 A correct sheet shows exactly THREE full-body (head to toe) figures of the SAME single child standing side by side — front view, three-quarter view, back view — wearing the SAME complete outfit in all three, with feet and shoes fully visible, plus two small head insets in a corner (the insets are NOT full-body figures — do not count them), on a flat plain background, with NO text of any kind.
 
+OUTFIT EVIDENCE: compare only garments and worn accessories visibly established by image 2. Ignore the held bell or other story props, scenery, cover text, and differences caused only by scene lighting. Cropped hems, legs and shoes may be completed consistently; never reject them for differing from an invisible reference. Do reject changed visible garment colours, patterns, materials, cut or length, extra clothing, and differences between views. Do not claim a mismatch unless you can name the visible expected detail and the observed difference. Uncertainty is not evidence of a defect.
+
 Answer STRICT JSON only:
 {
+  "outfit_findings": [], // for EACH cover outfit mismatch: {"slot":"top|bottom|footwear|outerwear|accessory", "attribute":"colour|pattern|material|cut|length|presence", "reference_visibility":"visible", "expected":"specific visible cover detail", "observed":"specific different sheet detail"}; empty when cover_outfit_matches is true. Never include hidden details or held props.
   "readable_text": true|false,   // any readable text, letters, labels, numbers, captions, or watermarks anywhere in image 1
   "figure_count": <integer>,     // number of FULL-BODY (head to toe) figures in image 1; head insets do not count
   "one_child": true|false,       // every figure depicts the SAME single child (no second child, adult, or creature)
@@ -319,7 +282,7 @@ const VERDICT_BOOLEANS = ['readable_text', 'one_child', 'feet_visible', 'outfit_
  * verdict. This diagnostic cannot override cover fidelity or affect election.
  * @returns {{pass: boolean, defects: string[], likeness: number, photoLikeness: number|null}|null}
  */
-function parseSheetVerdict(json) {
+function parseSheetVerdict(json, { detailed = false } = {}) {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
   const own = k => (Object.prototype.hasOwnProperty.call(json, k) ? json[k] : undefined);
   if (!VERDICT_BOOLEANS.every(f => typeof own(f) === 'boolean')) return null;
@@ -330,6 +293,15 @@ function parseSheetVerdict(json) {
   const likeness = Math.min(1, Math.max(0, likenessRaw));
   const photoRaw = own('photo_likeness');
   const photoLikeness = typeof photoRaw === 'number' && Number.isFinite(photoRaw) ? Math.min(1, Math.max(0, photoRaw)) : null;
+  const findings = own('outfit_findings');
+  if (detailed) {
+    const line = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 300 && !/[\u0000-\u001f]/.test(v);
+    if (!Array.isArray(findings) || findings.length > 12 || findings.some(f => !f ||
+      !['top', 'bottom', 'footwear', 'outerwear', 'accessory'].includes(f.slot) ||
+      !['colour', 'pattern', 'material', 'cut', 'length', 'presence'].includes(f.attribute) ||
+      f.reference_visibility !== 'visible' || !line(f.expected) || !line(f.observed) || f.expected.trim() === f.observed.trim())) return null;
+    if (own('cover_outfit_matches') !== (findings.length === 0)) return null;
+  }
   const defects = [
     own('readable_text') && 'readable text on the sheet',
     figureCount !== 3 && `${figureCount} full-body figures (expected 3)`,
@@ -337,91 +309,108 @@ function parseSheetVerdict(json) {
     !own('feet_visible') && 'feet/shoes not fully visible on every figure',
     !own('outfit_consistent_across_views') && 'outfit differs between views',
     !own('cover_identity_matches') && 'identity differs from the approved character',
-    !own('cover_outfit_matches') && 'outfit differs from the approved character',
+    !own('cover_outfit_matches') && (detailed ? findings.map(f => `${f.slot} ${f.attribute}: cover shows ${f.expected}; sheet shows ${f.observed}`).join('; ') : 'outfit differs from the approved character'),
     likeness < COVER_LIKENESS_MIN && `cover likeness ${likeness.toFixed(2)} below the ${COVER_LIKENESS_MIN} floor`,
     !own('anatomy_ok') && 'anatomy error (limbs/hands/fingers)',
   ].filter(Boolean);
   return { pass: defects.length === 0, defects, likeness, photoLikeness };
 }
 
-/**
- * One vision call judging a sheet candidate against the approved character.
- * Fail-open per candidate: transport/HTTP/malformed verdicts resolve
- * `{unverifiable: <reason>}` — the caller never passes such a candidate
- * silently.
- * @param {Buffer} sheetBuffer the candidate bytes
- * @param {{base64: string, mimeType?: string}} refPhoto the approved anchor bytes
- * @param {{base64: string, mimeType?: string}|null} [childPhoto] the child's photo — advisory resemblance only
- * @returns {Promise<{pass: boolean, defects: string[], likeness: number, photoLikeness: number|null}|{unverifiable: string}>}
- */
-async function judgeSheetCandidate(sheetBuffer, refPhoto, childPhoto = null) {
-  try {
-    const apiKey = getNextApiKey();
-    const hasPhoto = Boolean(childPhoto?.base64);
-    const parts = [
-      { text: buildSheetQaPrompt(hasPhoto) },
-      { inline_data: { mimeType: 'image/png', data: sheetBuffer.toString('base64') } },
-      { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
-    ];
-    if (hasPhoto) parts.push({ inline_data: { mimeType: childPhoto.mimeType || 'image/jpeg', data: childPhoto.base64 } });
-    const resp = await fetchWithTimeout(
-      `${GEMINI_API}/${QA_MODEL()}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts,
-          }],
-          // Thinking OFF + a ≥2048-token ceiling (shared/llm/geminiJson):
-          // the 2.5 flash judge counts its reasoning against
-          // maxOutputTokens, and a small cap left every answer clipped.
-          generationConfig: jsonQaGenerationConfig(1024, QA_MODEL()),
-        }),
-      },
-      QA_TIMEOUT_MS,
-    );
-    if (!resp.ok) return { unverifiable: `sheet QA HTTP ${resp.status}` };
-    const data = await resp.json();
-    const text = responseText(data);
-    let json;
-    try {
-      json = parseJsonText(text);
-    } catch (parseErr) {
-      // Name WHY (a spent budget, a safety block, an empty body) — the
-      // advisory is what the admin sees on identity_kit_failed.
-      return { unverifiable: `sheet QA returned unparseable JSON${unparseableDetail(data, text)}` };
-    }
-    const verdict = parseSheetVerdict(json);
-    if (!verdict) return { unverifiable: 'sheet QA returned a malformed verdict' };
-    return verdict;
-  } catch (err) {
-    return { unverifiable: `sheet QA errored: ${err.message}` };
-  }
+/** Same saved evidence and full validation on every recheck. */
+async function judgeSheetCandidate(sheetBuffer, refPhoto, childPhoto, root, costTracker) {
+  const parts = [
+    { text: buildSheetQaPrompt(Boolean(childPhoto?.base64)) },
+    { inline_data: { mimeType: 'image/png', data: sheetBuffer.toString('base64') } },
+    { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
+  ];
+  if (childPhoto?.base64) parts.push({ inline_data: { mimeType: childPhoto.mimeType || 'image/jpeg', data: childPhoto.base64 } });
+  const verification = await judgeImage({ parts, model: QA_MODEL(), label: 'character-sheet', recoveryRoot: `${root}/checks`, costTracker,
+    validate: json => parseSheetVerdict(json, { detailed: true }) ? null : 'Complete character verdict and specific visible outfit mismatch evidence are required' });
+  return verification.status === 'verified' ? { verdict: parseSheetVerdict(verification.json, { detailed: true }), verification } : { verification };
 }
 
-/**
- * Render + judge one candidate. Never throws: a generation failure is a
- * candidate with `error`, a judge failure one with `unverifiable`.
- * @param {number} index 0-based candidate index
- * @param {string} prompt
- * @param {{base64: string, mimeType?: string}} refPhoto
- * @param {{base64: string, mimeType?: string}|null} childPhoto optional photo for QA only
- * @param {object|undefined} costTracker
- * @returns {Promise<{index: number, buffer?: Buffer, verdict?: object, unverifiable?: string, error?: string}>}
- */
-async function produceCandidate(index, prompt, refPhoto, childPhoto, costTracker) {
-  let buffer;
+async function readSaved(path) {
+  try { return await downloadBuffer(path); }
+  catch (err) { if (err.code === 404 || /not found|No such object|cache miss/i.test(err.message)) return null; throw err; }
+}
+const saveJson = (path, data) => uploadBufferIfAbsent(Buffer.from(JSON.stringify(data)), path, 'application/json');
+
+function sheetPending(outcome, results = []) {
+  const err = pending(`Character reference needs attention: ${outcome.reason}. Saved sheets are retained.`, outcome, 'character_sheet');
+  err.advisories = results.map(r => advisory(`candidate ${r.index + 1}: ${(r.verdict?.defects || [r.verification?.reason]).filter(Boolean).join('; ')}`));
+  return err;
+}
+
+/** One initial candidate, then repairs guided by actual findings, up to the
+ * persisted limit (default three TOTAL images, not three per retry). */
+async function resolveCandidates({ path, prompt, refPhoto, childPhoto, costTracker, log }) {
+  const image = { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 };
+  const root = `${path}.${digest({ version: RECOVERY_VERSION, model: GEMINI_MODEL, prompt, image })}.recovery-v1`;
+  const results = [];
+  let repair = null;
   try {
-    buffer = await renderSheetCandidate(prompt, refPhoto);
+    await saveJson(`${root}/budget.json`, { limit: sheetCandidateCount() });
+    const budget = JSON.parse((await readSaved(`${root}/budget.json`)).toString());
+    if (!Number.isInteger(budget.limit) || budget.limit < CANDIDATES_MIN || budget.limit > CANDIDATES_MAX) throw new Error('Invalid saved sheet budget');
+    for (let index = 0; index < budget.limit; index++) {
+      const key = `${root}/candidate-${index}`;
+      let buffer = await readSaved(`${key}.png`);
+      let renderFailure = await readSaved(`${key}.error.json`);
+      if (renderFailure) {
+        renderFailure = JSON.parse(renderFailure.toString());
+      } else if (!buffer) {
+        const claimed = await saveJson(`${key}.claim.json`, { at: Date.now() });
+        if (!claimed.created) {
+          // The other process may have completed between our read and claim.
+          buffer = await readSaved(`${key}.png`);
+          if (!buffer) {
+            const failure = await readSaved(`${key}.error.json`);
+            const claim = JSON.parse((await readSaved(`${key}.claim.json`)).toString());
+            if (!Number.isFinite(claim.at)) throw new Error('Invalid character-sheet reservation');
+            if (failure) renderFailure = JSON.parse(failure.toString());
+            else if (Date.now() - claim.at < RENDER_LEASE_MS) throw sheetPending({ status: 'transient', reason: 'A character sheet is already being generated', evidenceKey: root }, results);
+            else renderFailure = { status: 'transient', reason: 'Previous character-sheet generation was interrupted' };
+          }
+        } else {
+          log('info', `character sheet candidate ${index + 1}: ${repair ? 'repairing verified defects' : 'generating'} (${root})`);
+          try {
+            buffer = await renderSheetCandidate(prompt, refPhoto, repair);
+            costTracker?.addImageGeneration?.(GEMINI_MODEL, 1);
+          } catch (err) {
+            renderFailure = err.verification || { status: 'transient', reason: 'Character-sheet render transport interrupted' };
+            await saveJson(`${key}.error.json`, renderFailure);
+          }
+          // Save before QA. A storage failure must not be recast as a visual
+          // defect or cause more image purchases in this run.
+          if (buffer) await uploadBufferIfAbsent(buffer, `${key}.png`, 'image/png');
+        }
+      } else costTracker?.recordReuse?.('image');
+      if (renderFailure) {
+        const outcome = { ...renderFailure, evidenceKey: root };
+        results.push({ index, verification: outcome, error: outcome.reason });
+        if (outcome.status !== 'transient') throw sheetPending(outcome, results);
+        continue; // known failed call: next bounded slot can run immediately
+      }
+      const judged = await judgeSheetCandidate(buffer, refPhoto, childPhoto, root, costTracker);
+      results.push({ index, buffer, ...judged });
+      if (!judged.verdict) throw sheetPending(judged.verification, results);
+      await saveJson(`${key}.verdict.json`, judged.verdict);
+      if (judged.verdict.pass) return { ...electCandidate(results, log), count: index + 1, root };
+      // Repair the best verified candidate seen so far. The cover is still
+      // authoritative; correct inferred garments are preserved from this source.
+      if (!repair || judged.verdict.defects.length < repair.defects.length ||
+        (judged.verdict.defects.length === repair.defects.length && judged.verdict.likeness > repair.likeness)) {
+        repair = { buffer, defects: judged.verdict.defects, likeness: judged.verdict.likeness };
+      }
+    }
+    electCandidate(results, log);
+    const last = results.filter(r => r.verdict).at(-1);
+    throw sheetPending({ status: last ? 'confirmed_defect' : 'exhausted', exhausted: true,
+      reason: last ? `Character-sheet repair budget reached: ${last.verdict.defects.join('; ')}` : 'Character-sheet render attempt budget reached', evidenceKey: root }, results);
   } catch (err) {
-    return { index, error: err.message };
+    if (err.recovery) throw err;
+    throw sheetPending({ status: 'configuration', reason: 'Character-sheet evidence storage unavailable', evidenceKey: root }, results);
   }
-  if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
-  const judged = await judgeSheetCandidate(buffer, refPhoto, childPhoto);
-  if (judged.unverifiable) return { index, buffer, unverifiable: judged.unverifiable };
-  return { index, buffer, verdict: judged };
 }
 
 /** @param {{likeness: number, photoLikeness?: number|null}} verdict @returns {string} log fragment */
@@ -443,7 +432,7 @@ function describeLikeness(verdict) {
  * `CATALOG_SHEET_REQUIRED=0` turns that failure into a sheet-less render
  * with an advisory — never into a pinned guess. An elected sheet whose
  * photo likeness sits below PHOTO_LIKENESS_ADVISORY carries an advisory.
- * @param {Array<object>} results from produceCandidate, in index order
+ * @param {Array<object>} results in candidate order
  * @param {(level: string, msg: string) => void} log
  * @returns {{winner: object|null, likeness: number|null, photoLikeness: number|null, advisories: Array<{stage: string, note: string}>, error?: Error}}
  */
@@ -454,6 +443,8 @@ function electCandidate(results, log) {
     if (r.error) {
       log('warn', `character sheet candidate ${n}: generation failed (${r.error})`);
       advisories.push(advisory(`candidate ${n} generation failed: ${r.error}`));
+    } else if (r.verification && !r.verdict) {
+      advisories.push(advisory(`candidate ${n} unverifiable: ${r.verification.reason}`));
     } else if (r.unverifiable) {
       log('warn', `character sheet candidate ${n}: UNVERIFIABLE (${r.unverifiable})`);
       advisories.push(advisory(`candidate ${n} unverifiable: ${r.unverifiable}`));
@@ -559,9 +550,8 @@ function copySheet(sheet) {
  * @param {(level: string, msg: string) => void} [params.log]
  * @returns {Promise<{base64: string, mimeType: string, hash: string, storageKey: string, likeness: number|null, photoLikeness: number|null, candidates: number, advisories: Array<{stage: string, note: string}>}|null>}
  *   null ONLY when the kill-switch is off.
- * @throws {Error} `failureCode = 'identity_kit_failed'` (+ `advisories`) on
- *   any total failure — bad input, no passing candidate, transport or
- *   election failure, or an anchor inside its failure cooldown.
+ * @throws {Error} `visual_recovery_pending` for unresolved work, retaining
+ *   candidates and the original cause; `identity_kit_failed` for missing input.
  */
 async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profile = null, characterDescription = null, costTracker, log = () => {} }) {
   if (!flags.characterSheetEnabled()) return null;
@@ -571,35 +561,22 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
   const key = anchorHash(anchorUrl);
   const hit = cacheGet(key);
   if (hit) return copySheet(hit);
-  if (inFailureCooldown(key)) {
-    throw identityKitError(`character sheet for anchor ${key} failed recently — inside the failure cooldown`, [advisory('anchor inside the character-sheet failure cooldown')]);
-  }
   if (_inFlight.has(key)) return _inFlight.get(key).then(copySheet);
 
   const resolve = (async () => {
     const path = characterSheetPath(key);
     const sidecarPath = characterSheetSidecarPath(key);
     try {
-      const cached = await downloadBuffer(path).catch(() => null);
+      const cached = await readSaved(path);
       if (cached) {
         const meta = parseSidecar(await downloadBuffer(sidecarPath).catch(() => null));
         const sheet = toSheet(cached, path, meta, []);
         cacheSet(key, sheet);
         return sheet;
       }
-      const count = sheetCandidateCount();
-      log('info', `character sheet for anchor ${key} not cached — generating ${count} candidate(s) (${path})`);
-      // The approved cover alone drives generation. The child's photo
-      // remains an optional QA diagnostic, never a competing render anchor.
       const prompt = buildSheetPrompt({ profile, characterDescription });
-      const results = await Promise.all(
-        Array.from({ length: count }, (_, i) => produceCandidate(i, prompt, refPhoto, childPhoto, costTracker)),
-      );
-      const election = electCandidate(results, log);
-      if (!election.winner) {
-        recordFailure(key);
-        throw election.error;
-      }
+      const election = await resolveCandidates({ path, prompt, refPhoto, childPhoto, costTracker, log });
+      const count = election.count;
       // Create-if-absent: concurrent cold instances race to create the same
       // deterministic object and exactly one write wins — every loser ADOPTS
       // the winning bytes, so all instances anchor on ONE sheet.
@@ -611,8 +588,7 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
         ({ created } = await uploadBufferIfAbsent(sheetBuffer, path, 'image/png'));
       } catch (err) {
         // Never globally elected — using it would fork the fixed reference
-        // during a GCS outage. Total failure with the cooldown.
-        recordFailure(key);
+        // during a GCS outage. The next call retries election using saved bytes.
         throw identityKitError(`character sheet upload failed for anchor ${key}: ${err.message}`, [...advisories, advisory(`sheet upload failed: ${err.message}`)]);
       }
       if (created) {
@@ -630,7 +606,7 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
         });
       } else {
         // A KNOWN winner exists: local bytes are never acceptable. Failing
-        // to fetch the winner is a total failure WITHOUT a cooldown — the
+        // to fetch the winner is recoverable — the
         // winner exists, and the next cache check fetches it.
         log('info', `character sheet for anchor ${key} was created concurrently — adopting the winning object`);
         try {
@@ -645,12 +621,11 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
       cacheSet(key, sheet);
       return sheet;
     } catch (err) {
-      if (err.failureCode === FAILURE_CODE) throw err;
+      if (err.recovery) throw err;
       // Anything else (transport shape we did not anticipate) is still a
-      // total failure under the same code, with the cooldown.
+      // recoverable storage/election failure; never purchase another sheet.
       log('warn', `character sheet unavailable for anchor ${key} (${err.message})`);
-      recordFailure(key);
-      throw identityKitError(`character sheet failed for anchor ${key}: ${err.message}`, [advisory(`sheet build failed: ${err.message}`)]);
+      throw sheetPending({ status: 'configuration', reason: `Character-sheet election unavailable: ${err.message}`, evidenceKey: path });
     } finally {
       _inFlight.delete(key);
     }
