@@ -960,9 +960,6 @@ const BLOCKING_PREFIXES = [
   // centerline is cut in half by the physical fold. Print-destroying, so
   // blocking like band/split.
   'embedded story text crosses the page fold',
-  // Bounding boxes estimate a block footprint, not a measured font size.
-  // Moderate variation is advisory; only extreme enlargement blocks.
-  'embedded story text too large',
   // qa-10 (ce-18): the ink colour is a book-wide lock like the font and the
   // size. A spread that inverts to light text (or retints to the scene)
   // reads as a different book, so a wrong-ink candidate sinks in selection
@@ -1018,21 +1015,10 @@ const TEXT_TYPEFACE_DEFECT = 'embedded story text typeface differs from the book
 const TEXT_ALIGNMENT_DEFECT = 'embedded story text not left-aligned (centred, right-aligned, or rows without one shared left margin)';
 
 /**
- * The size ruler (qa-7/qa-8, restored qa-12). The 2026-09-05 relaxation to
- * 4×/2× ("allow normal wrapping/bbox variation") let a block painted at
- * TWICE its footprint — subtitle scale, the exact defect the footprint was
- * built to catch — ship as a mere advisory. With the drawn template the
- * footprint is exact (its rows ARE the expected rows), a correct render
- * measures ≈1.0×, and the judged bbox's roughness is well inside 1.5×.
- * `needsRepair` still never spends renders on the advisory band.
- */
-const TEXT_TOO_LARGE_RATIO = 1.5;
-const TEXT_OVERSIZED_RATIO = 1.25;
-
-/**
  * How many times larger than its footprint the painted block is — the max
  * of the width and height ratios (a bigger face grows the height; re-broken
- * longer rows grow the width; both are wrong). Null when nothing to measure.
+ * longer rows grow the width). Ranking signal only, not a size approval.
+ * Null when nothing to measure.
  * Pure — exported for tests.
  * @param {{x:number,y:number,w:number,h:number}|null} bbox the judged text bbox (fractions)
  * @param {{widthPercent:number,heightPercent:number}|null} block expectedTextBlock(...)
@@ -1278,8 +1264,8 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         // qa-7: the ruler — the SAME footprint numbers the prompt stated,
         // held against the judged bbox (fail-open without a bbox).
         sizeRatio = textSizeRatio(textBbox, o.expectedBlock);
-        if (sizeRatio != null && sizeRatio >= TEXT_TOO_LARGE_RATIO) defects.push(`embedded story text too large (about ${sizeRatio}× the book's fixed size)`);
-        else if (sizeRatio != null && sizeRatio >= TEXT_OVERSIZED_RATIO) defects.push(`embedded story text oversized (about ${sizeRatio}× the book's fixed size)`);
+        // qa-15: rough footprint estimates rank candidates; size alone is
+        // neither a QA defect nor a reason to spend on corrective renders.
         if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
         if (json.text_style_inconsistent) defects.push('embedded story text mixes fonts, sizes, or colors');
         // qa-12: the book's ONE lettering — a uniformly wrong face (bold
@@ -1447,4 +1433,4 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   return notes.length > 0 ? `${base} ${notes.join(' ')}` : base;
 }
 
-module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, TEMPLATE_DEPARTS_DEFECT, TEMPLATE_DRIFTS_DEFECT, BODY_INCOMPLETE_DEFECT, LIMB_POSE_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };
+module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, TEMPLATE_DEPARTS_DEFECT, TEMPLATE_DRIFTS_DEFECT, BODY_INCOMPLETE_DEFECT, LIMB_POSE_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };

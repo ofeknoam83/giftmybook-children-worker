@@ -173,11 +173,8 @@ function needsRepair(qa) {
   if (qa?.textVerification?.status === 'unverified') return false; // Re-read, do not buy artwork for an OCR outage.
   if (!qa || qa.qaUnavailable) return false;
   if (Array.isArray(qa.blocking) && qa.blocking.length > 0) return true;
-  // The 'oversized' advisory (1.25–1.5× the footprint) shades selection
-  // only — the judged bbox is too rough on small blocks to spend repair
-  // renders on; 'too large' (≥ 1.5×) is blocking and repairs. qa-13's
-  // 'drifts from the drawn lettering template' band is the same kind of
-  // finding (measured, sub-threshold): selection only, never a render.
+  // Legacy oversized advisories and sub-threshold template drift are
+  // selection-only. qa-15 no longer emits footprint-size defects.
   return (qa.advisory || []).some(d => d.startsWith('embedded story text') && !d.startsWith('embedded story text oversized') && !d.startsWith('embedded story text drifts from the drawn lettering template'));
 }
 

@@ -867,9 +867,9 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
   });
 
   // 'Spread 1 text.' under the age-2 tier is a 6.3% × 2.1% block; this bbox
-  // measures ≈1.4× — the advisory band (qa-12 blocks from 1.5×), so the
+  // measures ≈1.6× — ranking-only, above the anchor limit, so the
   // page ships but is never copied as the book's reference.
-  test.each([null, { x: 0.1, y: 0.15, w: 0.088, h: 0.029 }])('an unmeasured or moderately oversized first page is kept without copying it or spending extra renders (%j)', async bbox => {
+  test.each([null, { x: 0.1, y: 0.15, w: 0.101, h: 0.034 }])('an unmeasured or moderately oversized first page is kept without copying it or spending extra renders (%j)', async bbox => {
     fetchWithTimeout.mockImplementation(measuredVerdict(bbox));
     generateIllustration.mockClear(); electTypographyAnchor.mockClear();
     const { results, typographyAnchorUsed, advisories } = await renderStorySpreads(baseParams({ spreadNos: [1, 3, 5], spreads: [1, 3, 5], textLayout: 'embedded' }));
@@ -877,9 +877,9 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     expect(results.every(r => r.buffer && r.blocking.length === 0)).toBe(true);
     expect(results[0].qa.qaUnavailable).toBeUndefined();
     if (bbox) {
-      expect(results[0].qa.textSizeRatio).toBeGreaterThan(1.25);
-      expect(results[0].qa.textSizeRatio).toBeLessThan(1.5);
-      expect(results[0].qa.advisory).toEqual([expect.stringContaining('embedded story text oversized')]);
+      expect(results[0].qa.textSizeRatio).toBeGreaterThan(1.5);
+      expect(results[0].qa.textSizeRatio).toBeLessThan(1.7);
+      expect(results[0].qa.advisory).toEqual([]);
     } else expect(results[0].qa.textSizeRatio).toBeNull();
     expect(generateIllustration).toHaveBeenCalledTimes(3);
     expect(electTypographyAnchor).not.toHaveBeenCalled();
@@ -1036,7 +1036,7 @@ describe('ce-15: the book\'s own first painted page is the typography reference 
     const { needsRepair } = require('../../../services/catalogEngine/illustrator');
     expect(needsRepair({ blocking: [], advisory: ['embedded story text oversized (about 1.3× the book\'s fixed size)'] })).toBe(false);
     expect(needsRepair({ blocking: [], advisory: ['embedded story text lines misaligned (tilted)'] })).toBe(true);
-    expect(needsRepair({ blocking: ['embedded story text too large (about 2× the book\'s fixed size)'], advisory: [] })).toBe(true);
+    expect(needsRepair({ blocking: [], advisory: [], textSizeRatio: 1.6 })).toBe(false);
     expect(needsRepair({ blocking: [], advisory: ['face hidden: turned away'] })).toBe(false);
     // qa-13: the measured 'drifts from the drawn lettering template' band is
     // selection-only like 'oversized'; 'departs' is blocking and repairs.
