@@ -6,7 +6,10 @@ function verifyApproval(token, { expired = false } = {}) {
   if (!secret || secret.length < 32 || !destination()) throw new Error('Visual review is not configured');
   if (!token || typeof token.payload !== 'string' || typeof token.signature !== 'string') throw new Error('Signed admin approval required');
   const expected = createHmac('sha256', secret).update(token.payload).digest('hex');
-  if (token.signature.length !== expected.length || !timingSafeEqual(Buffer.from(token.signature), Buffer.from(expected))) throw new Error('Invalid admin approval');
+  if (!/^[a-f0-9]{64}$/.test(token.signature)) throw new Error('Invalid admin approval');
+  const expectedBytes = Buffer.from(expected, 'hex');
+  const signatureBytes = Buffer.from(token.signature, 'hex');
+  if (signatureBytes.length !== expectedBytes.length || !timingSafeEqual(signatureBytes, expectedBytes)) throw new Error('Invalid admin approval');
   const claim = JSON.parse(token.payload);
   if (claim.version !== 1 || claim.audience !== 'children-visual-review' || claim.provider !== 'gemini' || claim.model !== destination()
     || !['inspect', 'benign_verification'].includes(claim.decision) || !claim.adminId || !claim.reviewedBy
