@@ -62,6 +62,9 @@ const { objectsForSpread, designText, criticalObjectFailures } = require('./stor
 const { presenceHash, forbidden, resolveScenePresence } = require('./scenePresence');
 const { recoveryFor } = require('../../shared/llm/visualJudge');
 
+/** @param {number} ms @returns {Promise<void>} */
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Spreads rendered in parallel (each slot fans out into
 // CATALOG_RENDER_CANDIDATES concurrent image calls) — env-tunable
@@ -211,7 +214,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, retryRound = 0, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -634,7 +637,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       try {
         if (retryUnresolved) {
           const buffer = await durableCandidate({ root: `${storageKey}.recovery-v1`, identity: { sceneText, k, pass, references: renderOpts.referenceImages },
-            limit: renderBudget?.limit || 3, costTracker,
+            // A missing-render round (renderStorySpreads) widens the durable
+            // slot cap in step with its fresh budget: a spread with no art
+            // has bought nothing usable, so earlier failed slots never cap it.
+            limit: (renderBudget?.limit || 3) * (1 + retryRound), costTracker,
             generate: async candidatePath => {
               const made = await generateIllustration(sceneText, characterRefUrl, 'pixar_premium', { ...renderOpts, attemptLog, gcsPath: candidatePath });
               if (!made) throw Object.assign(new Error('No image returned'), { attempts: attemptLog });
@@ -1293,6 +1299,9 @@ async function renderStorySpreads(params) {
     approvedCoverUrl, childPhotoUrl, characterDescription,
     textLayout = 'caption', spreads = null, rerenderSpreads = null, probeNonce = null,
     costTracker, forceRerender = false, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false,
+    // The full-book caller keeps rendering a spread that came back with NO
+    // illustration (bounded rounds, below); a probe reports it as failed.
+    retryMissing = false,
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
   const { book, theme } = bookDef;
@@ -1529,13 +1538,42 @@ async function renderStorySpreads(params) {
   // per-book watchdog aborts books idle >20min — a 30s heartbeat keeps a
   // healthy render phase alive (the same pattern the set gates use).
   const renderPhaseStart = Date.now();
-  const renderHeartbeat = setInterval(() => onProgress(Math.max(0.01, done / wanted.length), `Illustrating spreads (${done}/${wanted.length} done)...`), 30000);
+  const fraction = () => Math.max(0.01, Math.min(done, wanted.length) / wanted.length);
+  const renderHeartbeat = setInterval(() => onProgress(fraction(), `Illustrating spreads (${Math.min(done, wanted.length)}/${wanted.length} done)...`), 30000);
+  // A spread whose render THREW (every candidate errored, or the durable
+  // candidate budget refused) — the layout-ready record with no image, the
+  // per-attempt diagnostics the renderer attached ("failed after 5
+  // attempts" alone is not actionable), and the typed recovery when the
+  // durable path produced one.
+  const failedRender = (spread, reason) => {
+    const note = `render errored: ${reason?.message || String(reason)}`;
+    log('error', `Spread ${spread} ${note}`);
+    const detail = {
+      ...(Array.isArray(reason?.attempts) && reason.attempts.length > 0 ? { attempts: reason.attempts } : {}),
+      ...(reason?.failureCode ? { failureCode: reason.failureCode } : {}),
+    };
+    return {
+      spread,
+      buffer: null,
+      storageKey: renderCachePath(bookId, hashFor(spread), spread, cacheAspect, tuningTag),
+      url: null,
+      advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
+      fresh: false,
+      bathWater: false,
+      blocking: [],
+      candidates: [],
+      qa: null,
+      recovery: reason?.recovery || null,
+      bbox: null,
+    };
+  };
   let settled;
+  let results;
   try {
     const renderOne = async (beat, extra = {}) => {
       const r = await renderSpread(spreadArgs(beat.spread, { forceRerender: forceRerender || forceSet.has(beat.spread), ...extra }));
       done += 1;
-      onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
+      onProgress(fraction(), `Illustrated spread ${beat.spread} (${Math.min(done, wanted.length)}/${wanted.length})`);
       return r;
     };
     let anchorSettled = null;
@@ -1580,38 +1618,51 @@ async function renderStorySpreads(params) {
     const rest = electNow ? wanted.slice(1) : wanted;
     settled = await Promise.allSettled(rest.map(beat => limit(() => renderOne(beat))));
     if (anchorSettled) settled = [anchorSettled, ...settled];
+    results = settled.map((s, i) => (s.status === 'fulfilled' ? s.value : failedRender(wanted[i].spread, s.reason)));
+    results.sort((a, b) => a.spread - b.spread);
+
+    // ── Missing renders: keep rendering until every spread has an image ──
+    // A spread with NO illustration is not a QA finding the ship policy can
+    // carry — a blank page cannot print. The full-book path renders every
+    // such spread again in bounded rounds (the whole per-spread path:
+    // candidates, QA, repairs) with a growing backoff between rounds so a
+    // provider hiccup has time to clear. Each round starts the spread's
+    // render budget over (it has bought nothing usable) and widens its
+    // durable slot cap in step; only a spread still blank after the last
+    // round fails the run (`render_failed`, illustrateStory). Probes keep
+    // the one-pass contract and report the failure per spread. Bounded by
+    // CATALOG_MISSING_RENDER_ROUNDS / CATALOG_MISSING_RENDER_BACKOFF_MS.
+    const rounds = retryMissing && !reviewedOnly ? flags.missingRenderRounds() : 0;
+    for (let round = 1; round <= rounds; round++) {
+      const missing = results.filter(r => !r.buffer);
+      if (missing.length === 0) break;
+      const wait = flags.missingRenderBackoffMs() * round;
+      log('warn', `Spread(s) ${missing.map(r => r.spread).join(', ')} came back with no illustration — render round ${round}/${rounds}${wait > 0 ? ` in ${Math.round(wait / 1000)}s` : ''}`);
+      onProgress(fraction(), `Rendering ${missing.length} spread(s) that have no illustration yet (round ${round}/${rounds})...`);
+      if (wait > 0) await sleep(wait);
+      const retried = await Promise.allSettled(missing.map(r => limit(() => {
+        renderBudget.used.delete(r.spread);
+        // Fresh pixels, never a cache read: the spread just failed to render,
+        // so anything at its key is stale (a replay would also re-vouch it).
+        return renderOne(wanted.find(b => b.spread === r.spread), { forceRerender: true, retryRound: round });
+      })));
+      retried.forEach((s, i) => {
+        const prior = missing[i];
+        const next = s.status === 'fulfilled' ? s.value : failedRender(prior.spread, s.reason);
+        // Every earlier attempt's diagnostics stay on the record: folded
+        // into one note when the round succeeded (the completion callback
+        // must not read "render errored" beside a page that has art), kept
+        // whole when it did not (the failure payload names every round).
+        next.advisories = next.buffer
+          ? [{ stage: 'render', spread: prior.spread, note: `illustrated on render round ${round} — earlier attempt(s): ${prior.advisories.map(a => a.note).join('; ')}` }, ...next.advisories]
+          : [...prior.advisories, ...next.advisories];
+        results[results.findIndex(r => r.spread === prior.spread)] = next;
+      });
+    }
   } finally {
     clearInterval(renderHeartbeat);
   }
   log('info', `Render phase (${wanted.length} spread(s), concurrency ${RENDER_CONCURRENCY()}) done in ${Math.round((Date.now() - renderPhaseStart) / 1000)}s`);
-  const results = settled.map((s, i) => {
-    if (s.status === 'fulfilled') return s.value;
-    const spread = wanted[i].spread;
-    const note = `render errored: ${s.reason?.message || String(s.reason)}`;
-    log('error', `Spread ${spread} ${note}`);
-    // The per-attempt diagnostics the renderer attached to the failure —
-    // "failed after 5 attempts" alone is not actionable for the admin.
-    const detail = {
-      ...(Array.isArray(s.reason?.attempts) && s.reason.attempts.length > 0 ? { attempts: s.reason.attempts } : {}),
-      ...(s.reason?.failureCode ? { failureCode: s.reason.failureCode } : {}),
-    };
-    return {
-      spread,
-      buffer: null,
-      storageKey: renderCachePath(bookId, hashFor(spread), spread, cacheAspect, tuningTag),
-      url: null,
-      advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
-      fresh: false,
-      bathWater: false,
-      blocking: [],
-      candidates: [],
-      qa: null,
-      recovery: s.reason?.recovery || null,
-      bbox: null,
-    };
-  });
-
-  results.sort((a, b) => a.spread - b.spread);
 
   const rerender = (spread, note, isolate = false) => {
     if (results.find(r => r.spread === spread)?.qa?.qaUnavailable) {
@@ -1708,7 +1759,10 @@ async function renderStorySpreads(params) {
     }
     else unresolved.push({ ...failure });
   }
-  if (unresolved.length > 0 && !objectFailures.length && flags.shipOnExhaustion() && !results.some(r => r.qa?.textVerification && r.qa.textVerification.status !== 'verified')) {
+  // Every residual class ships under the automatic policy (illustrateStory)
+  // — the blocking selection residuals, an unverified critical story
+  // object, a lettering finding — so the book-level note names them all.
+  if (unresolved.length > 0 && flags.shipOnExhaustion()) {
     advisories.push({ stage: 'shipPolicy', note: `Automatically used the best existing artwork for ${unresolved.length} spread(s) with residual QA warnings: ${unresolved.map(u => `s${u.spread}`).join(', ')}` });
   }
   const typographyAnchorUsed = reviewedManifest?.typographyAnchorUsed
@@ -1808,15 +1862,34 @@ async function recoverCriticalObjectSet({ results, bible, bookId, costTracker, r
   return repaired.length ? verifyCriticalObjectSet(results, bible, onProgress, context) : failures;
 }
 
-/** Illustrate a validated story; unresolved critical objects always require review. */
+/**
+ * Illustrate a validated story into layout-ready entries.
+ *
+ * Ship policy (2026-09-08 — the book FINISHES): every spread ships its best
+ * candidate. A BLOCKING selection residual, a painted manuscript that is
+ * mismatched or could not be verified, a critical story object that
+ * differs or could not be verified, a checker outage — each rides the
+ * completion callback as an advisory (the `.qa.json` marker keeps the
+ * findings too), never a pause for the admin to pick a candidate. The one
+ * finding no policy can carry is the ABSENCE of an image: a spread still
+ * blank after the missing-render rounds fails the run `render_failed`,
+ * with the missing spreads' recovery record attached so a transient
+ * outage resumes automatically on the app side.
+ *
+ * `CATALOG_SHIP_ON_EXHAUSTION=0` is the strict opt-out for diagnostic runs:
+ * every one of those findings is a hard gate again — `visual_recovery_pending`
+ * (with `visualRecovery`) or `consistency_unresolved`, the scored candidates
+ * attached for the pick-candidate / re-render remedies.
+ */
 async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
+  const automatic = flags.shipOnExhaustion();
   const { results, aspect, tuningTag, worldQa, contactQa, textInkQa, outfitLockUsed, typographyAnchorUsed, bookBible, bible, unresolved, objectFailures, advisories: bookAdvisories } = await renderStorySpreads({
-    ...params, ...(params.visualRecovery ? { retryUnresolved: true } : {}), spreads: null, rerenderSpreads: null, probeNonce: null, recordRenderManifest: true,
+    ...params, ...(params.visualRecovery ? { retryUnresolved: true } : {}), spreads: null, rerenderSpreads: null, probeNonce: null, recordRenderManifest: true, retryMissing: true,
   });
   const qaAdvisories = [...bookAdvisories, ...results.flatMap(r => r.advisories)];
-  if (params.visualRecovery) {
+  if (params.visualRecovery && !automatic) {
     const waiting = results.filter(r => r.recovery || (r.buffer && (!r.qa?.verdict || r.qa.qaUnavailable)));
     const findings = [...unresolved, ...waiting.filter(r => !unresolved.some(u => u.spread === r.spread)).map(r => ({ spread: r.spread, defects: [], candidates: r.candidateFiles || [] }))];
     if (findings.length) {
@@ -1848,12 +1921,21 @@ async function illustrateStory(params) {
       ...(r.advisories.find(a => a.detail) ? { detail: r.advisories.find(a => a.detail).detail } : {}),
     }));
     err.bookBible = bookBible;
+    // The typed recovery of the missing spreads (a provider block, an
+    // exhausted durable budget, a transient outage) rides the failure when
+    // every one of them carries one: the app shows the saved evidence and,
+    // for a transient outage, resumes the saved work on its own schedule.
+    const recoveries = failed.map(r => r.recovery).filter(Boolean);
+    const issues = recoveries.flatMap(rec => (Array.isArray(rec.issues) ? rec.issues : []).map(i => ({ ...i, exhausted: i.exhausted || !rec.retryable })));
+    if (recoveries.length === failed.length && issues.length > 0) err.recovery = recoveryFor(issues, 'scene_generation');
     throw err;
   }
-  // Spelling is not an optional visual warning. This runs after all set
-  // repairs and also covers admin picks and PDF-only rebuilds.
-  const textFailures = textLayout === 'embedded' ? results.filter(r => !textVerificationCurrent(r.qa?.textVerification, story.spreads.find(s => s.spread === r.spread)?.text || '')) : [];
-  if (textFailures.length) {
+  // The manuscript check runs after all set repairs and also covers admin
+  // picks and PDF-only rebuilds. The strict opt-out stops on it; automatic
+  // completion ships the page and names it for proofing (below).
+  const textFailures
+ = textLayout === 'embedded' ? results.filter(r => !textVerificationCurrent(r.qa?.textVerification, story.spreads.find(s => s.spread === r.spread)?.text || '')) : [];
+  if (textFailures.length && !automatic) {
     const err = new Error(`Story lettering needs review on spread(s) ${textFailures.map(r => r.spread).join(', ')} — the painted words do not match the approved story or could not be verified. Saved artwork is preserved; retry checks or repairs only affected spreads.`);
     err.failureCode = 'consistency_unresolved';
     err.unresolved = textFailures.map(r => ({
@@ -1872,7 +1954,7 @@ async function illustrateStory(params) {
   }
   // The explicit strict opt-out stops on residual QA findings. Automatic
   // completion keeps those findings visible and uses the best saved artwork.
-  if (objectFailures.length) {
+  if (objectFailures.length && !automatic) {
     const err = new Error(`Critical story-object continuity needs review on spread(s) ${[...new Set(objectFailures.map(f => f.spread))].join(', ')}. The object design, state or cross-spread check failed or could not be verified.`);
     err.failureCode = 'consistency_unresolved';
     err.unresolved = objectFailures;
@@ -1880,13 +1962,35 @@ async function illustrateStory(params) {
     err.bookBible = bookBible;
     throw err;
   }
-  if (unresolved.length > 0 && !flags.shipOnExhaustion()) {
+  if (unresolved.length > 0 && !automatic) {
     const err = new Error(`blocking consistency defects survived candidates and repairs on spread(s) ${unresolved.map(u => u.spread).join(', ')} — the book needs review (pick a candidate or re-render the spread); set CATALOG_SHIP_ON_EXHAUSTION=1 to ship with advisories instead`);
     err.failureCode = 'consistency_unresolved';
     err.unresolved = unresolved;
     err.qaAdvisories = qaAdvisories.slice(0, 40);
     err.bookBible = bookBible;
     throw err;
+  }
+  if (automatic) {
+    // The lettering findings are the one class the per-spread records do
+    // not already carry as a blocking note (an UNVERIFIED manuscript is an
+    // advisory on the verdict; a mismatch the recovery could not fix is in
+    // `blocking`) — name every affected page on the completion callback so
+    // the printed proof is checked there, and say what happened: the best
+    // candidate shipped, nothing stopped.
+    for (const r of textFailures) {
+      const tv = r.qa?.textVerification;
+      const detail = (tv?.issues || []).join('; ');
+      qaAdvisories.push({
+        stage: 'shipPolicy', spread: r.spread,
+        note: tv?.status === 'mismatch'
+          ? `painted story text differs from the approved manuscript${detail ? ` (${detail})` : ''} — shipped the best candidate; proof this page`
+          : `painted story text could not be verified against the approved manuscript${detail ? ` (${detail})` : ''} — shipped the best candidate; proof this page`,
+      });
+    }
+    // Spreads whose checker was unavailable shipped UNCHECKED (their own
+    // advisory says so); a critical story object that differs or could not
+    // be verified already rides its spread's advisories (renderStorySpreads).
+    // Neither stops the book.
   }
 
   const entries = results.map(r => ({

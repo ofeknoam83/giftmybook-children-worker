@@ -366,14 +366,35 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   (`CATALOG_CONTACT_MAX_RERENDERS`, default 3); prop tiles are the
   structured verdict's per-prop bbox crops (`propBoxes`, kept on the
   marker), the whole spread only as a named fallback, and a prop repair
-  cites the prop sheet's index in the re-render's own pack. **Ship policy:** advisory
-  residuals ship with advisories; BLOCKING residuals that survive the
-  budget SHIP with the best candidate and their findings on record (since
-  #297 `CATALOG_SHIP_ON_EXHAUSTION` is ON by default — "finish with the
-  best existing candidate"; set it to `0` for a diagnostic run that must
-  fail the book `consistency_unresolved` with `unresolved: [{spread,
-  defects, candidates:[{storageKey, url, score}]}]` + `bookBible` on the
-  failure callback); the `.qa.json` marker records `qaVersion`
+  cites the prop sheet's index in the re-render's own pack. **Ship policy
+  (the book FINISHES — 2026-09-08):** every spread ships its best
+  candidate. Advisory residuals ship with advisories; BLOCKING residuals
+  that survive the budget SHIP with the best candidate and their findings
+  on record (since #297 `CATALOG_SHIP_ON_EXHAUSTION` is ON by default —
+  "finish with the best existing candidate"), and since 2026-09-08 so does
+  EVERY other spread-level finding that used to stop the run for the admin
+  to pick a candidate: a painted manuscript that is mismatched or could
+  not be verified (a per-spread `shipPolicy` advisory names the page —
+  "proof this page"), a critical story object that differs or could not be
+  verified (its `spreadQa` advisory), and a checker outage ("shipped
+  UNCHECKED"); the `visualRecovery` pause (`visual_recovery_pending`) is
+  a strict-mode behaviour too. The one finding no policy can carry is the
+  ABSENCE of an image: a spread that comes back with NO illustration is
+  rendered again in bounded **missing-render rounds**
+  (`CATALOG_MISSING_RENDER_ROUNDS`, default 3, each round the whole
+  per-spread path — candidates, QA, repairs — FRESH on a restarted render
+  budget with the durable slot cap widened in step, after a growing
+  backoff `CATALOG_MISSING_RENDER_BACKOFF_MS` × round, default 15 s; the
+  probe keeps its one-pass contract), and only a spread still blank after
+  the last round fails the run `render_failed` — carrying the missing
+  spreads' typed `recovery` (stage `scene_generation`) so the app shows
+  the saved evidence and resumes a transient outage on its own schedule
+  (a provider block stays a review). Set `CATALOG_SHIP_ON_EXHAUSTION=0`
+  for a diagnostic run that must stop instead: every finding above is a
+  hard gate again — `consistency_unresolved` (or `visual_recovery_pending`
+  under `visualRecovery`) with `unresolved: [{spread, defects,
+  candidates:[{storageKey, url, score}]}]` + `bookBible` on the failure
+  callback; the `.qa.json` marker records `qaVersion`
   (`QA_VERSION`, versions.js) and an `unresolved` flag, so a replay under a
   newer checker — or of an unresolved render — re-checks instead of
   trusting it (the one exception: a render the opt-in switch shipped is
@@ -1047,9 +1068,19 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_EMOTION_CLASSIFIER=0` keeps the keyword table only.
 - `CATALOG_CONTACT_QA=0` — (ce-9) skip the contact-sheet set gate and its
   corrective re-renders (independent of `CATALOG_WORLD_QA`).
-- `CATALOG_SHIP_ON_EXHAUSTION=0` — (ce-9; ON by default since #297) opt
-  OUT of shipping blocking residuals with the best candidate: fail the
-  book `consistency_unresolved` instead (diagnostic runs).
+- `CATALOG_SHIP_ON_EXHAUSTION=0` — (ce-9; ON by default since #297, and
+  since 2026-09-08 it covers EVERY spread-level finding — blocking
+  residuals, lettering, critical story objects, checker outages, the
+  `visualRecovery` pause) opt OUT of finishing the book with the best
+  candidate: fail it `consistency_unresolved` / `visual_recovery_pending`
+  instead, candidates attached (diagnostic runs).
+- `CATALOG_MISSING_RENDER_ROUNDS=N` — (2026-09-08) extra render rounds the
+  full-book path spends on a spread that came back with NO illustration
+  before failing `render_failed` (0-10, default 3; each round is the whole
+  per-spread path, fresh, on a restarted budget).
+  `CATALOG_MISSING_RENDER_BACKOFF_MS=N` — the wait before round N is
+  N × this (0-300000, default 15000).
+
 - `CATALOG_IDENTITY_METRICS=1` — (ce-9, OPT-IN) embedding identity score +
   set outliers (`CATALOG_EMBEDDING_BACKEND`, default `vertex`).
 - `CATALOG_UPSELL_OUTFIT_LOCK=0` — (ce-9) upsell covers dress freely again.
