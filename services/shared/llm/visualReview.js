@@ -35,7 +35,7 @@ async function handleReview(token) {
   }
   if (!blocked) throw new Error('Only a saved provider block can be reviewed');
   if (claim.decision === 'inspect') return { fingerprint: claim.fingerprint, provider: claim.provider, model: claim.model, parts: request.parts };
-  await storage.uploadBufferIfAbsent(Buffer.from(JSON.stringify(token)), `${root}/review.json`, 'application/json');
+  await storage.uploadBuffer(Buffer.from(JSON.stringify(token)), `${root}/review.json`, 'application/json');
   return { approved: true, fingerprint: claim.fingerprint, provider: claim.provider, model: claim.model };
 }
 module.exports = { verifyApproval, handleReview };
