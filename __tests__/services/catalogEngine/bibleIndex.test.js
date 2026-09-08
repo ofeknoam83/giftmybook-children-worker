@@ -120,6 +120,8 @@ beforeEach(() => {
   verifyImageText.mockImplementation((buffer, text) => require('../../../services/shared/illustration/manuscript').verifyManuscript(text, async () => text));
   delete process.env.CATALOG_RENDER_CANDIDATES;
   process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
+  process.env.CATALOG_MISSING_RENDER_BACKOFF_MS = '0';
+  delete process.env.CATALOG_MISSING_RENDER_ROUNDS;
   delete process.env.CATALOG_SHEET_REQUIRED;
   delete process.env.CATALOG_CHARACTER_SHEET;
   delete process.env.CATALOG_SPREAD_QA_MAX_REPAIRS;
@@ -616,9 +618,9 @@ test('text-check outage preserves the first candidate without buying corrective 
   expect(results[0].qa.textVerification.status).toBe('unverified');
 });
 
-test.each(['mismatch', 'unverified'])('automatic shipping cannot complete a book with %s lettering', async status => {
+test.each(['mismatch', 'unverified'])('the strict opt-out (CATALOG_SHIP_ON_EXHAUSTION=0) cannot complete a book with %s lettering', async status => {
   const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
-  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
   process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '0';
   verifyImageText.mockImplementation(async (buffer, text) => {
     const good = await verifyManuscript(text, async () => text);
@@ -629,6 +631,74 @@ test.each(['mismatch', 'unverified'])('automatic shipping cannot complete a book
     failureCode: 'consistency_unresolved', unresolved: [expect.objectContaining({ spread: 3 })],
   });
   expect(uploadBuffer.mock.calls.some(([, key]) => key.endsWith('/reviewed-art.json'))).toBe(true);
+});
+
+test.each(['mismatch', 'unverified'])('automatic completion (the default) ships %s lettering with the page named for proofing — the book finishes', async status => {
+  const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '0';
+  verifyImageText.mockImplementation(async (buffer, text) => {
+    const good = await verifyManuscript(text, async () => text);
+    return text === 'Spread 3 text.' ? { ...good, status, valid: false, issues: ['Test text problem'] } : good;
+  });
+  const all = Array.from({ length: 12 }, (_, i) => i + 1);
+  const art = await illustrateStory(baseParams({ spreadNos: all, textLayout: 'embedded' }));
+  expect(art.entries).toHaveLength(12);
+  expect(art.entries.every(e => e.spreadIllustrationBuffer)).toBe(true);
+  expect(art.qaAdvisories).toContainEqual(expect.objectContaining({
+    stage: 'shipPolicy', spread: 3,
+    note: expect.stringContaining(status === 'mismatch' ? 'differs from the approved manuscript (Test text problem) — shipped the best candidate; proof this page' : 'could not be verified against the approved manuscript (Test text problem) — shipped the best candidate; proof this page'),
+  }));
+  // no other page is named
+  expect(art.qaAdvisories.filter(a => a.stage === 'shipPolicy' && a.spread != null).map(a => a.spread)).toEqual([3]);
+});
+
+test('a checker outage ships UNCHECKED under automatic completion; the strict opt-out pauses for review (visual_recovery_pending)', async () => {
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  checkSpreadRenderV2.mockResolvedValue({ pass: true, defects: [], blocking: [], advisory: [], verdict: null, bbox: null, refs: { sheetRef: 2, props: [], companionRef: null }, qaUnavailable: 'vision QA HTTP 503' });
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  const art = await illustrateStory(baseParams({ spreadNos: [1], visualRecovery: true }));
+  expect(art.entries).toHaveLength(12);
+  expect(art.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'spreadQa', spread: 1, note: expect.stringContaining('shipped UNCHECKED — vision QA HTTP 503') }));
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
+  await expect(illustrateStory(baseParams({ spreadNos: [1], visualRecovery: true }))).rejects.toMatchObject({
+    failureCode: 'visual_recovery_pending', unresolved: expect.arrayContaining([expect.objectContaining({ spread: 1, defects: [] })]),
+  });
+});
+
+test('a spread still blank after the missing-render rounds fails render_failed with the missing spreads\' recovery attached (durable path)', async () => {
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_MISSING_RENDER_ROUNDS = '2';
+  generateIllustration.mockImplementation(async (scene, ref, style, opts) => {
+    if (scene.includes('Scene 3 of 12')) throw new Error('boom');
+    return `https://gcs.example/${opts.gcsPath}`;
+  });
+  const err = await illustrateStory(baseParams({ spreadNos: [1], visualRecovery: true })).catch(e => e);
+  expect(err.failureCode).toBe('render_failed');
+  expect(err.renderFailures.map(f => f.spread)).toEqual([3]);
+  // a transient generation failure resumes on the app's own schedule
+  expect(err.recovery).toMatchObject({ version: 1, stage: 'scene_generation', reason: 'verification_unavailable', retryable: true });
+  expect(err.recovery.issues.length).toBeGreaterThan(0);
+  // base + 2 rounds; the durable slot cap widened with each round instead of refusing
+  expect(generateIllustration.mock.calls.filter(c => c[0].includes('Scene 3 of 12'))).toHaveLength(3);
+  expect(err.renderFailures[0].message).toContain('render errored: Illustration attempt failed');
+});
+
+test('a blank spread whose generation the provider BLOCKED fails render_failed with a non-retryable recovery (never a silent retry loop)', async () => {
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_MISSING_RENDER_ROUNDS = '1';
+  generateIllustration.mockImplementation(async (scene, ref, style, opts) => {
+    if (scene.includes('Scene 3 of 12')) {
+      if (Array.isArray(opts.attemptLog)) opts.attemptLog.push({ attempt: 1, variant: 'generic-safe', error: 'NSFW block', nsfw: true });
+      throw Object.assign(new Error('No image returned'), { attempts: opts.attemptLog });
+    }
+    return `https://gcs.example/${opts.gcsPath}`;
+  });
+  const err = await illustrateStory(baseParams({ spreadNos: [1], visualRecovery: true })).catch(e => e);
+  expect(err.failureCode).toBe('render_failed');
+  expect(err.recovery).toMatchObject({ stage: 'scene_generation', reason: 'provider_blocked', retryable: false, nextAction: 'review_provider_block' });
 });
 
 test.each([
@@ -901,11 +971,21 @@ describe('recurring story objects across the production render path', () => {
     const b = await renderStorySpreads(baseParams());
     expect(a.results[0].storageKey).not.toBe(b.results[0].storageKey);
   });
-  test('ship-on-exhaustion cannot bypass critical object failures', async () => {
-    process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  test('the strict opt-out stops on a critical-object finding', async () => {
+    process.env.CATALOG_SHIP_ON_EXHAUSTION = '0';
     checkSpreadRenderV2.mockResolvedValue(markerQa({ state_match: false }));
     await expect(illustrateStory(baseParams())).rejects.toMatchObject({ failureCode: 'consistency_unresolved', unresolved: expect.arrayContaining([expect.objectContaining({ spread: 1 })]) });
   });
+  test('automatic completion (the default) ships a critical-object finding with the finding on record — the book finishes', async () => {
+    process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ state_match: false }));
+    const art = await illustrateStory(baseParams());
+    expect(art.entries).toHaveLength(12);
+    expect(art.entries.every(e => e.spreadIllustrationBuffer)).toBe(true);
+    expect(art.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'spreadQa', spread: 1, note: expect.stringContaining('Critical story object differs or has wrong state: route marker') }));
+    expect(art.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'shipPolicy', note: expect.stringMatching(/Automatically used the best existing artwork for \d+ spread\(s\)/) }));
+  });
+
   test('the final cross-spread gate rejects an unavailable check', async () => {
     checkPropContactSheet.mockResolvedValue({ pass: true, flagged: [], checked: 2, qaUnavailable: 'timeout' });
     const result = await renderStorySpreads(baseParams());

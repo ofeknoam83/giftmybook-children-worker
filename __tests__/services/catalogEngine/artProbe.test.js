@@ -96,10 +96,13 @@ beforeEach(() => {
   // that queues fetch verdicts or asserts key composition; the dedicated
   // outfit describe re-enables it explicitly.
   process.env.CATALOG_OUTFIT_LOCK = '0';
+  // The full-book path's missing-render rounds wait between rounds — not in tests.
+  process.env.CATALOG_MISSING_RENDER_BACKOFF_MS = '0';
 });
 
 afterAll(() => {
   delete process.env.CATALOG_OUTFIT_LOCK;
+  delete process.env.CATALOG_MISSING_RENDER_BACKOFF_MS;
 });
 
 test('one thrown spread render costs ONLY that spread — the others keep their results', async () => {
@@ -117,23 +120,73 @@ test('one thrown spread render costs ONLY that spread — the others keep their 
   expect(s3.advisories[0].note).toContain('render errored: boom');
 });
 
-test('the full-book path still fails the run when any spread has no buffer', async () => {
-  const { uploadBuffer } = require('../../../services/gcsStorage');
+test('the full-book path fails render_failed only once the missing-render rounds are spent — every round rendered the blank spread again, fresh', async () => {
+  const { uploadBuffer, deletePrefix } = require('../../../services/gcsStorage');
   uploadBuffer.mockClear();
+  deletePrefix.mockClear();
+  generateIllustration.mockClear();
+  process.env.CATALOG_MISSING_RENDER_ROUNDS = '2';
   generateIllustration.mockImplementation(async (scene) => {
     if (scene.includes('Scene 3 of 12')) throw new Error('boom');
     return 'https://x/render.png';
   });
-  await expect(illustrateStory(baseParams({
+  try {
+    const err = await illustrateStory(baseParams({
+      spreadNos: Array.from({ length: 12 }, (_, i) => i + 1),
+      spreads: null,
+    })).catch(e => e);
+    expect(err.failureCode).toBe('render_failed');
+    // base + 2 rounds — no recovery record on the plain (non-durable) path
+    expect(generateIllustration.mock.calls.filter(c => c[0].includes('Scene 3 of 12'))).toHaveLength(3);
+    expect(err.recovery).toBeUndefined();
+    // every round's diagnostics reach the failure payload
+    expect(err.renderFailures).toHaveLength(1);
+    expect(err.renderFailures[0].spread).toBe(3);
+    expect(err.renderFailures[0].message.match(/render errored: boom/g)).toHaveLength(3);
+    // the other spreads rendered exactly once
+    expect(generateIllustration.mock.calls.filter(c => c[0].includes('Scene 1 of 12'))).toHaveLength(1);
+    // a retry round renders FRESH (stale marker dropped first), never a cache read
+    expect(deletePrefix.mock.calls.some(([key]) => key.includes('spread-3.square.png.qa.json'))).toBe(true);
+    const saved = uploadBuffer.mock.calls.find(([, key]) => key.endsWith('/reviewed-art.json'));
+    expect(saved).toBeDefined();
+    const manifest = JSON.parse(saved[0]);
+    expect(Object.keys(manifest.renderKeys)).toHaveLength(12);
+    expect(manifest.renderKeys[3]).toContain('/spread-3.square.png');
+  } finally {
+    delete process.env.CATALOG_MISSING_RENDER_ROUNDS;
+  }
+});
+
+test('a spread that came back with no illustration is rendered again in a later round and the book completes', async () => {
+  generateIllustration.mockClear();
+  let failures = 0;
+  generateIllustration.mockImplementation(async (scene) => {
+    if (scene.includes('Scene 3 of 12') && failures++ < 1) throw new Error('boom');
+    return 'https://x/render.png';
+  });
+  const art = await illustrateStory(baseParams({
     spreadNos: Array.from({ length: 12 }, (_, i) => i + 1),
     spreads: null,
-  }))).rejects.toMatchObject({ failureCode: 'render_failed' });
-  const saved = uploadBuffer.mock.calls.find(([, key]) => key.endsWith('/reviewed-art.json'));
-  expect(saved).toBeDefined();
-  const manifest = JSON.parse(saved[0]);
-  expect(Object.keys(manifest.renderKeys)).toHaveLength(12);
-  expect(manifest.renderKeys[3]).toContain('/spread-3.square.png');
+  }));
+  expect(art.entries).toHaveLength(12);
+  expect(art.entries.every(e => e.spreadIllustrationBuffer)).toBe(true);
+  expect(generateIllustration.mock.calls.filter(c => c[0].includes('Scene 3 of 12'))).toHaveLength(2);
+  // the earlier failure is on the record, folded under the page that now has art
+  expect(art.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'render', spread: 3, note: expect.stringMatching(/^illustrated on render round 1 — earlier attempt\(s\): render errored: boom/) }));
+  expect(art.qaAdvisories.some(a => a.spread === 3 && /^render errored/.test(a.note))).toBe(false);
 });
+
+test('a probe keeps the one-pass contract: a blank spread is reported, never rendered again', async () => {
+  generateIllustration.mockClear();
+  generateIllustration.mockImplementation(async (scene) => {
+    if (scene.includes('Scene 3 of 12')) throw new Error('boom');
+    return 'https://x/render.png';
+  });
+  const { results } = await renderStorySpreads(baseParams());
+  expect(results.find(r => r.spread === 3).buffer).toBeNull();
+  expect(generateIllustration.mock.calls.filter(c => c[0].includes('Scene 3 of 12'))).toHaveLength(1);
+});
+
 
 describe('identity-keyed probe cache', () => {
   const keyFor = async (over) => {

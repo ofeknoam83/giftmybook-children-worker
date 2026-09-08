@@ -179,18 +179,28 @@ test.each([true, false])('automatic completion keeps cached winners and QA warni
   expect(result.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'shipPolicy', note: expect.stringContaining('Automatically used') }));
 });
 
-test.each(['mismatch', 'unverified'])('an admin pick cannot bypass a %s manuscript check', async status => {
+test.each([
+  ['mismatch', '0'], ['unverified', '0'], ['mismatch', '1'], ['unverified', '1'],
+])('a %s manuscript check on a reviewed rebuild: the strict opt-out stops, automatic completion (CATALOG_SHIP_ON_EXHAUSTION=%s) finishes with the page named for proofing', async (status, automatic) => {
   const { verifyManuscript } = require('../../../services/shared/illustration/manuscript');
-  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = automatic;
   verifyImageText.mockImplementation(async (buffer, text) => {
     const good = await verifyManuscript(text, async () => text);
     return text === 'Page 7.' ? { ...good, status, valid: false, issues: ['Test text problem'] } : good;
   });
-  await expect(illustrateStory(params())).rejects.toMatchObject({
-    failureCode: 'consistency_unresolved', unresolved: [expect.objectContaining({ spread: 7 })],
-  });
+  if (automatic === '0') {
+    await expect(illustrateStory(params())).rejects.toMatchObject({
+      failureCode: 'consistency_unresolved', unresolved: [expect.objectContaining({ spread: 7 })],
+    });
+  } else {
+    const result = await illustrateStory(params());
+    expect(result.entries).toHaveLength(12);
+    expect(result.entries[6].spreadIllustrationBuffer).toEqual(bytes(7));
+    expect(result.qaAdvisories).toContainEqual(expect.objectContaining({ stage: 'shipPolicy', spread: 7, note: expect.stringContaining('shipped the best candidate; proof this page') }));
+  }
   expect(verifyImageText).toHaveBeenCalledTimes(12);
 });
+
 
 test('spelling verification is cached against both artwork bytes and the approved manuscript', async () => {
   await illustrateStory(params());

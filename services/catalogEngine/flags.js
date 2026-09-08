@@ -78,9 +78,26 @@
  *                                   (character/prop crops vs the sheets)
  *                                   and its re-renders; independent of
  *                                   CATALOG_WORLD_QA.
- *  - CATALOG_SHIP_ON_EXHAUSTION=0 — opt out of automatic best-art completion;
- *                                   stop for review when blocking findings
- *                                   survive the bounded candidate budget.
+ *  - CATALOG_SHIP_ON_EXHAUSTION=0 — opt out of automatic best-art completion
+ *                                   (the default since #297, and since
+ *                                   2026-09-08 it covers EVERY spread-level
+ *                                   finding: blocking residuals, lettering,
+ *                                   critical story objects, checker
+ *                                   outages — the book finishes with the
+ *                                   best candidate and the findings on
+ *                                   record). With 0 those are hard gates
+ *                                   again: the run stops for review
+ *                                   (consistency_unresolved /
+ *                                   visual_recovery_pending) with the
+ *                                   scored candidates attached.
+ *  - CATALOG_MISSING_RENDER_ROUNDS=N — (2026-09-08) extra render rounds the
+ *                                   full-book path spends on a spread that
+ *                                   came back with NO illustration before
+ *                                   the run fails render_failed (0-10,
+ *                                   default 3; each round is the whole
+ *                                   per-spread path on a fresh budget).
+ *  - CATALOG_MISSING_RENDER_BACKOFF_MS=N — the wait before round N is N×this
+ *                                   (0-300000, default 15000).
  *  - CATALOG_IDENTITY_METRICS=1   — (ce-9, OPT-IN) run the deterministic
  *                                   identity metrics (embedding similarity)
  *                                   beside vision QA; off until calibrated.
@@ -238,6 +255,12 @@ module.exports = {
   // Finish with the best existing candidate and retain its QA findings.
   // Explicit 0 is the opt-out for diagnostic runs that require a hard gate.
   shipOnExhaustion: () => !envOff('CATALOG_SHIP_ON_EXHAUSTION'),
+  // 2026-09-08 — a spread with NO illustration keeps rendering: the extra
+  // rounds the full-book path spends on it before failing render_failed,
+  // and the backoff (× the round number) between rounds.
+  missingRenderRounds: () => envInt('CATALOG_MISSING_RENDER_ROUNDS', 3, 0, 10),
+  missingRenderBackoffMs: () => envInt('CATALOG_MISSING_RENDER_BACKOFF_MS', 15000, 0, 300000),
+
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 1, 1, 3),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 0, 0, 4),
