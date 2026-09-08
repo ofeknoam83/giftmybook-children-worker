@@ -168,82 +168,177 @@ test('empty instance lists remain invalid in elected manifests', async () => {
   expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
 });
 
-test('ambiguous empty assignments and evidence are repaired together with all valid state preserved', async () => {
+// Repair responses only contain requested fields keyed by family and spread.
+function occurrencePatch(complete, objectId, spread, fields = ['instanceIds', 'multiplicity', 'state', 'evidence', 'required']) {
+  const occurrence = complete.objects.find(o => o.id === objectId).occurrences.find(o => o.spread === spread);
+  return Object.fromEntries(fields.map(f => [f, f === 'evidence' ? `s${spread}_text_1` : occurrence[f]]));
+}
+const requestBody = i => JSON.parse(fetchWithTimeout.mock.calls[i][1].body);
+
+function nestingFixture() {
+  const p = params();
+  p.book = { id: 'generic_egg_hunt', beats: [] };
+  const story = Array.from({ length: 12 }, (_, i) => `The nesting boxes are empty on this part of the search, ${i + 1}.`);
+  story[5] = 'They left the nesting boxes behind and watched a hen walk out of a quiet corner.';
+  story[7] = 'The child remembered the empty nesting boxes while studying loose straw by the wall.';
+  p.story = { book_id: p.book.id, spreads: story.map((text, i) => ({ spread: i + 1, text })), personalization_evidence: [] };
+  const complete = plan();
+  const def = complete.objects[0];
+  def.id = 'nesting_boxes'; def.name = 'nesting boxes'; def.aliases = ['boxes'];
+  def.instances = [{ id: 'left_box', description: 'The left nesting box' }, { id: 'right_box', description: 'The right nesting box' }];
+  def.design = { shape: 'Square open-front boxes', material: 'Wood', colors: 'Brown', scale: 'Hen sized', features: 'Straw lining' };
+  def.occurrences = p.story.spreads.map(s => ({ spread: s.spread, evidence: s.text, instanceIds: ['left_box', 'right_box'], multiplicity: 'group',
+    state: [6, 8].includes(s.spread) ? 'The same empty boxes are mentioned off-screen.' : 'The two boxes remain empty.', required: ![6, 8].includes(s.spread) }));
+  const incomplete = JSON.parse(JSON.stringify(complete));
+  incomplete.objects[0].occurrences = incomplete.objects[0].occurrences.filter(o => ![6, 8].includes(o.spread));
+  return { p, complete, incomplete };
+}
+
+test('nesting-box count conflicts and omitted spreads 6/8 are diagnosed together and repaired in place', async () => {
+  const { p, complete, incomplete } = nestingFixture();
+  incomplete.objects[0].occurrences[0].multiplicity = 'single';
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response({
+    nesting_boxes__s1: { instanceIds: ['left_box', 'right_box'], multiplicity: 'group' },
+    nesting_boxes__s6: occurrencePatch(complete, 'nesting_boxes', 6),
+    nesting_boxes__s8: occurrencePatch(complete, 'nesting_boxes', 8),
+  }));
+  const result = await resolveStoryObjects(p);
+  expect(requestBody(1).generationConfig.responseJsonSchema.required).toEqual(['nesting_boxes__s6', 'nesting_boxes__s8', 'nesting_boxes__s1']);
+  expect(result.objects[0].instances).toEqual(complete.objects[0].instances);
+  expect(result.objects[0].design).toEqual(complete.objects[0].design);
+  expect([...result.objects[0].occurrences].sort((a, b) => a.spread - b.spread)).toEqual(complete.objects[0].occurrences);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+});
+
+test('a structural retry cannot consume the separate occurrence-completion budget', async () => {
+  const { p, complete, incomplete } = nestingFixture();
+  fetchWithTimeout.mockResolvedValueOnce(response({ malformed: true })).mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response({
+    nesting_boxes__s6: occurrencePatch(complete, 'nesting_boxes', 6), nesting_boxes__s8: occurrencePatch(complete, 'nesting_boxes', 8),
+  }));
+  expect((await resolveStoryObjects(p)).objects[0].occurrences).toHaveLength(12);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
+  expect(requestBody(2).generationConfig.responseJsonSchema.required).toHaveLength(2);
+});
+
+test('partial completion retains successful patches and requests only remaining slots', async () => {
+  const { p, complete, incomplete } = nestingFixture();
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response({
+    nesting_boxes__s6: occurrencePatch(complete, 'nesting_boxes', 6),
+  })).mockResolvedValueOnce(response({ nesting_boxes__s8: occurrencePatch(complete, 'nesting_boxes', 8) }));
+  const result = await resolveStoryObjects(p);
+  expect(requestBody(2).generationConfig.responseJsonSchema.required).toEqual(['nesting_boxes__s8']);
+  expect(objectsForSpread(result, 6)[0].occurrence.required).toBe(false);
+  expect(objectsForSpread(result, 8)[0].occurrence.required).toBe(false);
+  const second = await resolveStoryObjects(p);
+  expect(second.hash).toBe(result.hash);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
+});
+
+test('malformed completion responses get a bounded retry without restarting extraction', async () => {
+  const { p, complete, incomplete } = bellsFixture();
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{truncated' }] } }] }) })
+    .mockResolvedValueOnce(response({ forest_bells__s9: occurrencePatch(complete, 'forest_bells', 9) }));
+  expect((await resolveStoryObjects(p)).objects[0].occurrences).toHaveLength(3);
+  expect(requestBody(2).generationConfig.responseJsonSchema.required).toEqual(['forest_bells__s9']);
+});
+
+test.each(['wrong evidence', 'unknown instance', 'count conflict', 'empty state', 'invented family'])('missing occurrence patches reject %s', async kind => {
+  const { p, complete, incomplete } = nestingFixture();
+  const patch = occurrencePatch(complete, 'nesting_boxes', 6);
+  if (kind === 'wrong evidence') patch.evidence = 's8_text_1';
+  if (kind === 'unknown instance') patch.instanceIds = ['invented'];
+  if (kind === 'count conflict') patch.multiplicity = 'single';
+  if (kind === 'empty state') patch.state = '   ';
+  const patches = { nesting_boxes__s6: patch, nesting_boxes__s8: occurrencePatch(complete, 'nesting_boxes', 8) };
+  if (kind === 'invented family') patches.objects = [];
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValue(response(patches));
+  await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
+  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+});
+
+test('genuine contradictions stop immediately in extraction and completion', async () => {
+  const { p, complete, incomplete } = bellsFixture();
+  complete.conflicts = ['The text explicitly gives two incompatible materials.'];
+  fetchWithTimeout.mockResolvedValue(response(complete));
+  await expect(resolveStoryObjects(p)).rejects.toThrow('Story-object contradiction');
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+  fetchWithTimeout.mockClear();
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValue(response({ forest_bells__s9: { conflict: 'The source contradicts the fixed identity.' } }));
+  await expect(resolveStoryObjects(p)).rejects.toThrow('Story-object contradiction on spread 9: forest_bells');
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+});
+
+test('a family with every occurrence omitted is completed in bounded batches with full-story context', async () => {
+  const { p, complete, incomplete } = nestingFixture();
+  incomplete.objects[0].occurrences = [];
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockImplementation(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const keys = body.generationConfig.responseJsonSchema.required;
+    expect(keys.length).toBeLessThanOrEqual(8);
+    expect(body.contents[0].parts[0].text).toContain(p.story.spreads[11].text);
+    return response(Object.fromEntries(keys.map(key => [key, occurrencePatch(complete, 'nesting_boxes', Number(key.split('__s')[1]))])));
+  });
+  expect((await resolveStoryObjects(p)).objects[0].occurrences).toHaveLength(12);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
+});
+
+test('ambiguous empty assignments and evidence are completed together without rewriting state', async () => {
   const invalid = plan();
   invalid.objects[0].occurrences[3].instanceIds = [];
   invalid.objects[0].occurrences[3].evidence = 'Invented quotation';
   invalid.objects[0].occurrences[4].instanceIds = [];
-  fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(plan()));
+  fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response({
+    route_marker__s4: { instanceIds: ['third'], evidence: 's4_text_1' },
+    route_marker__s5: { instanceIds: ['third', 'others'] },
+  }));
   const result = await resolveStoryObjects(params());
   expect(result.objects).toEqual(plan().objects);
-  const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
-  expect(prompt).toContain('Missing object instance on spread 4: route_marker');
-  expect(prompt).toContain('Missing object instance on spread 5: route_marker');
-  expect(prompt).toContain('"allowedInstanceIds":["third","others"]');
-  expect(prompt).toContain('Ungrounded object occurrence on spread 4');
+  const schema = requestBody(1).generationConfig.responseJsonSchema;
+  expect(schema.required).toEqual(['route_marker__s4', 'route_marker__s5']);
+  expect(schema.properties.route_marker__s4.anyOf[0].properties.instanceIds).toMatchObject({ minItems: 1, maxItems: 1, items: { enum: ['third', 'others'] } });
   expect(uploadBufferIfAbsent).toHaveBeenCalledTimes(1);
 });
 
-test.each(['empty', 'unknown', 'invented', 'state', 'required', 'multiplicity', 'design', 'other occurrence', 'drop'])('instance repair rejects %s changes', async kind => {
+test.each(['empty', 'unknown', 'state', 'required', 'multiplicity', 'design', 'other occurrence', 'drop'])('instance completion rejects %s changes', async kind => {
   const invalid = plan();
   invalid.objects[0].occurrences[3].instanceIds = [];
-  const retry = plan();
-  const o = retry.objects[0].occurrences[3];
-  if (kind === 'empty') o.instanceIds = [];
-  if (kind === 'unknown') o.instanceIds = ['unknown'];
-  if (kind === 'invented') {
-    retry.objects[0].instances.push({ id: 'new_marker', description: 'Invented replacement' });
-    o.instanceIds = ['new_marker'];
-  }
-  if (kind === 'state') o.state = 'A different physical state';
-  if (kind === 'required') o.required = false;
-  if (kind === 'multiplicity') o.multiplicity = 'group';
-  if (kind === 'design') retry.objects[0].design.colors = 'Blue';
-  if (kind === 'other occurrence') retry.objects[0].occurrences[2].instanceIds = ['others'];
-  if (kind === 'drop') retry.objects = [];
-  fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(retry));
+  const patches = { route_marker__s4: { instanceIds: ['third'] } };
+  if (kind === 'empty') patches.route_marker__s4.instanceIds = [];
+  if (kind === 'unknown') patches.route_marker__s4.instanceIds = ['invented'];
+  if (['state', 'required', 'multiplicity', 'design'].includes(kind)) patches.route_marker__s4[kind] = 'changed';
+  if (kind === 'other occurrence') patches.route_marker__s3 = { instanceIds: ['others'] };
+  if (kind === 'drop') delete patches.route_marker__s4;
+  fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValue(response(patches));
   await expect(resolveStoryObjects(params())).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
-  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+  expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
   expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
 });
 
-test('forest_bells spread 9 is repaired with error feedback and can remain off-screen', async () => {
+test('forest_bells spread 9 is an explicitly required response slot and can remain off-screen', async () => {
   const { p, complete, incomplete } = bellsFixture();
   expect(() => validatePlan(incomplete, inputsFor(p))).toThrow('Object occurrence omitted on spread 9: forest_bells');
-  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response(complete));
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response({ forest_bells__s9: occurrencePatch(complete, 'forest_bells', 9) }));
   const result = await resolveStoryObjects(p);
-  const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
-  expect(prompt).toContain('Object occurrence omitted on spread 9: forest_bells');
-  expect(prompt).toContain('"previousPlan"');
-  expect(prompt).toContain('"objectId":"forest_bells","spread":9');
+  expect(requestBody(1).generationConfig.responseJsonSchema.required).toEqual(['forest_bells__s9']);
+  expect(requestBody(1).contents[0].parts[0].text).toContain('ENTIRE manuscript');
   expect(objectsForSpread(result, 9)[0].occurrence.required).toBe(false);
-  expect(uploadBufferIfAbsent).toHaveBeenCalledTimes(1);
+  expect(result.objects[0].occurrences.find(o => o.spread === 1)).toEqual(complete.objects[0].occurrences[0]);
 });
 
-test('reports all omitted occurrences together, including beat-only mentions', async () => {
+test('omitted beat-only mentions are completed without changing the manuscript', async () => {
   const { p, complete, incomplete } = bellsFixture();
   p.book.beats = [{ spread: 10, beat: p.story.spreads[2].text }];
   p.story.spreads[2].text = 'They finally found the arch.';
   incomplete.objects[0].occurrences = incomplete.objects[0].occurrences.filter(o => o.spread !== 10);
-  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response(complete));
-  await resolveStoryObjects(p);
-  const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
-  expect(prompt).toContain('Object occurrence omitted on spread 9: forest_bells');
-  expect(prompt).toContain('Object occurrence omitted on spread 10: forest_bells');
-});
-
-test.each(['still omitted', 'dropped object', 'changed alias', 'changed design', 'changed state'])('an invalid repair (%s) never ships', async kind => {
-  const { p, complete, incomplete } = bellsFixture();
-  let retry = JSON.parse(JSON.stringify(complete));
-  if (kind === 'still omitted') retry = incomplete;
-  if (kind === 'dropped object') retry.objects = [];
-  if (kind === 'changed alias') retry.objects[0].aliases = [];
-  if (kind === 'changed design') retry.objects[0].design.colors = 'Silver';
-  if (kind === 'changed state') retry.objects[0].occurrences[0].required = true;
-  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response(retry));
-  await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
-  expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
-  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+  fetchWithTimeout.mockResolvedValueOnce(response(incomplete)).mockResolvedValueOnce(response({
+    forest_bells__s9: occurrencePatch(complete, 'forest_bells', 9),
+    forest_bells__s10: { ...occurrencePatch(complete, 'forest_bells', 10), evidence: 's10_beat_1' },
+  }));
+  const result = await resolveStoryObjects(p);
+  expect(requestBody(1).generationConfig.responseJsonSchema.required).toEqual(['forest_bells__s9', 'forest_bells__s10']);
+  expect(objectsForSpread(result, 10)[0].occurrence.evidence).toBe(p.book.beats[0].beat);
 });
 
 test('an elected so-1 manifest remains frozen across planner prompt revisions', async () => {
@@ -297,33 +392,27 @@ describe('source-backed occurrence evidence', () => {
     complete.objects[0].occurrences[0].evidence = evidence;
     expect(() => validatePlan(complete, inputsFor(p))).toThrow('Ungrounded object occurrence on spread 1: forest_bells');
   });
-  test('reports every invalid citation and repairs only evidence without redesigning the objects', async () => {
+  test('repairs every invalid citation using constrained source IDs', async () => {
     const { p, complete } = bellsFixture();
     const invalid = JSON.parse(JSON.stringify(complete));
     invalid.objects[0].occurrences[0].evidence = 'Paraphrased ringing.';
     invalid.objects[0].occurrences[1].evidence = 'Paraphrased distant sound.';
-    complete.objects[0].occurrences[0].evidence = 's1_text_1';
-    complete.objects[0].occurrences[1].evidence = 's9_text_1';
-    fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(complete));
-    const log = jest.fn();
-    const result = await resolveStoryObjects({ ...p, log });
-    expect(result.objects[0].design).toEqual(invalid.objects[0].design);
-    const prompt = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
-    expect(prompt).toContain('Ungrounded object occurrence on spread 1: forest_bells');
-    expect(prompt).toContain('Ungrounded object occurrence on spread 9: forest_bells');
-    expect(prompt).toContain('"allowedEvidenceIds":["s9_text_1"]');
-    expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('attempt 1/2'));
+    fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response({
+      forest_bells__s1: { evidence: 's1_text_1' }, forest_bells__s9: { evidence: 's9_text_1' },
+    }));
+    const result = await resolveStoryObjects(p);
+    expect(result.objects).toEqual(complete.objects);
+    expect(requestBody(1).generationConfig.responseJsonSchema.properties.forest_bells__s9.anyOf[0]).toMatchObject({
+      required: ['evidence'], additionalProperties: false, properties: { evidence: { enum: ['s9_text_1'] } },
+    });
   });
-  test.each(['state', 'required', 'design', 'drop'])('evidence repair cannot change %s', async field => {
+  test.each(['state', 'required', 'design', 'drop'])('evidence patch cannot change %s', async field => {
     const { p, complete } = bellsFixture();
-    const invalid = JSON.parse(JSON.stringify(complete));
-    invalid.objects[0].occurrences[0].evidence = 'Invented quotation';
-    complete.objects[0].occurrences[0].evidence = 's1_text_1';
-    if (field === 'state') complete.objects[0].occurrences[0].state = 'Now visible.';
-    if (field === 'required') complete.objects[0].occurrences[0].required = true;
-    if (field === 'design') complete.objects[0].design.colors = 'Silver';
-    if (field === 'drop') complete.objects = [];
-    fetchWithTimeout.mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(complete));
+    complete.objects[0].occurrences[0].evidence = 'Invented quotation';
+    const patches = { forest_bells__s1: { evidence: 's1_text_1' } };
+    if (field === 'drop') delete patches.forest_bells__s1;
+    else patches.forest_bells__s1[field] = 'changed';
+    fetchWithTimeout.mockResolvedValueOnce(response(complete)).mockResolvedValue(response(patches));
     await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
     expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
   });
