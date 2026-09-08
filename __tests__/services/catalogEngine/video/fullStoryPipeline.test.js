@@ -22,11 +22,13 @@ const { syncDialogue, checkPerformance } = require('../../../../services/catalog
 const ffmpeg = require('../../../../services/catalogEngine/video/ffmpeg');
 const storage = require('../../../../services/gcsStorage');
 const { generateFullStoryFilm } = require('../../../../services/catalogEngine/video/fullStory');
+const { buildBookBible } = require('../../../../services/catalogEngine/illustrator/bible');
 
 const input = () => ({ bookId: 'film-test', story: { spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text: 'Hello.' })) }, profile: { name: 'Jo' }, bookDef: { ageBand: '1-3', theme: {}, book: { beats: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, beat: 'Jo waves.' })) } }, renders: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, storageKey: `children-jobs/film-test/ce-renders/v/h/spread-${i + 1}.wide-plain.png` })), approvedCoverUrl: 'https://cover/image.png', injectedKeys: { ELEVENLABS_API_KEY: 'test-key' }, voiceProvider: 'elevenlabs', music: 'story-score' });
 
 beforeEach(() => {
   jest.clearAllMocks();
+  buildBookBible.mockResolvedValue({ hash: 'bible', sheet: { hash: 'sheet', base64: 'cmVm' }, props: [] });
   storage.loadJson.mockResolvedValue(null);
   storage.downloadBuffer.mockResolvedValue(null);
   renderStorySpreads.mockReset();
@@ -47,6 +49,56 @@ test('all 12 scenes reach the final film; only character dialogue is lip-synced'
   expect(syncDialogue).toHaveBeenCalledTimes(6);
   expect(checkPerformance).toHaveBeenCalledTimes(6);
   expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ mode: 'full-story' }), expect.stringMatching(/film.json$/));
+});
+
+test('an oversized kit reaches animation with only character and critical prop references', async () => {
+  const bible = await buildBookBible();
+  bible.companion = { hash: 'companion', base64: 'cmVm' };
+  bible.props = Array.from({ length: 9 }, (_, i) => ({ value: `prop-${i}`, storyObjectId: `p${i}`, sheet: { hash: `prop-${i}`, base64: 'cmVm' } }));
+  bible.storyObjects = { objects: bible.props.map((p, i) => ({ id: p.storyObjectId, critical: i === 4 })) };
+  const result = await generateFullStoryFilm(input());
+  expect(generateCandidates).toHaveBeenCalledTimes(12);
+  for (const [call] of generateCandidates.mock.calls) {
+    expect(call.references.map(r => r.hash)).toEqual(['sheet', 'companion', 'prop-4']);
+    expect(call.brief.prompt).toContain('prop: [REF3]');
+    expect(call.brief.prompt).not.toContain('[REF4]');
+  }
+  const uploadedRefs = storage.uploadBuffer.mock.calls.map(([, key]) => key).filter(k => k.includes('/refs/'));
+  expect(uploadedRefs).toHaveLength(3);
+  expect(result.warnings[0]).toContain('prop-0');
+  expect(result.warnings[0]).not.toContain('prop-4');
+  expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ omittedVideoProps: expect.arrayContaining(['prop-0', 'prop-8']) }), expect.any(String));
+  expect(bible.props).toHaveLength(9);
+});
+
+test('essential-reference overflow fails before buying scene checks, speech or animation', async () => {
+  const bible = await buildBookBible();
+  bible.props = Array.from({ length: 7 }, (_, i) => ({ value: `key-${i}`, storyObjectId: `p${i}`, sheet: { hash: `key-${i}`, base64: 'cmVm' } }));
+  bible.storyObjects = { objects: bible.props.map(p => ({ id: p.storyObjectId, critical: true })) };
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_reference_budget', message: expect.stringContaining('still needs 8') });
+  expect(textGate).not.toHaveBeenCalled();
+  expect(renderChunk).not.toHaveBeenCalled();
+  expect(generateCandidates).not.toHaveBeenCalled();
+  expect(storage.uploadBuffer).not.toHaveBeenCalled();
+});
+
+test('a filtered reference set cannot replay a completed film or approved shots from the full kit', async () => {
+  const bible = await buildBookBible();
+  bible.props = [{ value: 'flowers', storyObjectId: 'flowers', sheet: { hash: 'flowers', base64: 'cmVm' } }];
+  bible.storyObjects = { objects: [{ id: 'flowers', critical: true }] };
+  const original = await generateFullStoryFilm(input());
+  const saved = new Map(storage.saveJson.mock.calls.map(([value, key]) => [key, value]));
+  storage.loadJson.mockImplementation(async key => key.endsWith('/film.json') || key.endsWith('.qa.json') ? saved.get(key) || null : null);
+  storage.objectExists.mockResolvedValue(true);
+  storage.downloadBuffer.mockResolvedValue(Buffer.from('motion'));
+  bible.storyObjects.objects[0].critical = false;
+  generateCandidates.mockClear();
+  try {
+    const changed = await generateFullStoryFilm(input());
+    expect(changed.planHash).not.toBe(original.planHash);
+    expect(changed.video.cached).toBe(false);
+    expect(generateCandidates).toHaveBeenCalledTimes(12);
+  } finally { storage.objectExists.mockResolvedValue(false); }
 });
 
 test('an upgraded resume migrates compatible approved legacy clips without new animation', async () => {

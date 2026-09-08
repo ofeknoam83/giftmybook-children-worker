@@ -25,8 +25,9 @@ const { verifyClip } = require('./verify');
 const { syncDialogue, checkPerformance, LIPSYNC_VERSION } = require('./filmPerformance');
 const { manuscriptUnits, validateDirection, directScript, hash, filmError } = require('./filmScript');
 const { speechShots, shotCommand, finishCommand } = require('./filmMedia');
+const { selectFilmReferenceSheets } = require('./filmReferences');
 const ffmpeg = require('./ffmpeg');
-const { FULL_STORY_VIDEO_VERSION, QA_VERSION, AUDIO_QA_VERSION } = require('../versions');
+const { FULL_STORY_VIDEO_VERSION, FILM_REFERENCE_VERSION, QA_VERSION, AUDIO_QA_VERSION } = require('../versions');
 
 const TTL = 30 * 24 * 60 * 60 * 1000;
 const CAMERAS = ['push-in', 'pan-right', 'pull-out', 'rise'];
@@ -181,10 +182,10 @@ async function generateFullStoryFilm(p) {
     const bible = await buildBookBible({ bookId, story, book: bookDef.book, theme: bookDef.theme, ageBand: bookDef.ageBand,
       profile, anchorUrl: anchor, refPhoto, childPhoto, characterDescription: p.characterDescription, costTracker, log });
     if (!bible.sheet?.base64) throw filmError('The film’s character reference sheet is missing.', 'identity_kit_failed');
+    const { sheets, omittedProps } = selectFilmReferenceSheets(bible);
+    if (omittedProps.length) log('info', `Video references omit ${omittedProps.length} noncritical props: ${omittedProps.join(', ')}`);
     const references = [];
-    for (const [kind, sheet] of [['character', bible.sheet], ['companion', bible.companion], ...(bible.props || []).map(prop => ['prop', prop.sheet])]) {
-      if (!sheet?.base64) continue;
-      if (references.length >= 7) throw filmError('The character and prop kit exceeds the video model’s seven reference images.', 'film_reference_budget');
+    for (const { kind, sheet } of sheets) {
       const url = await storage.uploadBuffer(Buffer.from(sheet.base64, 'base64'), `${base}/refs/${sheet.hash}.png`, sheet.mimeType || 'image/png');
       references.push({ kind, urls: [url], hash: sheet.hash });
     }
@@ -225,7 +226,7 @@ async function generateFullStoryFilm(p) {
     }
     await checkpoint({ scriptKey, scriptHash: script.hash, stills,
       frames: [...frames].map(([spread, frame]) => ({ spread, hash: frame.hash, storageKey: frame.storageKey })),
-      references: references.map(r => ({ kind: r.kind, hash: r.hash })), stage: 'scenes_verified' });
+      references: references.map(r => ({ kind: r.kind, hash: r.hash })), omittedVideoProps: omittedProps, stage: 'scenes_verified' });
 
     report(0.14, 'Recording the complete story with the cast…');
     const shots = [];
@@ -251,6 +252,9 @@ async function generateFullStoryFilm(p) {
     for (const shot of shots) { shot.from = offset; offset += shot.seconds; shot.to = offset; }
 
     const filmHash = hash({ version: FULL_STORY_VIDEO_VERSION, script: script.hash, audio: shots.map(s => hash(s.audio)),
+      // Changed reference sets cannot replay an old film or legacy shot.
+      // Unchanged kits keep their existing cache keys.
+      ...(omittedProps.length ? { references: { version: FILM_REFERENCE_VERSION, sheets: references.map(r => [r.kind, r.hash]) } } : {}),
       frames: [...frames.values()].map(f => f.hash), bible: bible.hash, provider: provider.model, aspect, language, music, seed: p.seed,
       modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null, qa: QA_VERSION, audioQa: AUDIO_QA_VERSION, lipsync: LIPSYNC_VERSION });
     const filmDir = `${base}/${filmHash}`;
@@ -396,7 +400,8 @@ async function generateFullStoryFilm(p) {
     const posterUrl = await storage.uploadBuffer(await fs.promises.readFile(poster), posterKey, 'image/jpeg');
     const video = { storageKey, posterKey, hash: hash(videoBytes), version: FULL_STORY_VIDEO_VERSION, durationSeconds: seconds, ...size, fps: 30, bytes: videoBytes.length, music, cached: false };
     const result = { video, mode: 'full-story', language, plan, stills, textGate: stills.map(s => ({ spread: s.spread, pass: true })),
-      bookBible: await summarizeBible(bible), provider: provider.provider, model: provider.model, unresolved: [], advisories: [], warnings: [],
+      bookBible: await summarizeBible(bible), provider: provider.provider, model: provider.model, unresolved: [], advisories: [],
+      warnings: omittedProps.length ? [`Video reference images omit noncritical props: ${omittedProps.join(', ')}. Source artwork is unchanged.`] : [],
       cast: Object.values(script.cast).map(c => ({ role: c.id, name: c.name, voiceKey: c.voiceKey })), planHash: filmHash };
     await storage.saveJson(result, manifestKey);
     await checkpoint({ stage: 'ready', filmKey: storageKey, outstanding: [] });
