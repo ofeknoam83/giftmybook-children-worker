@@ -200,6 +200,12 @@
  *                                   nearest untried spread as a substitute
  *                                   (0-6, default 2). 0 fails
  *                                   `video_text_visible` on the first hit.
+ *  - CATALOG_FILM_DIRECTOR_REPAIRS=N — (gfs-1, 2026-09-08) corrected-screenplay
+ *                                   rounds the full-story film's director may
+ *                                   be asked for when its screenplay fails
+ *                                   validation (an uncertain, misnamed or
+ *                                   off-vocabulary fragment) — the failures
+ *                                   are fed back verbatim (0-3, default 1).
  *  - CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1 — (gv-1, OPT-IN) stitch a segment whose
  *                                   BLOCKING defects survived every candidate
  *                                   and repair (advisory) instead of failing
@@ -320,6 +326,7 @@ module.exports = {
   videoShipOnExhaustion: () => envOn('CATALOG_VIDEO_SHIP_ON_EXHAUSTION'),
   videoTextGateRetries: () => envInt('CATALOG_VIDEO_TEXT_GATE_RETRIES', 2, 0, 6),
   videoMusic: () => String(process.env.CATALOG_VIDEO_MUSIC || 'none').trim() || 'none',
+  filmDirectorRepairs: () => envInt('CATALOG_FILM_DIRECTOR_REPAIRS', 1, 0, 3),
   // ab-1 — the audiobook (docs/AUDIOBOOK_V2_PLAN.md §5.3). Everything ON by
   // default except the opt-ins; every env is a kill-switch or a bounded knob.
   audiobookEnabled: () => !envOff('CATALOG_AUDIOBOOK'),
