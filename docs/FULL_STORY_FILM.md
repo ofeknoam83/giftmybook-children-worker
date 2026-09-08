@@ -41,6 +41,22 @@ continue to use the trailer, including short Art Bench motion previews.
 
 ## Deployment and operation
 
+Scene recovery makes one bounded corrective pass when the final cross-spread
+check finds a confirmed critical-object design mismatch, then verifies the whole
+selected set again. It repairs only flagged, verified scenes, retains the original
+artwork and writes repair candidates in a separate `ocr-1` namespace. Existing
+per-spread and contact-repair budgets still apply. Unavailable checks never trigger
+this repair pass, and an unchecked repair cannot replace a checked original.
+
+Completed image-generation failures record a durable failure marker. Their slot
+still counts against the budget, but a later retry can use the next slot without
+mistaking the failed call for a live 15-minute reservation. Live and ambiguous
+reservations remain protected; saved provider refusals retain their review hold.
+Video errors report a missing scene verdict once instead of repeating an
+unverified-object error for every object. Provider blocks explicitly direct the
+admin to inspect saved evidence; repeatedly resuming unchanged requests cannot
+clear them or approve the artwork.
+
 Video reference images retain the child, companion and plot-critical story props.
 Decorative personalization props and story objects explicitly marked noncritical
 are omitted from the video request, using the pinned story-object plan. The book's

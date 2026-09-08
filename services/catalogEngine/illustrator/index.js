@@ -47,7 +47,7 @@ const { checkCharacterContactSheet, checkPropContactSheet, checkCompanionContact
 const { normalizePropValue } = require('./bible/propSheet');
 const { EMOTIONS, EMOTION_CUES } = require('./emotionPlan');
 const { renderWorldCardBlock } = require('../worldCards');
-const { STYLE_VERSION, QA_VERSION } = require('../versions');
+const { STYLE_VERSION, QA_VERSION, OBJECT_SET_REPAIR_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
@@ -640,7 +640,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
             limit: renderBudget?.limit || 3, costTracker,
             generate: async candidatePath => {
               const made = await generateIllustration(sceneText, characterRefUrl, 'pixar_premium', { ...renderOpts, attemptLog, gcsPath: candidatePath });
-              if (!made) throw new Error('No image returned');
+              if (!made) throw Object.assign(new Error('No image returned'), { attempts: attemptLog });
               return downloadBuffer(candidatePath);
             } });
           await uploadBuffer(buffer, key, 'image/png');
@@ -931,7 +931,7 @@ async function runInkConsistencyGate({ results, inkHex, rerender, onProgress = (
  * @returns {Array<{spread: number, note: string, skipReason: string|null}>}
  *   every flagged spread, with skipReason null when eligible to re-render
  */
-function planWorldRepairs(results, flagged, budget) {
+function planWorldRepairs(results, flagged, budget, { allowCached = false } = {}) {
   let remaining = budget;
   // The model's flagged order is arbitrary — spend the budget lowest spread
   // first so the plan is deterministic and matches the documented contract.
@@ -939,7 +939,7 @@ function planWorldRepairs(results, flagged, budget) {
   return ordered.map((f) => {
     const entry = results.find(r => r.spread === f.spread && r.buffer);
     if (!entry) return { ...f, skipReason: 'no render' };
-    if (!entry.fresh) return { ...f, skipReason: 'replayed cached render — earlier rounds reference it' };
+    if (!entry.fresh && !allowCached) return { ...f, skipReason: 'replayed cached render — earlier rounds reference it' };
     if (remaining <= 0) return { ...f, skipReason: `re-render budget exhausted (${budget})` };
     remaining -= 1;
     return { ...f, skipReason: null };
@@ -952,8 +952,8 @@ function planWorldRepairs(results, flagged, budget) {
  * Shared by the world gate and the ce-9 contact-sheet gate.
  * @returns {Promise<number[]>} spreads re-rendered
  */
-async function applySetRepairs({ results, flagged, budget, stage, rerender, noteFor, onProgress, log }) {
-  const plan = planWorldRepairs(results, flagged, budget);
+async function applySetRepairs({ results, flagged, budget, stage, rerender, noteFor, onProgress, log, allowCached = false }) {
+  const plan = planWorldRepairs(results, flagged, budget, { allowCached });
   // Findings and skip notes land first, in plan order (deterministic); the
   // eligible re-renders then run CONCURRENTLY under the render-phase limit —
   // each targets its own results index, and up to budget serial full-spread
@@ -986,8 +986,9 @@ async function applySetRepairs({ results, flagged, budget, stage, rerender, note
       const oldText = entry.qa?.textVerification?.status;
       const newText = repaired.qa?.textVerification?.status;
       const worsensText = oldText === 'verified' && newText !== 'verified';
+      const worsensVerification = entry.qa?.verdict && !entry.qa.qaUnavailable && (!repaired.qa?.verdict || repaired.qa.qaUnavailable);
       const fixesText = !!oldText && oldText !== 'verified' && newText === 'verified';
-      const worse = repaired.buffer && (worsensText || (!fixesText && (repaired.blocking || []).length > (entry.blocking || []).length));
+      const worse = repaired.buffer && (worsensVerification || worsensText || (!fixesText && (repaired.blocking || []).length > (entry.blocking || []).length));
       if (repaired.buffer && !worse) {
         // Keep the audit trail: the gate finding + the fresh render's own
         // advisories ride together on the replacing entry.
@@ -1003,7 +1004,7 @@ async function applySetRepairs({ results, flagged, budget, stage, rerender, note
         await uploadBuffer(entry.buffer, entry.storageKey, 'image/png').catch((restoreErr) => {
           log('warn', `Spread ${f.spread}: could not restore the shipped render after a worse set re-render (${restoreErr.message})`);
         });
-        entry.advisories.push({ stage, spread: f.spread, note: `set re-render carried blocking defects (${worsensText ? 'story spelling is no longer verified' : repaired.blocking.join('; ')}); kept the flagged render` });
+        entry.advisories.push({ stage, spread: f.spread, note: `set re-render carried blocking defects (${worsensVerification ? 'scene verification unavailable' : worsensText ? 'story spelling is no longer verified' : repaired.blocking.join('; ')}); kept the flagged render` });
       } else {
         entry.advisories.push({ stage, spread: f.spread, note: 'set re-render failed; shipped the flagged render' });
       }
@@ -1615,14 +1616,22 @@ async function renderStorySpreads(params) {
 
   results.sort((a, b) => a.spread - b.spread);
 
-  const rerender = (spread, note) => {
+  const rerender = (spread, note, isolate = false) => {
     if (results.find(r => r.spread === spread)?.qa?.qaUnavailable) {
       throw new Error('Scene verification unavailable; keep the existing image for rechecking');
     }
     if ((renderBudget.used.get(spread) || 0) >= renderBudget.limit) {
       throw new Error(`Automatic render budget exhausted for spread ${spread} (${renderBudget.limit} candidates); review existing candidates`);
     }
-    return renderSpread(spreadArgs(spread, { worldNote: note, forceRerender: true }));
+    const args = spreadArgs(spread, { worldNote: note, forceRerender: true });
+    if (isolate) {
+      // Video recovery may repair cached scenes, but must not overwrite the
+      // source image used by the book or earlier captured review rounds.
+      args.storyHash += `-${OBJECT_SET_REPAIR_VERSION}-${renderContentHash(results.find(r => r.spread === spread).buffer).slice(0, 12)}`;
+      args.forceRerender = false;
+      args.legacyUnanchoredKey = null;
+    }
+    return renderSpread(args);
   };
 
   // Book-level world-consistency gate: check the set together, re-render
@@ -1662,6 +1671,11 @@ async function renderStorySpreads(params) {
     });
   }
 
+  // Critical set findings previously had no repair path after this last check.
+  // Recovery gets one bounded pass, followed by a check of the selected set.
+  const objectContactFailures = await recoverCriticalObjectSet({ results, bible, bookId, costTracker,
+    repair: retryUnresolved && !reviewedOnly, rerender: (spread, note) => rerender(spread, note, true), onProgress, log });
+
   // ── Graded ship policy ──────────────────────────────────────────────────
   // Spreads whose BLOCKING defects survived candidates + repairs. The full-
   // book caller fails `consistency_unresolved` on these unless the opt-in
@@ -1683,7 +1697,6 @@ async function renderStorySpreads(params) {
   const objectFailures = criticalObjectFailures(results, bible.storyObjects);
   // Check the FINAL selected set after every repair, including cached/admin
   // picks. A repair attempt alone is not proof the family is now consistent.
-  const objectContactFailures = await verifyCriticalObjectSet(results, bible, onProgress, { bookId, costTracker });
   objectFailures.push(...objectContactFailures);
   for (const failure of objectFailures) {
     const result = results.find(r => r.spread === failure.spread);
@@ -1765,11 +1778,37 @@ async function verifyCriticalObjectSet(results, bible, onProgress = () => {}, co
     if (!verdict || typeof verdict.pass !== 'boolean' || verdict.qaUnavailable || !Number.isInteger(verdict.checked) || verdict.checked < visible.length) {
       for (const r of visible) failures.push({ spread: r.spread, defects: [`Critical object set unverified: ${definition.name}`], candidates: r.candidateFiles || [], verification: verdict?.verification || { status: 'malformed', reason: 'Critical object set could not be checked', exhausted: true } });
     } else if (!verdict.pass) {
-      const flagged = verdict.flagged?.length ? verdict.flagged.map(f => f.spread) : visible.map(r => r.spread);
-      for (const spread of flagged) failures.push({ spread, defects: [`Critical object changes across spreads: ${definition.name}`], candidates: results.find(r => r.spread === spread)?.candidateFiles || [] });
+      const validFlags = (verdict.flagged || []).map(f => f.spread).filter(s => visible.some(r => r.spread === s));
+      const flagged = validFlags.length ? [...new Set(validFlags)] : visible.map(r => r.spread);
+      for (const spread of flagged) failures.push({ spread, prop: value, defects: [`Critical object changes across spreads: ${definition.name}`], candidates: results.find(r => r.spread === spread)?.candidateFiles || [] });
     }
   }
   return failures;
+}
+
+/** Repair confirmed final-set defects once, then verify all selected families.
+ * Unavailable/blocked judgments never trigger fresh artwork. Cached repairs
+ * must be supplied a rerender callback that writes to an isolated namespace.
+ * @param {object} params
+ * @returns {Promise<Array>} unresolved findings after the bounded repair pass
+ */
+async function recoverCriticalObjectSet({ results, bible, bookId, costTracker, repair = false, rerender, onProgress = () => {}, log = () => {} }) {
+  const context = { bookId, costTracker };
+  const failures = await verifyCriticalObjectSet(results, bible, onProgress, context);
+  if (!repair) return failures;
+  const bySpread = new Map();
+  for (const f of failures) {
+    const scene = results.find(r => r.spread === f.spread);
+    if (!f.prop || f.verification || scene?.recovery || !scene?.qa?.verdict || scene.qa.qaUnavailable) continue;
+    if (!bySpread.has(f.spread)) bySpread.set(f.spread, { spread: f.spread, defect: 'prop_rendering', props: [], note: 'confirmed critical-object drift' });
+    bySpread.get(f.spread).props.push(f.prop);
+  }
+  if (!bySpread.size) return failures;
+  const repaired = await applySetRepairs({ results, flagged: [...bySpread.values()], budget: CONTACT_QA_MAX_RERENDERS(),
+    stage: 'criticalObjectQa', rerender, allowCached: true, onProgress, log,
+    noteFor: f => refs => f.props.map(prop => `CRITICAL OBJECT REPAIR — ${JSON.stringify(inertPropValue(prop))}: ${contactRepairNote('prop_rendering', { referenceIndex: propReferenceIndex(refs, prop) })} Preserve this scene's action, object count and physical state; correct only the object design.`).join('\n'),
+  });
+  return repaired.length ? verifyCriticalObjectSet(results, bible, onProgress, context) : failures;
 }
 
 /** Illustrate a validated story; unresolved critical objects always require review. */
@@ -1890,4 +1929,4 @@ async function illustrateStory(params) {
   };
 }
 
-module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, runInkConsistencyGate, renderTextColumnHint, verifyCriticalObjectSet };
+module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, runInkConsistencyGate, renderTextColumnHint, verifyCriticalObjectSet, recoverCriticalObjectSet };

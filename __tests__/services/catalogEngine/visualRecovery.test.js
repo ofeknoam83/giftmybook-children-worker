@@ -116,15 +116,48 @@ test('candidate reservations reuse saved pixels and cap spending across restarts
   await expect(run('three')).rejects.toMatchObject({ failureCode: 'visual_recovery_pending', recovery: { retryable: false } });
   expect(generate).toHaveBeenCalledTimes(2);
 });
-test('an interrupted image slot waits and then consumes a bounded retry', async () => {
+test('a settled image failure consumes its slot and retries without a false in-progress lease', async () => {
   const generate = jest.fn().mockRejectedValueOnce(new Error('interrupted')).mockResolvedValue(Buffer.from('recovered'));
   const run = () => durableCandidate({ root: 'images/test', identity: 'one', generate, limit: 2 });
-  await expect(run()).rejects.toHaveProperty('recovery');
   await expect(run()).rejects.toMatchObject({ recovery: { retryable: true } });
+  expect(files.has('images/test/candidate-0.failure.json')).toBe(true);
+  expect(await run()).toEqual(Buffer.from('recovered'));
+  expect(generate).toHaveBeenCalledTimes(2);
+});
+test('a live image reservation still prevents duplicate paid generation', async () => {
+  const { digest } = require('../../../services/shared/llm/visualJudge');
+  files.set('images/test/candidate-0.json', Buffer.from(JSON.stringify({ id: digest('one'), at: Date.now() })));
+  const generate = jest.fn(async () => Buffer.from('recovered'));
+  const run = () => durableCandidate({ root: 'images/test', identity: 'one', generate, limit: 2 });
+  await expect(run()).rejects.toMatchObject({ recovery: { retryable: true, issues: [expect.objectContaining({ reason: 'Illustration generation in progress' })] } });
+  expect(generate).not.toHaveBeenCalled();
   const claim = JSON.parse(files.get('images/test/candidate-0.json')); claim.at -= 20 * 60000;
   files.set('images/test/candidate-0.json', Buffer.from(JSON.stringify(claim)));
   expect(await run()).toEqual(Buffer.from('recovered'));
+  expect(generate).toHaveBeenCalledTimes(1);
+});
+test('saved provider blocks are not retried as failed illustration slots', async () => {
+  const { pending } = require('../../../services/catalogEngine/illustrator/referenceContract');
+  const generate = jest.fn().mockRejectedValue(pending('Blocked', { status: 'provider_blocked', reason: 'PROHIBITED_CONTENT' }));
+  const run = () => durableCandidate({ root: 'images/test', identity: 'one', generate, limit: 3 });
+  await expect(run()).rejects.toMatchObject({ recovery: { retryable: false, reason: 'provider_blocked' } });
+  await expect(run()).rejects.toMatchObject({ recovery: { retryable: false, reason: 'provider_blocked' } });
+  expect(generate).toHaveBeenCalledTimes(1);
+});
+test('repeated completed failures cannot reset the durable generation budget', async () => {
+  const generate = jest.fn().mockRejectedValue(new Error('transport error'));
+  const run = () => durableCandidate({ root: 'images/test', identity: 'one', generate, limit: 2 });
+  await expect(run()).rejects.toHaveProperty('recovery');
+  await expect(run()).rejects.toHaveProperty('recovery');
+  await expect(run()).rejects.toMatchObject({ recovery: { retryable: false } });
   expect(generate).toHaveBeenCalledTimes(2);
+});
+test('raw generator refusal diagnostics are preserved instead of becoming automatic retries', async () => {
+  const generate = jest.fn().mockRejectedValue(Object.assign(new Error('No image returned'), { attempts: [{ finishReason: 'PROHIBITED_CONTENT', nsfw: true }] }));
+  const run = () => durableCandidate({ root: 'images/test', identity: 'one', generate, limit: 3 });
+  await expect(run()).rejects.toMatchObject({ recovery: { retryable: false, reason: 'provider_blocked' } });
+  await expect(run()).rejects.toMatchObject({ recovery: { retryable: false, reason: 'provider_blocked' } });
+  expect(generate).toHaveBeenCalledTimes(1);
 });
 test('changing an object invalidates only the spreads that depend on it', () => {
   const bible = { manifest: { props: [], anchorHash: 'child' }, storyObjects: { objects: [{ id: 'box', name: 'box', design: 'red', occurrences: [{ spread: 1, state: 'closed' }] }] } };
