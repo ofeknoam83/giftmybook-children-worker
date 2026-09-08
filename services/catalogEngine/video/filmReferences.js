@@ -12,7 +12,7 @@ function selectFilmReferenceSheets(bible) {
   const sheets = [['character', bible.sheet], ['companion', bible.companion]]
     .filter(([, sheet]) => sheet?.base64).map(([kind, sheet]) => ({ kind, sheet }));
   for (const prop of bible.props || []) {
-    if (!prop.sheet?.base64) continue;
+    if (!prop.sheet?.base64 && !prop.sheet?.omitted) continue;
     if (!prop.storyObjectId || definitions.get(prop.storyObjectId)?.critical === false) {
       omittedProps.push(prop.value);
       continue;
