@@ -9,7 +9,7 @@ function spreadDependencies(bible, spread) {
   return digest({ version: 1, style: m.styleVersion, anchor: m.anchorHash, child: m.characterSheet?.hash,
     outfit: m.outfitSpec, world: m.worldPlate, companion: m.companion,
     emotion: bible.emotion?.plan?.[spread] || null,
-    props: m.props.filter(p => !p.value.startsWith('Story object: ') || ids.has(p.value)),
+    props: (m.renderProps || m.props).filter(p => !p.value.startsWith('Story object: ') || ids.has(p.value)),
     objects: objects.map(d => ({ ...d, occurrences: d.occurrences.filter(o => o.spread === spread) })) }).slice(0, 24);
 }
 module.exports = { spreadDependencies };

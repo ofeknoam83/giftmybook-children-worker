@@ -62,6 +62,14 @@ Original definitions, reference sheets and render namespaces remain fixed. The c
 
 The correction is worker-only, requires no database migration or new configuration, and is not an automatic regeneration of existing books. After deployment, resume saved work on `671aec39-cb8d-4d5c-9b7d-66067750ef11` to validate the existing spread 5 illustration against its absence requirement. Keep the other artwork and inspect the resulting book as the visual pilot. Unit/regression providers are mocked, so passing tests establish state handling and reuse, not a guarantee of model judgment or artwork quality.
 
+## Reference eligibility
+
+Reference eligibility uses the checked occurrence states for the whole manuscript. A family whose every occurrence is explicitly `absent` or `off_screen` does not generate, load or verify a prop sheet, even if it is plot-critical. Its absence requirements still reach the illustration prompt and QA. Any visible, optional or legacy/unknown occurrence keeps the normal reference requirements. Sheets for families visible elsewhere are omitted from the rendering inputs on their off-screen spreads.
+
+The object planner also distinguishes drawable subjects from sounds, smells, emotions and goals. A ringing bell can have a fixed design; ringing itself must not be assigned an invented physical form. Explicitly visible magical effects remain eligible. Existing elected plans are retained and benefit from the occurrence-based reference filter on resume.
+
+For books with saved pages, the matching previous bible's unused sheet metadata is retained in `renderProps` solely for cache identity. It is excluded from active `props` and never authorizes a visible object. Both whole-bible and per-spread image keys stay stable while corrected presence markers trigger QA on the saved pixels. Missing historical storage stops safely instead of silently rekeying artwork. This worker-only fix needs no app change, migration or configuration. After deployment, resume `e4270f53-22ec-4bd5-8a59-6f0111a799a7`: its six audited “meerkat calls” occurrences are off-screen, so it must not replay the three rejected sound-ribbon reference candidates. No live generation was run during implementation.
+
 ## Local validation
 
 Run the catalog regression suite, cost tracker and worker video route tests with mocked providers:

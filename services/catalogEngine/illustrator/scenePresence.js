@@ -11,6 +11,11 @@ const VERSION = 'scene-presence-1';
 const VISIBILITY = ['visible', 'absent', 'off_screen', 'optional'];
 const keyFor = (id, spread) => `${id}__s${spread}`;
 const forbidden = occurrence => ['absent', 'off_screen'].includes(occurrence?.visibility);
+// Skip a sheet only after EVERY occurrence explicitly rules out drawing it.
+// Optional/legacy/unknown visibility, or any required appearance, still needs
+// the normal reference path. Plot importance alone does not make a noun visible.
+const needsReference = definition => !definition?.occurrences?.length
+  || definition.occurrences.some(o => o.required || !forbidden(o));
 const presenceHash = (plan, spread) => plan?.scenePresence?.spreadHashes?.[spread] || null;
 
 function sourcePassages(spread) {
@@ -81,4 +86,4 @@ async function resolveScenePresence({ plan, book, story, theme, bookId, costTrac
     scenePresence: { version: VERSION, spreadHashes, evidenceKey: result.evidenceKey } };
 }
 
-module.exports = { VERSION, forbidden, presenceHash, tasksFor, verdictIssue, promptFor, resolveScenePresence };
+module.exports = { VERSION, forbidden, needsReference, presenceHash, tasksFor, verdictIssue, promptFor, resolveScenePresence };

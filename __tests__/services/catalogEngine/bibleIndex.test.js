@@ -731,9 +731,78 @@ describe('recurring story objects across the production render path', () => {
     expect(await verifyCriticalObjectSet(results, { storyObjects: plan })).toEqual([]);
     expect(checkPropContactSheet).not.toHaveBeenCalled();
   });
-  test.each([false, true])('corrected presence rechecks pixels, clears the false blocker and reuses the verdict (reviewedOnly=%s)', async reviewedOnly => {
+  test.each(['off_screen', 'absent'])('a family that is %s throughout the book never retries its exhausted reference candidates', async visibility => {
+    const plan = markerPlan();
+    plan.objects[0].name = 'meerkat calls';
+    plan.objects[0].occurrences.forEach(o => { o.required = false; o.visibility = visibility; o.state = 'The calls are heard, never drawn as shapes.'; });
+    resolveStoryObjects.mockResolvedValue(plan);
+    getPropSheet.mockRejectedValue(require('../../../services/catalogEngine/illustrator/referenceContract').pending('Three reference candidates rejected', { status: 'confirmed_defect', exhausted: true }));
+    checkSpreadRenderV2.mockResolvedValue(cleanQa({ verdict: { props: [{
+      name: 'Story object: meerkat calls', presence: 'absent', look: 'n/a', state_match: true, duplicated: false, as_text: false,
+    }] } }));
+    const result = await renderStorySpreads(baseParams());
+    expect(result.unresolved).toEqual([]);
+    expect(result.objectFailures).toEqual([]);
+    expect(getPropSheet).not.toHaveBeenCalled();
+    expect(generateIllustration).toHaveBeenCalledTimes(2);
+    expect(result.bookBible.props).toEqual([]);
+    expect(checkPropContactSheet).not.toHaveBeenCalled();
+    for (const [, , , opts] of generateIllustration.mock.calls) {
+      expect(opts.referencePack.some(r => r.kind === 'prop')).toBe(false);
+      expect(opts.bible.props[0]).toMatchObject({ visibility, required: false, ref: null });
+    }
+    expect(checkSpreadRenderV2.mock.calls.every(c => c[1].props[0].expected === 'absent')).toBe(true);
+  });
+  test('a physical source visible later still gets a sheet, attached only to its visible spread', async () => {
+    const plan = markerPlan();
+    plan.objects[0].occurrences[0] = { ...plan.objects[0].occurrences[0], required: false, visibility: 'off_screen' };
+    resolveStoryObjects.mockResolvedValue(plan);
+    checkSpreadRenderV2.mockImplementation(async (_, opts) => markerQa({ presence: opts.props[0].expected === 'absent' ? 'absent' : 'present' }));
+    const result = await renderStorySpreads(baseParams());
+    expect(getPropSheet).toHaveBeenCalledTimes(1);
+    expect(generateIllustration.mock.calls.map(c => c[3].referencePack.some(r => r.kind === 'prop'))).toEqual([false, true]);
+    expect(result.objectFailures).toEqual([]);
+  });
+  test('skipping an off-screen reference does not approve artwork that depicts the forbidden family', async () => {
+    const plan = markerPlan();
+    plan.objects[0].occurrences.forEach(o => { o.required = false; o.visibility = 'off_screen'; });
+    resolveStoryObjects.mockResolvedValue(plan);
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ presence: 'present' }));
+    const result = await renderStorySpreads(baseParams());
+    expect(getPropSheet).not.toHaveBeenCalled();
+    expect(result.objectFailures).toEqual(expect.arrayContaining([expect.objectContaining({
+      defects: expect.arrayContaining(['Critical story object differs or has wrong state: route marker']),
+    })]));
+  });
+  test('disabled reference generation allows off-screen families but still blocks visible critical objects', async () => {
+    const plan = markerPlan();
+    plan.objects[0].occurrences.forEach(o => { o.required = false; o.visibility = 'off_screen'; });
+    resolveStoryObjects.mockResolvedValue(plan);
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ presence: 'absent' }));
+    process.env.CATALOG_PROP_SHEETS = '0';
+    try {
+      const result = await renderStorySpreads(baseParams());
+      expect(result.objectFailures).toEqual([]);
+      expect(getPropSheet).not.toHaveBeenCalled();
+      resolveStoryObjects.mockResolvedValue(markerPlan());
+      generateIllustration.mockClear();
+      await expect(renderStorySpreads(baseParams())).rejects.toThrow('Critical story references are disabled');
+      expect(generateIllustration).not.toHaveBeenCalled();
+    } finally { delete process.env.CATALOG_PROP_SHEETS; }
+  });
+  test('unavailable storage cannot discard historical reference identities and regenerate saved pages', async () => {
+    const plan = markerPlan();
+    plan.objects[0].occurrences.forEach(o => { o.required = false; o.visibility = 'off_screen'; });
+    resolveStoryObjects.mockResolvedValue(plan);
+    const original = downloadBuffer.getMockImplementation();
+    downloadBuffer.mockImplementation(key => key.endsWith('/bible.json') ? Promise.reject(new Error('HTTP 503')) : original(key));
+    await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'visual_recovery_pending', recovery: { retryable: true } });
+    expect(getPropSheet).not.toHaveBeenCalled();
+    expect(generateIllustration).not.toHaveBeenCalled();
+  });
+  test.each([[false, false], [false, true], [true, false]])('corrected presence rechecks pixels, clears the false blocker and reuses the verdict (reviewedOnly=%s, retryUnresolved=%s)', async (reviewedOnly, retryUnresolved) => {
     const { resolveScenePresence } = require('../../../services/catalogEngine/illustrator/scenePresence');
-    const p = baseParams({ recordRenderManifest: true });
+    const p = baseParams({ recordRenderManifest: true, retryUnresolved });
     p.bookDef = { ...p.bookDef, book: { ...p.bookDef.book, beats: p.bookDef.book.beats.filter(b => [1, 3].includes(b.spread)) } };
     const files = new Map();
     const originalDownload = downloadBuffer.getMockImplementation();
@@ -756,13 +825,18 @@ describe('recurring story objects across the production render path', () => {
     corrected.objects = corrected.objects.map(d => ({ ...d, occurrences: d.occurrences.map(o => ({ ...o, required: false, visibility: 'absent', state: 'No marker is here.' })) }));
     corrected.scenePresence = { version: 'scene-presence-1', spreadHashes: { 1: 'absent-1', 3: 'absent-3' } };
     resolveScenePresence.mockResolvedValueOnce(corrected).mockResolvedValueOnce(corrected);
-    generateIllustration.mockClear(); checkSpreadRenderV2.mockClear(); checkPropContactSheet.mockClear();
+    generateIllustration.mockClear(); checkSpreadRenderV2.mockClear(); checkPropContactSheet.mockClear(); getPropSheet.mockClear();
     checkSpreadRenderV2.mockResolvedValue(markerQa({ presence: 'absent', look: 'n/a' }));
     const result = await renderStorySpreads({ ...p, reviewedOnly });
     expect(result.results.map(r => r.storageKey)).toEqual(firstArt);
     expect(result.objectFailures).toEqual([]);
     expect(result.unresolved).toEqual([]);
     expect(generateIllustration).not.toHaveBeenCalled();
+    expect(getPropSheet).not.toHaveBeenCalled();
+    if (!reviewedOnly) {
+      expect(result.bookBible.props).toEqual([]);
+      expect(result.bookBible.bibleHash).toBe(first.bookBible.bibleHash);
+    }
     expect(checkSpreadRenderV2).toHaveBeenCalledTimes(2);
     expect(checkSpreadRenderV2.mock.calls.every(c => c[1].props[0].expected === 'absent')).toBe(true);
     expect(checkPropContactSheet).not.toHaveBeenCalled();
