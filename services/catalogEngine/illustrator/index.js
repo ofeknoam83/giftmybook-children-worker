@@ -356,7 +356,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const companionPresent = !!(beat && companionOnSpread(beat, spreadText, theme.companion, { theme, childName: profile?.name }));
   const { pack, refs } = buildReferencePack(bible, {
     refPhoto,
-    propValues: [...sceneObjects.map(d => d.value), ...declaredProps, ...carriedProps],
+    propValues: [...sceneObjects.filter(d => !forbidden(d.occurrence)).map(d => d.value), ...declaredProps, ...carriedProps],
     companionOnSpread: companionPresent,
     // ce-15: the book's own first painted page (text-side crop) as the
     // TYPOGRAPHY REFERENCE — only on spreads other than the anchor itself.

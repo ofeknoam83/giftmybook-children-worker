@@ -2,7 +2,7 @@ jest.mock('../../../services/gcsStorage', () => ({ downloadBuffer: jest.fn(), up
 jest.mock('../../../services/illustrationGenerator', () => ({ getNextApiKey: () => 'test-key', fetchWithTimeout: jest.fn() }));
 const storage = require('../../../services/gcsStorage');
 const { fetchWithTimeout: fetch } = require('../../../services/illustrationGenerator');
-const { resolveScenePresence, tasksFor, verdictIssue, presenceHash } = require('../../../services/catalogEngine/illustrator/scenePresence');
+const { resolveScenePresence, tasksFor, verdictIssue, presenceHash, needsReference } = require('../../../services/catalogEngine/illustrator/scenePresence');
 const { inputsFor, criticalObjectFailures } = require('../../../services/catalogEngine/illustrator/storyObjects');
 const { spreadDependencies } = require('../../../services/catalogEngine/illustrator/visualDependencies');
 const files = new Map();
@@ -39,6 +39,21 @@ beforeEach(() => {
   storage.downloadBuffer.mockImplementation(async k => { if (files.has(k)) return files.get(k); throw Object.assign(new Error('not found'), { code: 404 }); });
   storage.uploadBufferIfAbsent.mockImplementation(async (b, k) => { if (files.has(k)) return { created: false }; files.set(k, b); return { created: true }; });
   fetch.mockResolvedValue(response(verdict()));
+});
+
+test('only a completely off-screen or absent family can omit its reference; unknowns and visible effects keep theirs', () => {
+  for (const name of ['meerkat calls', 'a remembered bell', 'unfound nesting boxes', 'רחש רחוק']) {
+    expect(needsReference({ name, critical: true, occurrences: [
+      { required: false, visibility: 'off_screen' }, { required: false, visibility: 'absent' },
+    ] })).toBe(false);
+  }
+  for (const occurrence of [{ required: true, visibility: 'visible' }, { required: false, visibility: 'optional' },
+    { required: false }, { required: true, visibility: 'off_screen' }]) {
+    expect(needsReference({ name: 'magical visible sound ribbons', occurrences: [
+      { required: false, visibility: 'off_screen' }, occurrence,
+    ] })).toBe(true);
+  }
+  expect(needsReference({ occurrences: [] })).toBe(true);
 });
 
 test('corrects negated, heard and remembered occurrences while preserving visible clues, identities and image keys', async () => {

@@ -23,7 +23,7 @@ const { getCharacterSheet } = require('./characterSheet');
 const { getBibleProps, getPropSheet, normalizePropValue } = require('./propSheet');
 const pLimit = require('p-limit');
 const { resolveStoryObjects, objectsForSpread, propName, designText } = require('../storyObjects');
-const { resolveScenePresence } = require('../scenePresence');
+const { resolveScenePresence, needsReference } = require('../scenePresence');
 const { getOutfitLock } = require('../outfitLock');
 const { getEmotionPlan, renderEmotionLine } = require('../emotionPlan');
 const { getWorldPlate } = require('../worldPlate');
@@ -182,8 +182,31 @@ async function buildBookBible(p) {
       recovery.recovery.nextAction = 'repair_contract';
       throw recovery;
     });
-  if (!flags.propSheetsEnabled() && storyObjects.objects.some(d => d.critical)) {
+  const requiredReferences = storyObjects.objects.filter(needsReference);
+  if (!flags.propSheetsEnabled() && requiredReferences.some(d => d.critical)) {
     throw require('../referenceContract').pending('Critical story references are disabled; saved story retained.', { status: 'configuration', reason: 'Enable required story references' });
+  }
+  // An older run may have included now-unused sheets in its render keys. Keep
+  // only their metadata so saved pages stay addressable; never load, verify or
+  // generate those images merely to preserve a cache identity.
+  const skippedReferences = storyObjects.objects.filter(d => !needsReference(d));
+  const oldReferenceIdentities = new Map();
+  if (skippedReferences.length) {
+    let previous = null;
+    try {
+      previous = JSON.parse((await downloadBuffer(`children-jobs/${p.bookId}/bible.json`)).toString());
+    } catch (err) {
+      if (!(err.code === 404 || err.statusCode === 404 || /not found|No such object|cache miss/i.test(err.message))) {
+        throw require('../referenceContract').pending('Saved reference identities could not be read; existing artwork is retained.', { status: 'transient', reason: 'Book bible storage unavailable' });
+      }
+    }
+    if (previous?.styleVersion === STYLE_VERSION && previous.anchorHash === aHash && previous.storyObjects?.hash === storyObjects.hash) {
+      const skippedNames = new Set(skippedReferences.map(propName));
+      for (const entry of previous.renderProps || previous.props || []) {
+        if (skippedNames.has(entry.value) && entry.key && entry.hash) oldReferenceIdentities.set(entry.value, entry);
+      }
+    }
+    for (const definition of skippedReferences) log('info', `No visual reference needed for ${definition.name}: absent or off-screen throughout the manuscript`);
   }
   // The remaining families are independent of each other, fail-open by
   // contract, and build concurrently. Each branch collects its own
@@ -226,6 +249,7 @@ async function buildBookBible(p) {
         const limit = pLimit(2);
         const storyProps = await Promise.all(storyObjects.objects.map(definition => limit(async () => {
           const value = propName(definition);
+          if (!needsReference(definition)) return { value, sheet: null, storyObjectId: definition.id, renderIdentity: oldReferenceIdentities.get(value) || null };
           let lastWarning = null;
           const sheet = await getPropSheet({ kind: 'prop', value, definition, theme: p.theme, costTracker: p.costTracker, log: (level, message) => {
             if (level === 'warn') lastWarning = message;
@@ -243,7 +267,7 @@ async function buildBookBible(p) {
         props.push(...storyProps);
       } catch (err) {
         if (err.failureCode) throw err;
-        if (storyObjects.objects.some(d => d.critical)) {
+        if (requiredReferences.some(d => d.critical)) {
           err.failureCode = 'identity_kit_failed';
           throw err;
         }
@@ -291,11 +315,15 @@ async function buildBookBible(p) {
     emotionPlanHash: emotion ? emotion.hash : null,
     storyObjects,
   };
+  if (props.some(x => x.renderIdentity)) {
+    const active = new Map(manifest.props.map(x => [x.value, x]));
+    manifest.renderProps = props.flatMap(x => active.has(x.value) ? [active.get(x.value)] : x.renderIdentity ? [x.renderIdentity] : []);
+  }
   manifest.bibleHash = fnv1a(JSON.stringify({
     s: manifest.styleVersion, a: manifest.anchorHash,
     c: manifest.characterSheet && manifest.characterSheet.hash,
     o: manifest.outfitSpec && manifest.outfitSpec.hash,
-    p: manifest.props.map(x => [x.hash, x.specHash]), k: manifest.companion && [manifest.companion.hash, manifest.companion.specHash],
+    p: (manifest.renderProps || manifest.props).map(x => [x.hash, x.specHash]), k: manifest.companion && [manifest.companion.hash, manifest.companion.specHash],
     w: manifest.worldPlate && manifest.worldPlate.hash, e: manifest.emotionPlanHash,
     ...(storyObjects.objects.length ? { storyObjects: storyObjects.hash } : {}),
   })).toString(36);
