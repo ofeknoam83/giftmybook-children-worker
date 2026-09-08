@@ -11,8 +11,21 @@ continue to use the trailer, including short Art Bench motion previews.
 
 1. Partition the manuscript into exact source slices. A strict JSON director
    assigns a stable cast from the existing house voices and expressive delivery.
-   The model cannot rewrite spoken text. Reject missing, reordered or uncertain
-   assignments and duplicate voices. Persist the screenplay before recording.
+   The model cannot rewrite spoken text. Assignments are matched by fragment id
+   (their order is free); every SPOKEN fragment needs exactly one certain
+   assignment to a cast id with an emotion from the vocabulary, while a
+   whitespace/punctuation-only fragment — the splitter leaves one after every
+   quoted sentence — is never spoken and needs none. Mechanical slips are
+   normalized, never guessed: a cast member's name in place of its id, `certain`
+   as the string "true", an emotion in the wrong case. Duplicate voices and an
+   unknown cast are rejected. A screenplay that still fails goes back to the
+   director ONCE (`CATALOG_FILM_DIRECTOR_REPAIRS`, default 1) with the exact
+   failing fragments — id, spread, text, reason — for a complete corrected
+   screenplay; a fragment it still cannot resolve fails `film_script_ambiguous`
+   naming the fragment's text (before 2026-09-08 one blank fragment marked
+   uncertain, or one emotion outside the list, failed the whole film with no
+   second ask and a message that named only the fragment number). Persist the
+   screenplay before recording.
 2. Use the existing narration adapters, take QA and bounded repair ladder.
    Full-film takes require the complete normalized transcript, including on
    cache replay. Character voices are enabled for every age band.

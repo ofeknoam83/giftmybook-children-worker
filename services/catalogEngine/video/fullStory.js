@@ -126,7 +126,7 @@ async function generateFullStoryFilm(p) {
   p = { ...p, abortSignal: controller.signal };
   const timeout = setTimeout(cancel, 3 * 60 * 60 * 1000);
   const heartbeat = setInterval(() => { touch(); p.onProgress?.(progress, message); }, 25000);
-  const ctx = { signal: p.abortSignal, costTracker, touch };
+  const ctx = { signal: p.abortSignal, costTracker, touch, log };
   let resumeKey = `${base}/resume.json`;
   let resume = { version: 1, stage: 'preparing', frames: [], approvedTakes: [] };
   const checkpoint = async patch => {

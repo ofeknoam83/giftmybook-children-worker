@@ -18,17 +18,53 @@ test('covers all 12 spreads byte for byte, preserving quotes, whitespace and att
   expect(script.cast.child.voice.voiceId).not.toBe(script.cast.narrator.voice.voiceId);
 });
 
-test('rejects missing scenes, reordered assignments, unknown speakers, uncertain speakers and duplicate voices', () => {
+test('rejects missing scenes, missing/unknown/uncertain spoken assignments and duplicate voices — naming the fragment', () => {
   expect(() => manuscriptUnits({ spreads: story.spreads.slice(1) })).toThrow(/12/);
   const units = manuscriptUnits(story);
-  const bad = direction(units); bad.assignments.reverse();
-  expect(() => validateDirection(bad, units, 'elevenlabs', '4-5')).toThrow(/assignment/i);
-  for (const change of [{ speaker: 'invented' }, { certain: false }]) {
+  expect(units[1].text).toBe('“Hello!”');
+  for (const [change, reason] of [[{ speaker: 'invented' }, /unknown speaker "invented"/], [{ certain: false }, /uncertain speaker/], [{ emotion: 'happy' }, /unknown emotion "happy"/]]) {
     const raw = direction(units); raw.assignments[1] = { ...raw.assignments[1], ...change };
-    expect(() => validateDirection(raw, units, 'elevenlabs', '4-5')).toThrow();
+    let err;
+    try { validateDirection(raw, units, 'elevenlabs', '4-5'); } catch (e) { err = e; }
+    expect(err.failureCode).toBe('film_script_ambiguous');
+    expect(err.message).toMatch(/spread 1, fragment 1 "“Hello!”": /);
+    expect(err.message).toMatch(reason);
+    expect(err.problems).toEqual([{ id: 1, spread: 1, text: '“Hello!”', reason: expect.stringMatching(reason) }]);
   }
+  const missing = direction(units); missing.assignments.splice(1, 1);
+  expect(() => validateDirection(missing, units, 'elevenlabs', '4-5')).toThrow(/fragment 1 "“Hello!”": missing/);
+  const many = direction(units); many.assignments = many.assignments.map(a => ({ ...a, certain: false }));
+  let err; try { validateDirection(many, units, 'elevenlabs', '4-5'); } catch (e) { err = e; }
+  expect(err.message).toMatch(/\(\+\d+ more\)\.$/);
+  expect(err.problems.length).toBeGreaterThan(3);
   const shared = direction(units); shared.cast = cast.map(c => ({ ...c, voiceKey: 'storyteller_warm_f' }));
   expect(() => validateDirection(shared, units, 'elevenlabs', '4-5')).toThrow(/distinct/);
+});
+
+test('assignments are matched by fragment id (order is free); a silent fragment needs no speaker', () => {
+  const units = manuscriptUnits(story);
+  const reference = validateDirection(direction(units), units, 'elevenlabs', '4-5');
+  const reordered = direction(units); reordered.assignments.reverse();
+  expect(validateDirection(reordered, units, 'elevenlabs', '4-5').turns).toEqual(reference.turns);
+  // the whitespace fragment after every quoted sentence is never spoken
+  expect(units[2].text).toBe(' ');
+  for (const change of [{ certain: false }, { speaker: 'nobody' }, { emotion: 'blank' }, null]) {
+    const raw = direction(units);
+    if (change) raw.assignments[2] = { ...raw.assignments[2], ...change }; else raw.assignments.splice(2, 1);
+    expect(validateDirection(raw, units, 'elevenlabs', '4-5').turns).toEqual(reference.turns);
+  }
+});
+
+test('mechanical slips are normalized, never guessed: a cast NAME as the speaker, certain as a string, an emotion in another case', () => {
+  const units = manuscriptUnits(story);
+  const reference = validateDirection(direction(units), units, 'elevenlabs', '4-5');
+  const raw = direction(units);
+  raw.assignments = raw.assignments.map(a => ({ ...a, speaker: { narrator: 'Narrator', child: 'jo', companion: 'PATCH' }[a.speaker], certain: 'true', emotion: 'Wonder' }));
+  const script = validateDirection(raw, units, 'elevenlabs', '4-5');
+  expect(script.turns).toEqual(reference.turns);
+  expect(script.hash).not.toBe(reference.hash); // the raw screenplay differs, so its identity does
+  const partial = direction(units); partial.assignments[1] = { ...partial.assignments[1], speaker: 'Jo', certain: 'yes' };
+  expect(() => validateDirection(partial, units, 'elevenlabs', '4-5')).toThrow(/uncertain speaker/);
 });
 
 test('measured long speech is partitioned exactly once, with no lost source samples or oversized shots', () => {

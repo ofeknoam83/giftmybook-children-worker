@@ -1179,7 +1179,14 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   lettering: the same spread FRESH first, then the nearest untried spread
   as a substitute; 0 fails on the first hit),
   `CATALOG_VIDEO_SHIP_ON_EXHAUSTION=1` (OPT-IN), `CATALOG_VIDEO_MUSIC`
-  (`none`), `FFMPEG_PATH`. Bump `VIDEO_VERSION` (versions.js, `gv-2`) on
+  (`none`), `CATALOG_FILM_DIRECTOR_REPAIRS` (1, 0-3 — corrected-screenplay
+  rounds the full-story film's director gets when its screenplay fails
+  validation, the failing fragments fed back with id, spread, text and
+  reason; assignments are matched by fragment id, silent whitespace/
+  punctuation fragments need no speaker, and a cast NAME as the speaker,
+  `certain` as a string or an emotion in another case are normalized —
+  2026-09-08, after one blank fragment marked uncertain failed a whole
+  film `film_script_ambiguous`), `FFMPEG_PATH`. Bump `VIDEO_VERSION` (versions.js, `gv-2`) on
   any change to the film plan, the still-selection scoring, the brief
   template or the stitch graph.
 - Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 1, clamped 1-3),
