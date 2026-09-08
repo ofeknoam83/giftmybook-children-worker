@@ -219,6 +219,19 @@ describe('POST /v13/pick-clip', () => {
 
 
 describe('full-story film API', () => {
+  test('scene failures preserve exact spread diagnostics and evidence in the callback', async () => {
+    const full = { ...storyPair, response: { ...storyPair.response, spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text: 'Hello.' })) } };
+    resolveStory.mockResolvedValue(full);
+    const { generateFullStoryFilm } = require('../services/catalogEngine/video/fullStory');
+    const unresolved = [{ kind: 'scene', spread: 3, storageKey: key(3), defects: ['scene verification unavailable: malformed verdict'], qaUnavailable: 'malformed verdict', candidates: [{ storageKey: 'scene-candidate.png' }] }];
+    generateFullStoryFilm.mockRejectedValueOnce(Object.assign(new Error('Spread 3: scene verification unavailable: malformed verdict'), {
+      failureCode: 'film_scene_unresolved', details: { unresolved, bookBible: { bibleHash: 'bh' } },
+    }));
+    expect((await post({ ...validBody(), story: full, renders: full.response.spreads.map(s => ({ spread: s.spread, storageKey: key(s.spread) })), mode: 'full-story', ELEVENLABS_API_KEY: 'test' })).status).toBe(202);
+    await settle();
+    const callback = JSON.parse(global.fetch.mock.calls.find(([url]) => url === validBody().callbackUrl)[1].body);
+    expect(callback).toMatchObject({ success: false, failureCode: 'film_scene_unresolved', unresolved, bookBible: { bibleHash: 'bh' }, error: expect.stringContaining('Spread 3:') });
+  });
   test('advertises the supported mode before the app starts a paid generation', async () => {
     delete process.env.CATALOG_GIFT_VIDEO;
     const res = await request(app).post('/v13/video-capabilities').set('x-api-key', 'test-api-key').send({});

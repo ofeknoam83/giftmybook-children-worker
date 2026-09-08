@@ -211,7 +211,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -440,6 +440,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // The structured QA check against the bible — the SAME pinned inputs on
   // every candidate, repair, and replay re-check of this spread.
   const qaOpts = {
+    retryUnavailable: retryUnresolved,
     expectedText: embedText ? spreadText : null,
     // qa-10 (ce-18): the book's ONE pinned ink — the target the painted
     // block's MEASURED colour is held to (the same hex the prompt states).
@@ -525,6 +526,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         // older eyes — either way the replay re-checks instead of trusting it.
         if (marker.renderHash !== renderContentHash(cached)) throw new Error('marker does not match the cached render');
         if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
+        if (retryUnresolved && (!marker.qa?.verdict || marker.qa.qaUnavailable)) throw new Error('marker has no usable scene verdict');
         if (sceneObjects.length && marker.storyObjectHash !== bible.storyObjects.hash) throw new Error('marker predates this story-object contract');
         if (criticalObjectFailures([{ spread, qa: marker.qa }], bible.storyObjects).length) throw new Error('critical story-object QA needs rechecking');
         if (embedText && !textVerificationCurrent(marker.qa?.textVerification, spreadText)) {
@@ -538,8 +540,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         }
         // Automatic completion reuses winners (including older runs stopped
         // for review), preserving defects instead of buying more candidates.
-        // The strict opt-out requires another check of unresolved artwork.
-        if (marker.unresolved && !flags.shipOnExhaustion()) throw new Error('marker records unresolved blocking defects');
+        // Strict film preparation also rechecks and repairs unresolved artwork.
+        if ((marker.unresolved || (retryUnresolved && marker.qa?.blocking?.length)) && (retryUnresolved || !flags.shipOnExhaustion())) {
+          throw new Error('marker records unresolved blocking defects');
+        }
         const markerBlocking = marker.unresolved
           ? (Array.isArray(marker.qa?.blocking) && marker.qa.blocking.length ? [...marker.qa.blocking] : ['saved artwork has unresolved QA findings'])
           : [];
@@ -1229,6 +1233,7 @@ async function runContactSheetGate({ results, bible, evidence = [], rerender, on
  * @param {string|null} [params.characterDescription]
  * @param {string} [params.textLayout] 'caption' (default) | 'half' | 'embedded'.
  * @param {number[]|null} [params.spreads] subset of spread numbers (default: all beats)
+ * @param {boolean} [params.retryUnresolved] Recheck defective cached artwork and run bounded repairs even under the book shipping policy.
  * @param {number[]|null} [params.rerenderSpreads] probe-only: spreads forced FRESH
  * @param {object|null} [params.tuning] raw illustrationTuning overlay (normalized here; kill-switch applied)
  * @param {boolean} [params.identityKeyed] fold the identity anchor into the cache key
@@ -1245,7 +1250,7 @@ async function renderStorySpreads(params) {
     bookId, story, bookDef, profile,
     approvedCoverUrl, childPhotoUrl, characterDescription,
     textLayout = 'caption', spreads = null, rerenderSpreads = null, probeNonce = null,
-    costTracker, forceRerender = false, reviewedOnly = false, automaticTextRecovery = false,
+    costTracker, forceRerender = false, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false,
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
   const { book, theme } = bookDef;
@@ -1461,7 +1466,7 @@ async function renderStorySpreads(params) {
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-    reviewedOnly, automaticTextRecovery, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    reviewedOnly, automaticTextRecovery, retryUnresolved, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
     legacyUnanchoredKey: reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
       ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag) : null,
@@ -1561,6 +1566,9 @@ async function renderStorySpreads(params) {
   results.sort((a, b) => a.spread - b.spread);
 
   const rerender = (spread, note) => {
+    if (retryUnresolved && results.find(r => r.spread === spread)?.qa?.qaUnavailable) {
+      throw new Error('Scene verification unavailable; keep the existing image for rechecking');
+    }
     if ((renderBudget.used.get(spread) || 0) >= renderBudget.limit) {
       throw new Error(`Automatic render budget exhausted for spread ${spread} (${renderBudget.limit} candidates); review existing candidates`);
     }

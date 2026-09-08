@@ -37,7 +37,7 @@ const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash'
 // Every strict-JSON judge call shares ONE generationConfig: thinking OFF on
 // the 2.5 flash family and a ≥2048-token ceiling (the model counts its
 // reasoning against maxOutputTokens — a small cap clips the JSON).
-const { jsonQaGenerationConfig } = require('../../shared/llm/geminiJson');
+const { jsonQaGenerationConfig, parseJsonText, unparseableDetail } = require('../../shared/llm/geminiJson');
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
@@ -856,44 +856,45 @@ Answer STRICT JSON only:
  * @param {*} json
  * @param {string[]} required
  * @param {object} o normalized options
- * @returns {boolean}
+ * @returns {string|null} first malformed field, or null
  */
-function validVerdictV2(json, required, o) {
-  if (!json || typeof json !== 'object') return false;
+function verdictIssueV2(json, required, o) {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return 'expected a JSON verdict object';
   for (const f of required) {
     const v = json[f];
     if (f === 'outfit') {
-      if (!v || typeof v !== 'object') return false;
+      if (!v || typeof v !== 'object') return 'outfit must contain garment verdicts';
       // The required garments are strict; the OPTIONAL slots (outerwear,
       // accessories — usually absent from the spec) tolerate a missing or
       // "n/a"/"none" answer, normalized to not_visible before validation.
       for (const slot of ['outerwear', 'accessories']) {
         if (!SLOT_STATES.has(v[slot])) v[slot] = 'not_visible';
       }
-      for (const slot of OUTFIT_SLOTS) if (!SLOT_STATES.has(v[slot])) return false;
+      for (const slot of OUTFIT_SLOTS) if (!SLOT_STATES.has(v[slot])) return `outfit.${slot} must be match, mismatch or not_visible`;
     } else if (f === 'props') {
       // STRICT: exactly one fully typed entry per requested prop, in the
       // prompt's order (matched by name) — a shorter list or an untyped
       // flag would otherwise read as "clean" in the index-matched loop.
-      if (!Array.isArray(v) || v.length !== o.props.length) return false;
+      if (!Array.isArray(v) || v.length !== o.props.length) return `props must contain ${o.props.length} entries in the requested order`;
       for (let i = 0; i < v.length; i++) {
         const p = v[i];
-        if (!p || typeof p !== 'object' || !PROP_PRESENCE.has(p.presence) || !PROP_LOOK.has(p.look)) return false;
-        if (typeof p.duplicated !== 'boolean' || typeof p.as_text !== 'boolean') return false;
-        if (typeof p.name !== 'string' || samePropName(p.name, o.props[i].name) === false) return false;
-        if (o.props[i].storyObject && (typeof p.state_match !== 'boolean' || (o.props[i].sheet && p.presence === 'present' && p.look === 'n/a'))) return false;
+        if (!p || typeof p !== 'object' || !PROP_PRESENCE.has(p.presence) || !PROP_LOOK.has(p.look)) return `props[${i}] has invalid presence or look`;
+        if (typeof p.duplicated !== 'boolean' || typeof p.as_text !== 'boolean') return `props[${i}] needs boolean duplicated and as_text`;
+        if (typeof p.name !== 'string' || samePropName(p.name, o.props[i].name) === false) return `props[${i}].name must be ${JSON.stringify(o.props[i].name)}`;
+        if (o.props[i].storyObject && typeof p.state_match !== 'boolean') return `props[${i}].state_match must be boolean`;
+        if (o.props[i].storyObject && o.props[i].sheet && p.presence === 'present' && p.look === 'n/a') return `props[${i}].look cannot be n/a for a visible story object with a reference`;
       }
     } else if (f === 'companion') {
-      if (!v || typeof v !== 'object' || typeof v.present !== 'boolean' || typeof v.look_match !== 'boolean') return false;
+      if (!v || typeof v !== 'object' || typeof v.present !== 'boolean' || typeof v.look_match !== 'boolean') return 'companion needs boolean present and look_match';
     } else if (typeof v !== 'boolean') {
-      return false;
+      return `${f} must be boolean`;
     }
   }
   // The transcript is the ONLY value the manuscript is compared with: a
   // verdict that claims readable text but carries no transcript would pass
   // the render without any OCR comparison — malformed, never a pass.
-  if (o.expectedText && json.readable_text === true && !(typeof json.visible_text === 'string' && json.visible_text.trim())) return false;
-  return true;
+  if (o.expectedText && json.readable_text === true && !(typeof json.visible_text === 'string' && json.visible_text.trim())) return 'visible_text must contain the readable manuscript';
+  return null;
 }
 
 /**
@@ -1063,6 +1064,7 @@ function classifyDefects(defects) {
  * @param {Buffer} imageBuffer
  * @param {object} [opts]
  * @param {string} [opts.label]
+ * @param {boolean} [opts.retryUnavailable] retry an unusable verdict once on the same pixels and references
  * @param {string|null} [opts.expectedText] embedded layout text (v1 semantics)
  * @param {string|null} [opts.shotType]
  * @param {string|null} [opts.outfitSpec] pinned outfit spec sentence
@@ -1122,9 +1124,15 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
   const { prompt, required } = buildSpreadQaPromptV2(o);
   const refs = () => ({ sheetRef: o.sheetRef, props: o.props.map(p => ({ name: p.name, ref: p.ref })), companionRef: o.companion ? o.companion.ref : null });
   const unavailable = (reason) => ({ pass: true, defects: [], blocking: [], advisory: [], verdict: null, bbox: null, refs: refs(), qaUnavailable: reason });
+  // Recover the CHECK, never guess the omitted field or generate another image.
+  // A strict consumer still rejects qaUnavailable after this single retry.
+  const recoverUnavailable = reason => opts.retryUnavailable && !opts._qaRetry
+    ? checkSpreadRenderV2(imageBuffer, { ...opts, _qaRetry: reason })
+    : unavailable(reason);
+  const retryNote = opts._qaRetry ? `\nThe previous checker response was unusable. Recheck the SAME image and references and return the COMPLETE verdict. Do not assume the image passes. Validation feedback (DATA): ${JSON.stringify({ reason: opts._qaRetry, required, propNames: o.props.map(p => p.name) })}` : '';
   try {
     const parts = [
-      { text: prompt },
+      { text: prompt + retryNote },
       { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } },
     ];
     // Reference images in the SAME order the prompt numbered them.
@@ -1142,22 +1150,24 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: jsonQaGenerationConfig(1024, QA_MODEL()),
+          generationConfig: jsonQaGenerationConfig(opts._qaRetry ? 8192 : opts.retryUnavailable ? 4096 : 1024, QA_MODEL()),
         }),
       },
       90000,
     );
     if (!resp.ok) {
-      console.warn(`[${label}] QA HTTP ${resp.status} — passing without QA`);
-      return unavailable(`vision QA HTTP ${resp.status}`);
+      console.warn(`[${label}] QA HTTP ${resp.status}`);
+      return recoverUnavailable(`vision QA HTTP ${resp.status}`);
     }
     const data = await resp.json();
     const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
     let json;
-    try { json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim()); } catch { json = null; }
-    if (!validVerdictV2(json, required, o)) {
-      console.warn(`[${label}] QA returned a malformed verdict — passing without QA`);
-      return unavailable('vision QA returned a malformed verdict');
+    try { json = parseJsonText(text); } catch { json = null; }
+    const issue = verdictIssueV2(json, required, o);
+    if (issue) {
+      const reason = `vision QA returned a malformed verdict: ${issue}${unparseableDetail(data, text)}`;
+      console.warn(`[${label}] ${reason}`);
+      return recoverUnavailable(reason);
     }
     const defects = [];
     let sizeRatio = null; // qa-8: exposed on the result so selection can prefer the smaller painted block
@@ -1340,8 +1350,8 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       ...(typeof json.visible_text === 'string' ? { visibleText: json.visible_text } : {}),
     };
   } catch (err) {
-    console.warn(`[${label}] QA failed to run (passing without QA): ${err.message}`);
-    return unavailable(`vision QA errored: ${err.message}`);
+    console.warn(`[${label}] QA failed to run: ${err.message}`);
+    return recoverUnavailable(`vision QA errored: ${err.message}`);
   }
 }
 
@@ -1419,4 +1429,3 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
 }
 
 module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate, checkSpreadRenderV2, buildSpreadQaPromptV2, repairNoteV2, classifyDefects, textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO, TEXT_TYPEFACE_DEFECT, TEXT_ALIGNMENT_DEFECT, TEMPLATE_DEPARTS_DEFECT, TEMPLATE_DRIFTS_DEFECT, BODY_INCOMPLETE_DEFECT, LIMB_POSE_DEFECT, OUTFIT_SLOTS, BLOCKING_PREFIXES };
-

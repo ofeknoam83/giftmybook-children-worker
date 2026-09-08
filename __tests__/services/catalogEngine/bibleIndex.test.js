@@ -362,6 +362,72 @@ test('an UNCHECKED repair (checker outage mid-loop) never replaces the checked r
   expect(marker).toMatchObject({ unresolved: true, qa: { blocking: ['duplicated child hero'] } });
 });
 
+test('film recovery repairs only the failed cached scene even when automatic book completion is enabled', async () => {
+  process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '0';
+  process.env.CATALOG_DRIFT_MAX_REPAIRS = '0';
+  checkSpreadRenderV2.mockImplementation(async (_buffer, opts) => opts.label.includes(':s1:') ? blockingQa('duplicated child hero') : cleanQa());
+  const params = baseParams({ spreadNos: [1, 3], textLayout: 'half' });
+  const first = await renderStorySpreads(params);
+  const saved = new Map(uploadBuffer.mock.calls.filter(c => c[1].endsWith('.qa.json')).map(([buf, key]) => [key, buf]));
+  for (const r of first.results) saved.set(r.storageKey, r.buffer);
+  downloadBuffer.mockImplementation(async key => saved.get(key) || Buffer.from(`png:${key}`));
+  generateIllustration.mockClear();
+  checkSpreadRenderV2.mockReset();
+  checkSpreadRenderV2.mockResolvedValueOnce(blockingQa('duplicated child hero')).mockResolvedValue(cleanQa());
+  process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '1';
+  const recovered = await renderStorySpreads({ ...params, retryUnresolved: true });
+  expect(recovered.unresolved).toEqual([]);
+  expect(generateIllustration).toHaveBeenCalledTimes(1);
+  expect(generateIllustration.mock.calls[0][3].gcsPath).toMatch(/spread-1\./);
+  expect(checkSpreadRenderV2).toHaveBeenCalledTimes(2);
+  expect(checkSpreadRenderV2.mock.calls.every(([, opts]) => opts.retryUnavailable && opts.label.includes(':s1:'))).toBe(true);
+  expect(recovered.results[1].buffer).toEqual(first.results[1].buffer);
+  expect(recovered.results[1].fresh).toBe(false);
+});
+
+test('film rechecking a cached image without a verdict keeps its pixels during a persistent checker outage', async () => {
+  const cached = Buffer.from('existing-scene');
+  downloadBuffer.mockImplementation(async key => {
+    if (key.endsWith('.qa.json')) throw new Error('no QA marker');
+    return cached;
+  });
+  checkSpreadRenderV2.mockResolvedValue(cleanQa({ verdict: null, qaUnavailable: 'vision QA returned a malformed verdict' }));
+  const result = await renderStorySpreads(baseParams({ spreadNos: [1], textLayout: 'half', retryUnresolved: true }));
+  expect(result.results[0].buffer).toEqual(cached);
+  expect(result.results[0].qa.qaUnavailable).toContain('malformed');
+  expect(checkSpreadRenderV2).toHaveBeenCalledWith(cached, expect.objectContaining({ retryUnavailable: true }));
+  expect(generateIllustration).not.toHaveBeenCalled();
+  expect(uploadBuffer.mock.calls.some(c => c[1].endsWith('.qa.json'))).toBe(false);
+});
+
+test('a current-version marker with no usable verdict cannot trap film retries in cache replay', async () => {
+  const params = baseParams({ spreadNos: [1], textLayout: 'half' });
+  const first = await renderStorySpreads(params);
+  const marker = JSON.parse(uploadBuffer.mock.calls.filter(c => c[1].endsWith('.qa.json')).pop()[0].toString());
+  marker.qa = { verdict: null, blocking: [], qaUnavailable: 'old unavailable check' };
+  downloadBuffer.mockImplementation(async key => key.endsWith('.qa.json') ? Buffer.from(JSON.stringify(marker)) : first.results[0].buffer);
+  generateIllustration.mockClear();
+  checkSpreadRenderV2.mockClear();
+  const replay = await renderStorySpreads({ ...params, retryUnresolved: true });
+  expect(checkSpreadRenderV2).toHaveBeenCalledTimes(1);
+  expect(replay.results[0].qa.qaUnavailable).toBeUndefined();
+  expect(replay.results[0].buffer).toEqual(first.results[0].buffer);
+  expect(generateIllustration).not.toHaveBeenCalled();
+});
+
+test('film set gates do not buy new images while their per-scene checker is unavailable', async () => {
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  checkSpreadRenderV2.mockResolvedValue(cleanQa({ verdict: null, qaUnavailable: 'vision QA HTTP 503' }));
+  checkCharacterContactSheet.mockResolvedValueOnce({ pass: false, checked: 2, flagged: [{ spread: 1, note: 'Uncertain identity', defect: 'identity_drift' }] });
+  const result = await renderStorySpreads(baseParams({ spreadNos: [1, 3], textLayout: 'half', retryUnresolved: true }));
+  expect(generateIllustration).toHaveBeenCalledTimes(2); // only the initial missing frames
+  expect(result.results[0].advisories).toEqual(expect.arrayContaining([
+    expect.objectContaining({ note: expect.stringContaining('Scene verification unavailable; keep the existing image for rechecking') }),
+  ]));
+});
+
 test('CATALOG_SHIP_ON_EXHAUSTION=1: the marker records the shipped defects and a replay keeps reporting them; switch off and it re-checks', async () => {
   process.env.CATALOG_SHIP_ON_EXHAUSTION = '1';
   process.env.CATALOG_RENDER_CANDIDATES = '1';

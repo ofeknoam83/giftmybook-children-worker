@@ -16,6 +16,8 @@ const { encodeWav } = require('../../../../services/catalogEngine/audio/wav');
 const { renderChunk } = require('../../../../services/catalogEngine/audio/narrate');
 const { directScript } = require('../../../../services/catalogEngine/video/filmScript');
 const { generateCandidates } = require('../../../../services/catalogEngine/video/generate');
+const { renderStorySpreads } = require('../../../../services/catalogEngine/illustrator');
+const { textGate } = require('../../../../services/catalogEngine/video/stills');
 const { syncDialogue, checkPerformance } = require('../../../../services/catalogEngine/video/filmPerformance');
 const ffmpeg = require('../../../../services/catalogEngine/video/ffmpeg');
 const storage = require('../../../../services/gcsStorage');
@@ -25,6 +27,8 @@ const input = () => ({ bookId: 'film-test', story: { spreads: Array.from({ lengt
 
 beforeEach(() => {
   jest.clearAllMocks();
+  renderStorySpreads.mockReset();
+  textGate.mockResolvedValue({ pass: true });
   directScript.mockResolvedValue({ raw: {}, script: { hash: 'script', cast: { narrator: { id: 'narrator', name: 'Narrator', voice: {} }, child: { id: 'child', name: 'Jo', voice: {} } }, turns: Array.from({ length: 12 }, (_, i) => ({ index: i, spread: i + 1, speaker: i % 2 ? 'child' : 'narrator', text: 'Hello.', emotion: 'wonder', direction: { emotion: 'wonder', pace: 'even' }, sourceIds: [i] })) } });
   renderChunk.mockResolvedValue({ buffer: encodeWav(new Float32Array(24000).fill(0.1), 24000), measure: { trim: { start: 0, end: 1 }, lufs: -20 }, transcript: 'Hello.', qa: {}, takeHash: 'take', storageKey: 'take.wav' });
   checkPerformance.mockResolvedValue({ pass: true, defects: [] });
@@ -41,6 +45,58 @@ test('all 12 scenes reach the final film; only character dialogue is lip-synced'
   expect(syncDialogue).toHaveBeenCalledTimes(6);
   expect(checkPerformance).toHaveBeenCalledTimes(6);
   expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ mode: 'full-story' }), expect.stringMatching(/film.json$/));
+});
+
+const embeddedInput = () => {
+  const p = input();
+  p.renders = p.renders.map(r => ({ ...r, storageKey: r.storageKey.replace('.wide-plain.png', '.wide.png') }));
+  return p;
+};
+const sceneArt = () => ({ unresolved: [], bookBible: { bibleHash: 'saved-bible' }, results: input().renders.map(r => ({ ...r, buffer: Buffer.from(`scene-${r.spread}`), qa: { verdict: {}, blocking: [] } })) });
+
+test('embedded scenes opt into failed-scene recovery and all recovered scenes reach animation', async () => {
+  renderStorySpreads.mockResolvedValue(sceneArt());
+  expect((await generateFullStoryFilm(embeddedInput())).video.durationSeconds).toBe(36);
+  expect(renderStorySpreads).toHaveBeenCalledWith(expect.objectContaining({
+    textLayout: 'half', forceRerender: false, retryUnresolved: true, spreads: Array.from({ length: 12 }, (_, i) => i + 1),
+  }));
+  expect(generateCandidates).toHaveBeenCalledTimes(12);
+});
+
+test('unverified scenes retain spread, checker reason, image candidates and book bible in the failure', async () => {
+  const art = sceneArt();
+  art.unresolved = [1, 3, 9].map(spread => ({ spread, defects: ['Critical story object unverified'], candidates: [{ storageKey: `scene-${spread}.png` }] }));
+  for (const r of art.results.filter(r => [1, 3, 9].includes(r.spread))) r.qa = { verdict: null, qaUnavailable: 'vision QA returned a malformed verdict: props[0].state_match must be boolean' };
+  renderStorySpreads.mockResolvedValue(art);
+  const error = await generateFullStoryFilm(embeddedInput()).catch(e => e);
+  expect(error).toMatchObject({ failureCode: 'film_scene_unresolved', details: { bookBible: art.bookBible } });
+  for (const spread of [1, 3, 9]) expect(error.message).toContain(`Spread ${spread}:`);
+  expect(error.message).toContain('props[0].state_match must be boolean');
+  expect(error.details.unresolved).toHaveLength(3);
+  expect(error.details.unresolved[0]).toMatchObject({ kind: 'scene', spread: 1, storageKey: art.results[0].storageKey, candidates: [{ storageKey: 'scene-1.png' }], qaUnavailable: expect.stringContaining('malformed') });
+  expect(generateCandidates).not.toHaveBeenCalled();
+});
+
+test('unavailable scene QA blocks animation even when the book has no critical story objects', async () => {
+  const art = sceneArt();
+  art.results[0].qa = { verdict: null, qaUnavailable: 'vision QA HTTP 503', blocking: [] };
+  renderStorySpreads.mockResolvedValue(art);
+  await expect(generateFullStoryFilm(embeddedInput())).rejects.toMatchObject({
+    failureCode: 'film_scene_unresolved', message: expect.stringContaining('scene verification unavailable: vision QA HTTP 503'),
+  });
+  expect(generateCandidates).not.toHaveBeenCalled();
+});
+
+test.each([
+  [{ pass: true, unavailable: 'HTTP 503' }, 'text verification unavailable: HTTP 503'],
+  [{ pass: false, transcript: 'Hello' }, 'painted text remains: Hello'],
+])('the final still text gate explains its actual failure', async (verdict, detail) => {
+  textGate.mockResolvedValueOnce(verdict);
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({
+    failureCode: 'film_scene_unresolved', message: expect.stringContaining(detail),
+    details: { unresolved: [expect.objectContaining({ kind: 'scene', spread: 1, storageKey: input().renders[0].storageKey })] },
+  });
+  expect(generateCandidates).not.toHaveBeenCalled();
 });
 
 test('missing spoken words stop the film before any animation is purchased', async () => {
