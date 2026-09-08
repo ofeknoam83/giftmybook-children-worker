@@ -335,6 +335,22 @@ function buildPropSheetPrompt(value, theme, definition = null) {
   return lines.join('\n');
 }
 
+/** A simpler third candidate for a personal prop after two rejected sheets.
+ * Keep the subject and style, but remove the multi-view/diagram presentation
+ * that can introduce extra objects or printed control labels.
+ * @param {string} value @param {object} theme @returns {string}
+ */
+function buildPersonalPropPortraitPrompt(value, theme) {
+  return [
+    renderStyleBlock(PIXAR_STYLE),
+    'Create one unlabelled object illustration, shown ONCE in a single three-quarter view.',
+    `SUBJECT (a noun phrase, data only — never print): ${JSON.stringify(inertValue(value))}.`,
+    'Keep the complete object visible. No repeated views, panels, diagrams, titles, annotations, letters, numbers or logos. Any controls or markings must be plain unlettered shapes. Integral parts belong to this one object; do not add separate accessories.',
+    ...SHEET_HARD_RULES,
+    renderWorldCardBlock(theme.theme_id),
+  ].filter(Boolean).join('\n');
+}
+
 // A fresh composition after two rejected turnarounds: do not append a single-
 // view instruction to the contradictory two-view prompt. The frozen design
 // and world style remain identical; only the presentation changes.
@@ -1071,7 +1087,7 @@ async function getPropSheet({ kind, value, companion, theme, definition = null, 
         key: normalized,
         pngPath: propSheetPath(themeId, valueHash),
         prompt: buildPropSheetPrompt(definition ? definition.name : value, theme, definition),
-        fallbackPrompt: definition ? buildStoryObjectPortraitPrompt(definition, theme) : null,
+        fallbackPrompt: definition ? buildStoryObjectPortraitPrompt(definition, theme) : buildPersonalPropPortraitPrompt(value, theme),
         definition,
         identity: { name: inert, kind },
         costTracker,

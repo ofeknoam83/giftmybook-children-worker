@@ -343,13 +343,56 @@ describe('classifier', () => {
     const [url, init] = fetchWithTimeout.mock.calls[0];
     expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-key');
     const body = JSON.parse(init.body);
-    expect(body.generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json' });
+    expect(body.generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json', maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } });
     expect(body.generationConfig.responseSchema.properties.spreads.items.properties.emotion.enum).toEqual(EMOTIONS);
     expect(body.contents[0].parts).toHaveLength(1);
     const prompt = body.contents[0].parts[0].text;
     expect(prompt).toContain('SPREADS (JSON):');
     expect(prompt).toContain('"spread":1');
     expect(prompt).toContain(EMOTIONS.join(', '));
+  });
+
+  test.each(['MAX_TOKENS', 'malformed'])('an incomplete %s response is retried once and the recovered plan is cached', async reason => {
+    fetchWithTimeout.mockResolvedValueOnce({ ok: true, json: async () => ({
+      candidates: [{ finishReason: reason === 'MAX_TOKENS' ? reason : 'STOP', content: { parts: [{ text: reason === 'MAX_TOKENS'
+        ? JSON.stringify({ spreads: [{ spread: 1, emotion: 'worry', intensity: 'big' }] })
+        : '{"spreads":[{"spread":1,"emotion":"won' }] } }],
+      usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 40 },
+    }) }).mockResolvedValueOnce(classifierJson([{ spread: 2, emotion: 'joy', intensity: 'big' }]));
+    const costTracker = { addTextUsage: jest.fn() };
+    const log = jest.fn();
+    const result = await classifyEmotions({ book: SAMPLE.book, story: sampleStory(), costTracker, log });
+    expect(Object.keys(result)).toEqual(['2']);
+    expect(result[2]).toMatchObject({ emotion: 'joy', source: 'classifier' });
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchWithTimeout.mock.calls[1][1].body).generationConfig.maxOutputTokens).toBe(4096);
+    expect(fetchWithTimeout.mock.calls[1][2]).toBeLessThanOrEqual(45000);
+    expect(costTracker.addTextUsage).toHaveBeenCalledTimes(2);
+    expect(log).not.toHaveBeenCalledWith('warn', expect.anything());
+    expect(await classifyEmotions({ book: SAMPLE.book, story: sampleStory() })).toBe(result);
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+  });
+
+  test('persistent malformed JSON stops after two calls and retains the deterministic plan', async () => {
+    fetchWithTimeout.mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"spreads":[' }] } }] }) });
+    const result = await getEmotionPlan({ book: SAMPLE.book, story: sampleStory() });
+    expect(result.source).toBe('table');
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    await getEmotionPlan({ book: SAMPLE.book, story: sampleStory() });
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+  });
+
+  test('a provider refusal is not retried or parsed as an approved plan', async () => {
+    fetchWithTimeout.mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ finishReason: 'SAFETY', content: { parts: [{ text: JSON.stringify({ spreads: [{ spread: 1, emotion: 'joy', intensity: 'big' }] }) }] } }] }) });
+    expect(await classifyEmotions({ book: SAMPLE.book, story: sampleStory() })).toBeNull();
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  test('model overrides that do not support zero thinking omit that setting', async () => {
+    process.env.CATALOG_QA_VISION_MODEL = 'gemini-2.5-pro';
+    fetchWithTimeout.mockResolvedValue(classifierJson([{ spread: 1, emotion: 'joy', intensity: 'big' }]));
+    await classifyEmotions({ book: SAMPLE.book, story: sampleStory() });
+    expect(JSON.parse(fetchWithTimeout.mock.calls[0][1].body).generationConfig.thinkingConfig).toBeUndefined();
   });
 
   test('hostile verdict entries are dropped: bad enums, wrong types, over-long strings, unknown spreads, prototype keys', async () => {
