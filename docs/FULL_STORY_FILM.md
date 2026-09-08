@@ -41,6 +41,16 @@ continue to use the trailer, including short Art Bench motion previews.
 
 ## Deployment and operation
 
+Video reference images retain the child, companion and plot-critical story props.
+Decorative personalization props and story objects explicitly marked noncritical
+are omitted from the video request, using the pinned story-object plan. The book's
+artwork, illustration references and quality checks remain unchanged. Omitted props
+are recorded in the film checkpoint, worker log and result warnings. Unknown
+story-object criticality keeps its reference. More than seven remaining references
+still stops the run before scene checks, narration or animation; essential props
+are never silently truncated. Changed reference sets invalidate affected film/shot
+caches while preserving existing speech, artwork and unchanged reference sets.
+
 Deploy the worker before the app. `POST /v13/video-capabilities` advertises
 `full-story`; the app checks it before requesting a paid render, so an old worker
 cannot silently return a trailer. No database migration is required.
