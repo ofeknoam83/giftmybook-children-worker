@@ -76,7 +76,7 @@ const { getEmotionPlan } = require('../../../services/catalogEngine/illustrator/
 const { checkSpreadRenderV2 } = require('../../../services/catalogEngine/illustrator/spreadQa');
 const { inkSetOutliers } = require('../../../services/catalogEngine/illustrator/metrics');
 const { checkCharacterContactSheet, checkPropContactSheet, checkCompanionContactSheet } = require('../../../services/catalogEngine/illustrator/contactSheet');
-const { renderStorySpreads, illustrateStory } = require('../../../services/catalogEngine/illustrator');
+const { renderStorySpreads, illustrateStory, verifyCriticalObjectSet } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
 const { QA_VERSION } = require('../../../services/catalogEngine/versions');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
@@ -131,6 +131,8 @@ beforeEach(() => {
   const seen = new Map();
   downloadBuffer.mockImplementation(async (key) => {
     if (key.endsWith('.qa.json')) throw new Error('no marker');
+    if (key.includes('.recovery-v1/') && key.endsWith('.json')) throw new Error('cache miss');
+    if (key.includes('.recovery-v1/') && key.endsWith('.png')) return Buffer.from(`png:${key}`);
     const n = (seen.get(key) || 0) + 1;
     seen.set(key, n);
     // Candidate keys (`.cK` / `.rPcK`) are never cache-checked — only
@@ -372,7 +374,12 @@ test('film recovery repairs only the failed cached scene even when automatic boo
   const first = await renderStorySpreads(params);
   const saved = new Map(uploadBuffer.mock.calls.filter(c => c[1].endsWith('.qa.json')).map(([buf, key]) => [key, buf]));
   for (const r of first.results) saved.set(r.storageKey, r.buffer);
-  downloadBuffer.mockImplementation(async key => saved.get(key) || Buffer.from(`png:${key}`));
+  downloadBuffer.mockImplementation(async key => {
+    if (key.includes('.recovery-v1/') && key.endsWith('.json')) throw new Error('cache miss');
+    if (saved.has(key)) return saved.get(key);
+    if (key.includes('.recovery-v1/') || /\.(?:r\d+)?c\d\.png$/.test(key)) return Buffer.from(`png:${key}`);
+    throw new Error('cache miss');
+  });
   generateIllustration.mockClear();
   checkSpreadRenderV2.mockReset();
   checkSpreadRenderV2.mockResolvedValueOnce(blockingQa('duplicated child hero')).mockResolvedValue(cleanQa());
@@ -714,9 +721,29 @@ describe('recurring story objects across the production render path', () => {
     const markers = uploadBuffer.mock.calls.filter(c => c[1].endsWith('.qa.json')).map(c => JSON.parse(c[0].toString()));
     expect(markers.every(m => m.storyObjectHash === 'marker-plan-a' && m.qa.verdict.props[0].state_match)).toBe(true);
   });
+  test('the final object comparison excludes an optional object verified off-screen', async () => {
+    const plan = markerPlan(); plan.objects[0].occurrences[1].required = false;
+    const results = [{ spread: 1, buffer: Buffer.from('one'), qa: markerQa() }, { spread: 3, buffer: Buffer.from('three'), qa: markerQa({ presence: 'absent' }) }];
+    expect(await verifyCriticalObjectSet(results, { storyObjects: plan })).toEqual([]);
+    expect(checkPropContactSheet).not.toHaveBeenCalled();
+  });
+  test('both object contact checks retain the full group scene and typed reference', async () => {
+    const reference = { kind: 'group', subject: 'object', description: 'A coherent line of matching markers' };
+    const plan = markerPlan(); plan.objects[0].reference = reference;
+    resolveStoryObjects.mockResolvedValue(plan);
+    getPropSheet.mockResolvedValue({ ...PROP_SHEET, reference, specText: 'narrow wood post, orange stripe' });
+    checkSpreadRenderV2.mockResolvedValue({ ...markerQa(), propBoxes: [{ name: 'Story object: route marker', bbox: [0.1, 0.1, 0.2, 0.2] }] });
+    await renderStorySpreads(baseParams());
+    expect(checkPropContactSheet).toHaveBeenCalledTimes(2);
+    for (const [check] of checkPropContactSheet.mock.calls) {
+      expect(check.reference).toEqual(reference);
+      expect(check.tiles.every(tile => !tile.cropped)).toBe(true);
+      expect(check.recoveryRoot).toContain('/visual-checks/object-set-route_marker');
+    }
+  });
   test('a missing critical sheet stops before any spreads render', async () => {
     getPropSheet.mockResolvedValue(null);
-    await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+    await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'visual_recovery_pending', recovery: { retryable: false } });
     expect(generateIllustration).not.toHaveBeenCalled();
   });
   test('critical sheet failure exposes the underlying rejection in the generation error', async () => {

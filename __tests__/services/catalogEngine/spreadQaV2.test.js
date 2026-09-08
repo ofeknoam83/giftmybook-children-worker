@@ -904,7 +904,7 @@ describe('story-object state and family QA', () => {
     const clean = await checkSpreadRenderV2(IMG, storyOpts());
     expect(clean.blocking).toEqual([]);
     const prompt = JSON.parse(fetchWithTimeout.mock.calls.at(-1)[1].body).contents[0].parts[0].text;
-    expect(prompt).toContain('Multiple matching instances are INTENTIONAL');
+    expect(prompt).toContain('Multiple matching instances or necessary components are INTENTIONAL');
     fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict({ state_match: false })));
     const wrong = await checkSpreadRenderV2(IMG, storyOpts());
     expect(wrong.blocking).toContain('prop state mismatch: "Story object: route marker"');

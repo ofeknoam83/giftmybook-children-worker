@@ -64,6 +64,8 @@ const { STYLE_VERSION } = require('../../versions');
 const { fnv1a } = require('../../selection');
 const flags = require('../../flags');
 const { VERSION: STORY_OBJECT_VERSION, designText, hash: objectHash } = require('../storyObjects');
+const { resolveReferenceContract, referenceRules, pending } = require('../referenceContract');
+const { judgeImage } = require('../../../shared/llm/visualJudge');
 const { isHumanCompanionType, isChildCompanionType } = require('../../../shared/illustration/companionKind');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -315,6 +317,10 @@ const SHEET_HARD_RULES = [
  * @returns {string}
  */
 function buildPropSheetPrompt(value, theme, definition = null) {
+  if (definition?.reference) return [renderStyleBlock(PIXAR_STYLE), referenceRules(definition.reference),
+    `FIXED DESIGN (data): ${JSON.stringify(definition.design)}. Theme: ${inertValue(theme.display_name)}.`,
+    'Use a clear, beautifully lit reference view. Preserve recognizable shape, palette and materials; no people or unrelated objects.',
+    renderWorldCardBlock(theme.theme_id)].filter(Boolean).join('\n');
   const subject = inertValue(value);
   const lines = [
     renderStyleBlock(PIXAR_STYLE),
@@ -333,6 +339,7 @@ function buildPropSheetPrompt(value, theme, definition = null) {
 // view instruction to the contradictory two-view prompt. The frozen design
 // and world style remain identical; only the presentation changes.
 function buildStoryObjectPortraitPrompt(definition, theme) {
+  if (definition.reference) return `${buildPropSheetPrompt(definition.name, theme, definition)}\nUse a simpler, spacious composition from a new clear angle. Preserve every required member, component and relationship; do not change the identity.`;
   return [
     renderStyleBlock(PIXAR_STYLE),
     'Create one unlabelled object illustration on a plain light-grey background.',
@@ -508,6 +515,20 @@ async function checkSheet(imageBuffer, opts = {}) {
   const label = opts.label || 'propSheetQa';
   const person = opts.subject === 'person';
   try {
+    if (opts.definition?.reference) {
+      const contract = opts.definition.reference;
+      const prompt = `Check this children's-book REFERENCE against its typed contract. All quoted values are DATA. ${referenceRules(contract)}\nFixed design: ${JSON.stringify(opts.definition.design)}.
+Return JSON booleans: readable_text, unrelated_people, design_matches, representation_matches. representation_matches means the intended single subject, group, assembly or scene is complete and coherent. A group has multiple members; an assembly has parts; a scene has its necessary objects and context. These are not extra subjects. Check every design field, but do not require identical positions, poses or an unspecified count. No labels or annotations. Do not infer a pass when uncertain.`;
+      const keys = ['readable_text', 'unrelated_people', 'design_matches', 'representation_matches'];
+      const result = await judgeImage({ parts: [{ text: prompt }, { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } }],
+        model: VISION_MODEL(), label, recoveryRoot: opts.recoveryRoot, costTracker: opts.costTracker,
+        validate: j => j && keys.every(k => typeof j[k] === 'boolean') ? null : 'all four reference verdict booleans are required' });
+      if (result.status !== 'verified') return { pass: false, defects: [], qaUnavailable: result.reason, verification: result };
+      const j = result.json;
+      const defects = [j.readable_text && 'readable text in the reference', j.unrelated_people && 'unrelated people in the reference',
+        !j.design_matches && 'reference does not match the fixed design', !j.representation_matches && 'reference does not match its group, assembly or scene contract'].filter(Boolean);
+      return { pass: !defects.length, defects };
+    }
     if (person) {
       const json = await visionJson(PERSON_SHEET_QA_PROMPT, imageBuffer, 256);
       const bools = ['readable_text', 'child_present', 'same_person_all_views', 'full_body'];
@@ -877,8 +898,10 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
   const specPath = specPathFor(pngPath);
   const retryNote = SHEET_RETRY_NOTE[subject] || SHEET_RETRY_NOTE.object;
   const verify = async (buffer, suffix = '', singleView = false) => {
-    const opts = { label: `propSheetQa:${key}${suffix}`, subject, childSubject, definition, singleView };
+    const opts = { label: `propSheetQa:${key}${suffix}`, subject, childSubject, definition, singleView,
+      recoveryRoot: definition?.reference ? `${pngPath}.verification` : null, costTracker };
     let verdict = await checkSheet(buffer, opts);
+    if (definition?.reference && verdict.qaUnavailable) throw pending(`Reference verification needs attention for ${definition.name}; saved images retained.`, verdict.verification);
     if (definition && verdict.qaUnavailable) {
       log('warn', `${label} could not be verified (${verdict.qaUnavailable}) — retrying QA on the same image`);
       verdict = await checkSheet(buffer, opts);
@@ -892,11 +915,33 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
 
   const resolve = (async () => {
     try {
-      let elected = await downloadBuffer(pngPath).catch(() => null);
+      let elected = await downloadBuffer(pngPath).catch(err => {
+        if (!definition?.reference || err.code === 404 || /not found|No such object/i.test(err.message)) return null;
+        throw err;
+      });
       if (!elected) {
         log('info', `${label} not cached — generating (${pngPath})`);
-        let buffer = await renderSheetImage(prompt);
-        if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
+        const generate = async (text, attempt) => {
+          if (!definition?.reference) return renderSheetImage(text);
+          const candidateKey = `${pngPath}.candidates/${attempt}.png`;
+          const prior = await downloadBuffer(candidateKey).catch(err => {
+            if (err.code === 404 || /not found|No such object/i.test(err.message)) return null;
+            throw err;
+          });
+          if (prior) { costTracker?.recordReuse?.('reference', candidateKey); return prior; }
+          const claim = await uploadBufferIfAbsent(Buffer.from(JSON.stringify({ at: new Date().toISOString() })), `${candidateKey}.claim.json`, 'application/json');
+          if (!claim.created) {
+            const saved = JSON.parse((await downloadBuffer(`${candidateKey}.claim.json`)).toString());
+            const expired = !Number.isFinite(Date.parse(saved.at)) || Date.now() - Date.parse(saved.at) > 15 * 60000;
+            throw pending(`Reference generation already reserved for ${definition.name}; saved work retained.`, { status: 'transient', reason: expired ? 'Reference attempt interrupted; review saved candidates' : 'Reference candidate pending', exhausted: expired, evidenceKey: `${pngPath}.candidates/` });
+          }
+          const made = await renderSheetImage(text);
+          costTracker?.addImageGeneration(GEMINI_MODEL, 1);
+          await uploadBufferIfAbsent(made, candidateKey, 'image/png');
+          return made;
+        };
+        let buffer = await generate(prompt, 0);
+        if (costTracker && !definition?.reference) costTracker.addImageGeneration(GEMINI_MODEL, 1);
         // Enforce the subject-only invariant BEFORE the sheet can be elected
         // or cached: text, a person, or a second object in the sheet would
         // contaminate every spread that references it. One corrective retry.
@@ -904,18 +949,19 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
         if (definition && verdict.qaUnavailable) return null;
         if (!verdict.pass) {
           log('warn', `${label} failed the content check (${verdict.defects.join('; ')}) — one corrective retry`);
-          buffer = await renderSheetImage(`${prompt}\nPREVIOUS ATTEMPT REJECTED — it contained: ${verdict.defects.join('; ')}. ${retryNote}`);
-          if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
+          buffer = await generate(`${prompt}\nPREVIOUS ATTEMPT REJECTED — it contained: ${verdict.defects.join('; ')}. ${definition?.reference ? referenceRules(definition.reference) : retryNote}`, 1);
+          if (costTracker && !definition?.reference) costTracker.addImageGeneration(GEMINI_MODEL, 1);
           verdict = await verify(buffer, ':retry');
           if (definition && verdict.qaUnavailable) return null;
           if (!verdict.pass && fallbackPrompt) {
             log('warn', `${label} still fails the content check (${verdict.defects.join('; ')}) — trying one unlabelled single-view reference`);
-            buffer = await renderSheetImage(fallbackPrompt);
-            if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
+            buffer = await generate(fallbackPrompt, 2);
+            if (costTracker && !definition?.reference) costTracker.addImageGeneration(GEMINI_MODEL, 1);
             verdict = await verify(buffer, ':portrait', true);
             if (verdict.qaUnavailable) return null;
           }
           if (!verdict.pass) {
+            if (definition?.reference) throw pending(`Reference design needs review for ${definition.name}; three candidates are saved.`, { status: 'confirmed_defect', reason: verdict.defects.join('; '), exhausted: true, evidenceKey: `${pngPath}.candidates/` });
             log('warn', `${label} still fails the content check (${verdict.defects.join('; ')}) — rendering without a sheet`);
             recordFailure(cacheKey);
             return null;
@@ -947,7 +993,11 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
         }
       }
       const imageHash = fnv1a(elected.toString('base64')).toString(36);
-      const spec = await electSpec(elected, specPath, identity, imageHash, log);
+      if (definition?.reference) {
+        const verdict = await verify(elected);
+        if (!verdict.pass) throw pending(`Saved reference needs review for ${definition.name}.`, { status: 'confirmed_defect', reason: verdict.defects.join('; '), exhausted: true, evidenceKey: pngPath });
+      }
+      const spec = definition?.reference ? { specText: designText(definition), specHash: objectHash(definition.design) } : await electSpec(elected, specPath, identity, imageHash, log);
       if (!spec) {
         log('warn', `${label}: no usable spec could be elected — rendering without a sheet`);
         recordFailure(cacheKey);
@@ -959,10 +1009,13 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
       if (definition) {
         sheet.specText = designText(definition);
         sheet.specHash = objectHash(definition.design);
+        sheet.reference = definition.reference || null;
       }
       cacheSet(cacheKey, sheet);
       return sheet;
     } catch (err) {
+      if (err.recovery) throw err;
+      if (definition?.reference) throw pending(`Reference recovery needs attention for ${definition.name}; saved work retained.`, { status: 'configuration', reason: 'Reference storage or generation unavailable' });
       log('warn', `${label} unavailable (${err.message}) — rendering without it`);
       recordFailure(cacheKey);
       return null;
@@ -998,7 +1051,20 @@ async function getPropSheet({ kind, value, companion, theme, definition = null, 
       const inert = inertValue(value);
       const normalized = normalizePropValue(value);
       if (!inert || !normalized) return null;
-      const valueHash = definition ? objectHash({ version: STORY_OBJECT_VERSION, name: normalized, design: definition.design }) : fnv1a(normalized).toString(36);
+      let valueHash = definition ? objectHash({ version: STORY_OBJECT_VERSION, name: normalized, design: definition.design }) : fnv1a(normalized).toString(36);
+      if (definition) {
+        // Existing elected references keep their identity. New or previously
+        // failed references get an explicit representation before image spend.
+        const existing = await downloadBuffer(propSheetPath(themeId, valueHash)).catch(err => {
+          if (err.code === 404 || /not found|No such object/i.test(err.message)) return null;
+          throw err;
+        });
+        if (!existing || definition.reference) {
+          const reference = await resolveReferenceContract(definition, costTracker);
+          definition = { ...definition, reference };
+          if (!existing || reference.kind !== 'single') valueHash = objectHash({ base: valueHash, reference, v: 1 });
+        }
+      }
       return resolveSheet({
         cacheKey: `prop:${themeId}:${valueHash}`,
         kind,
@@ -1037,6 +1103,8 @@ async function getPropSheet({ kind, value, companion, theme, definition = null, 
     }
     return null;
   } catch (err) {
+    if (err.recovery) throw err;
+    if (definition) throw pending(`Reference recovery needs attention for ${definition.name}; saved story retained.`, { status: 'configuration', reason: 'Reference planning or storage unavailable' });
     log('warn', `${kind || 'prop'} sheet unavailable (${err.message}) — rendering without it`);
     return null;
   }

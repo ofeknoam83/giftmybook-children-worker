@@ -27,6 +27,8 @@ const input = () => ({ bookId: 'film-test', story: { spreads: Array.from({ lengt
 
 beforeEach(() => {
   jest.clearAllMocks();
+  storage.loadJson.mockResolvedValue(null);
+  storage.downloadBuffer.mockResolvedValue(null);
   renderStorySpreads.mockReset();
   textGate.mockResolvedValue({ pass: true });
   directScript.mockResolvedValue({ raw: {}, script: { hash: 'script', cast: { narrator: { id: 'narrator', name: 'Narrator', voice: {} }, child: { id: 'child', name: 'Jo', voice: {} } }, turns: Array.from({ length: 12 }, (_, i) => ({ index: i, spread: i + 1, speaker: i % 2 ? 'child' : 'narrator', text: 'Hello.', emotion: 'wonder', direction: { emotion: 'wonder', pace: 'even' }, sourceIds: [i] })) } });
@@ -45,6 +47,19 @@ test('all 12 scenes reach the final film; only character dialogue is lip-synced'
   expect(syncDialogue).toHaveBeenCalledTimes(6);
   expect(checkPerformance).toHaveBeenCalledTimes(6);
   expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ mode: 'full-story' }), expect.stringMatching(/film.json$/));
+});
+
+test('an upgraded resume migrates compatible approved legacy clips without new animation', async () => {
+  await generateFullStoryFilm(input());
+  const currentKeys = new Set(storage.saveJson.mock.calls.map(([, key]) => key).filter(key => key.includes('/shots/') && key.endsWith('.qa.json')));
+  expect(currentKeys.size).toBe(12);
+  const bytes = Buffer.from('saved-approved-clip');
+  const digest = require('../../../../services/catalogEngine/video/filmScript').hash(bytes);
+  storage.loadJson.mockImplementation(async key => key.includes('/shots/') && key.endsWith('.qa.json') && !currentKeys.has(key) ? { pass: true, hash: digest, score: 100 } : null);
+  storage.downloadBuffer.mockResolvedValue(bytes);
+  generateCandidates.mockClear();
+  await generateFullStoryFilm(input());
+  expect(generateCandidates).not.toHaveBeenCalled();
 });
 
 const embeddedInput = () => {
@@ -73,6 +88,7 @@ test('unverified scenes retain spread, checker reason, image candidates and book
   for (const spread of [1, 3, 9]) expect(error.message).toContain(`Spread ${spread}:`);
   expect(error.message).toContain('props[0].state_match must be boolean');
   expect(error.details.unresolved).toHaveLength(3);
+  expect(renderChunk).not.toHaveBeenCalled();
   expect(error.details.unresolved[0]).toMatchObject({ kind: 'scene', spread: 1, storageKey: art.results[0].storageKey, candidates: [{ storageKey: 'scene-1.png' }], qaUnavailable: expect.stringContaining('malformed') });
   expect(generateCandidates).not.toHaveBeenCalled();
 });
@@ -85,6 +101,7 @@ test('unavailable scene QA blocks animation even when the book has no critical s
     failureCode: 'film_scene_unresolved', message: expect.stringContaining('scene verification unavailable: vision QA HTTP 503'),
   });
   expect(generateCandidates).not.toHaveBeenCalled();
+  expect(renderChunk).not.toHaveBeenCalled();
 });
 
 test.each([

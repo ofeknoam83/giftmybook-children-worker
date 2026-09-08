@@ -72,7 +72,11 @@ class CostTracker {
     this.videoUsage = {};  // model → generated seconds
     this.audioChars = {};  // provider:model → synthesized characters (audiobook, ab-1)
     this.audioSeconds = {}; // provider:model → generated seconds of music / effects
+    this.operations = {};
+    this.reused = {};
   }
+  recordOperation(kind, model) { const key = `${kind}:${model}`; this.operations[key] = (this.operations[key] || 0) + 1; }
+  recordReuse(kind) { this.reused[kind] = (this.reused[kind] || 0) + 1; }
 
   /**
    * Record synthesized narration characters for a provider:model (ab-1).
@@ -175,11 +179,14 @@ class CostTracker {
 
     return {
       totalCost: Math.round(totalCost * 10000) / 10000,
+      operations: { ...this.operations }, reused: { ...this.reused },
       breakdown,
     };
   }
 
   reset() {
+    this.operations = {};
+    this.reused = {};
     this.textUsage = {};
     this.imageUsage = {};
     this.videoUsage = {};

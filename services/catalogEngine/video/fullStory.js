@@ -31,18 +31,23 @@ const { FULL_STORY_VIDEO_VERSION, QA_VERSION, AUDIO_QA_VERSION } = require('../v
 const TTL = 30 * 24 * 60 * 60 * 1000;
 const CAMERAS = ['push-in', 'pan-right', 'pull-out', 'rise'];
 const SCORE_MOODS = { joy: 'playful', wonder: 'light', curiosity: 'curious', determination: 'triumph', worry: 'suspense', calm: 'calm', surprise: 'light', pride: 'triumph', tenderness: 'tender', silly: 'playful' };
+const { recoveryFor } = require('../../shared/llm/visualJudge');
 
 function sceneFailure(unresolved, bookBible = null, results = []) {
   const scenes = unresolved.map(u => {
     const result = results.find(r => r.spread === u.spread);
-    const qaUnavailable = u.qaUnavailable || result?.qa?.qaUnavailable || (result?.buffer && !result.qa?.verdict ? 'no usable scene verdict' : null);
+    const qaUnavailable = u.qaUnavailable || u.verification?.reason || result?.qa?.qaUnavailable || result?.recovery?.issues?.[0]?.reason || (result?.buffer && !result.qa?.verdict ? 'no usable scene verdict' : null);
     const defects = [...new Set([...(u.defects || []), ...(qaUnavailable ? [`scene verification unavailable: ${qaUnavailable}`] : [])])];
     return { ...u, kind: 'scene', storageKey: u.storageKey || result?.storageKey || null,
+      verification: u.verification || result?.qa?.verification || (result?.recovery ? { ...result.recovery.issues?.[0], exhausted: !result.recovery.retryable } : null),
       qaUnavailable, defects: defects.length ? defects : ['scene verification failed'] };
   });
   const summary = scenes.map(u => `Spread ${u.spread}: ${u.defects.join('; ')}`).join(' | ');
   const err = filmError(`Text-free scenes could not be approved. ${summary}. Retry video rechecks failed scenes; approved audio and clean scenes are kept.`, 'film_scene_unresolved');
-  err.details = { unresolved: scenes, ...(bookBible ? { bookBible } : {}) };
+  const outcomes = scenes.filter(s => s.qaUnavailable).map(s => s.verification || { status: 'malformed', reason: s.qaUnavailable, exhausted: true });
+  const recovery = outcomes.length ? recoveryFor(outcomes) : { version: 1, status: 'needs_review', reason: 'confirmed_defect', stage: 'scene_verification', retryable: false, nextAction: 'repair_scene', issues: [] };
+  err.recovery = recovery;
+  err.details = { unresolved: scenes, recovery, ...(bookBible ? { bookBible } : {}) };
   return err;
 }
 
@@ -142,11 +147,23 @@ async function generateFullStoryFilm(p) {
   const timeout = setTimeout(cancel, 3 * 60 * 60 * 1000);
   const heartbeat = setInterval(() => { touch(); p.onProgress?.(progress, message); }, 25000);
   const ctx = { signal: p.abortSignal, costTracker, touch };
+  let resumeKey = `${base}/resume.json`;
+  let resume = { version: 1, stage: 'preparing', frames: [], approvedTakes: [] };
+  const checkpoint = async patch => {
+    resume = { ...resume, ...patch, updatedAt: new Date().toISOString() };
+    try { await storage.saveJson(resume, resumeKey); }
+    catch {
+      const err = filmError('Film checkpoint storage is unavailable; saved media retained.', 'film_scene_unresolved');
+      err.recovery = recoveryFor([{ status: 'configuration', reason: 'Could not save film progress' }], 'checkpoint');
+      throw err;
+    }
+  };
   const checkAbort = () => { if (p.abortSignal?.aborted) throw filmError('Film generation cancelled.', 'cancelled'); };
   try {
     // The screenplay is persisted before speech. Cast and assignment stay identical on resume.
     report(0.01, 'Casting the narrator and every speaking character…');
     const scriptKey = `${base}/scripts/${hash({ story, profile, theme: bookDef.theme, provider: voice.provider, language, band: bookDef.ageBand, cast: castFileHash() })}.json`;
+    resumeKey = `${scriptKey}.resume.json`;
     let direction = !p.forceNew && await storage.loadJson(scriptKey).catch(() => null);
     let script;
     if (direction?.raw) script = validateDirection(direction.raw, manuscriptUnits(story), voice.provider, bookDef.ageBand);
@@ -156,27 +173,7 @@ async function generateFullStoryFilm(p) {
       await storage.saveJson({ raw: direction.raw, scriptHash: script.hash }, scriptKey);
     }
 
-    report(0.04, 'Recording the complete story with the cast…');
-    const shots = [];
-    for (const turn of script.turns) {
-      checkAbort();
-      const chunk = { index: 0, speaker: turn.speaker, lines: [{ ...turn, index: 0, isRefrain: false, pauseAfterMs: 0 }] };
-      const take = await renderChunk({ bookId, segment: { kind: 'spread', spread: turn.spread }, chunk,
-        voice: script.cast[turn.speaker].voice, adapter: voice.adapter, provider: voice.provider, credentials,
-        language, band: bookDef.ageBand, name: profile.name, costTracker, log, touch, signal: p.abortSignal, forceRetake: !!p.forceNew, opts: { requireExactText: true } });
-      // The audiobook allows a small STT tolerance; the full film requires every spoken word.
-      requireVerifiedSpeech(take, turn, script.cast[turn.speaker].name, language);
-      for (const part of speechShots(take.buffer, take.measure.trim)) {
-        shots.push({ ...turn, ...part, audio: part.buffer, buffer: undefined, index: shots.length, takeHash: take.takeHash, lufs: take.measure.lufs, takeKey: take.storageKey });
-      }
-      report(0.04 + 0.2 * (turn.index + 1) / script.turns.length, `Recorded passage ${turn.index + 1} of ${script.turns.length}`);
-    }
-    const seconds = shots.reduce((sum, shot) => sum + shot.seconds, 0);
-    if (shots.length > 256 || seconds > 1800) throw filmError(`The story needs ${shots.length} shots / ${Math.ceil(seconds)} seconds, above this worker’s full-film budget. No story content was removed.`, 'film_budget_exceeded');
-    let offset = 0;
-    for (const shot of shots) { shot.from = offset; offset += shot.seconds; shot.to = offset; }
-
-    report(0.25, 'Preparing all 12 scenes and the character references…');
+    report(0.04, 'Preparing all 12 scenes and the character references…');
     const anchor = p.approvedCoverUrl || p.childPhotoUrl;
     if (!anchor) throw filmError('The film needs an approved identity reference.', 'missing_identity_reference');
     const refPhoto = await downloadPhotoAsBase64(anchor);
@@ -192,13 +189,14 @@ async function generateFullStoryFilm(p) {
       references.push({ kind, urls: [url], hash: sheet.hash });
     }
     const frames = new Map();
+    await checkpoint({ scriptKey, scriptHash: script.hash, stage: 'scene_verification' });
     const embedded = entries.filter(e => e.embedded).map(e => e.spread);
     if (embedded.length) {
       const art = await renderStorySpreads({ ...p, textLayout: 'half', spreads: embedded, forceRerender: false, retryUnresolved: true,
-        onProgress: (_f, text) => report(0.27, text) });
+        onProgress: (_f, text) => report(0.12, text) });
       const unresolved = [...(art.unresolved || [])];
       for (const result of art.results || []) {
-        if (result.buffer && (!result.qa?.verdict || result.qa.qaUnavailable) && !unresolved.some(u => u.spread === result.spread)) {
+        if ((result.recovery || (result.buffer && (!result.qa?.verdict || result.qa.qaUnavailable))) && !unresolved.some(u => u.spread === result.spread)) {
           unresolved.push({ spread: result.spread, defects: [], candidates: result.candidateFiles || [] });
         }
       }
@@ -212,11 +210,12 @@ async function generateFullStoryFilm(p) {
     for (const entry of entries) {
       checkAbort();
       const frame = frames.get(entry.spread) || { ...await fetchStill(entry.storageKey, `spread ${entry.spread}`), storageKey: entry.storageKey };
-      const gate = await textGate(frame.buffer, { costTracker });
+      const gate = await textGate(frame.buffer, { costTracker, recoveryRoot: `${base}/verification/text` });
       if (gate.unavailable || !gate.pass) throw sceneFailure([{
         spread: entry.spread, storageKey: frame.storageKey,
         defects: [gate.unavailable ? `text verification unavailable: ${gate.unavailable}` : `painted text remains${gate.transcript ? `: ${gate.transcript}` : ''}`],
         qaUnavailable: gate.unavailable || null,
+        verification: gate.verification || null,
       }]);
       const prepared = await prepareStartFrame(frame.buffer, size);
       const frameHash = hash(prepared.buffer);
@@ -224,6 +223,32 @@ async function generateFullStoryFilm(p) {
       frames.set(entry.spread, { ...frame, url, hash: frameHash });
       stills.push({ spread: entry.spread, storageKey: frame.storageKey, picked: true, rerendered: !!frame.rerendered, reasons: [] });
     }
+    await checkpoint({ scriptKey, scriptHash: script.hash, stills,
+      frames: [...frames].map(([spread, frame]) => ({ spread, hash: frame.hash, storageKey: frame.storageKey })),
+      references: references.map(r => ({ kind: r.kind, hash: r.hash })), stage: 'scenes_verified' });
+
+    report(0.14, 'Recording the complete story with the cast…');
+    const shots = [];
+    for (const turn of script.turns) {
+      checkAbort();
+      const chunk = { index: 0, speaker: turn.speaker, lines: [{ ...turn, index: 0, isRefrain: false, pauseAfterMs: 0 }] };
+      const take = await renderChunk({ bookId, segment: { kind: 'spread', spread: turn.spread }, chunk,
+        voice: script.cast[turn.speaker].voice, adapter: voice.adapter, provider: voice.provider, credentials,
+        language, band: bookDef.ageBand, name: profile.name, costTracker, log, touch, signal: p.abortSignal, forceRetake: !!p.forceNew, opts: { requireExactText: true } });
+      // The audiobook allows a small STT tolerance; the full film requires every spoken word.
+      requireVerifiedSpeech(take, turn, script.cast[turn.speaker].name, language);
+      if (take.cached) costTracker?.recordReuse?.('speech', take.takeHash);
+      await checkpoint({ stage: 'recording', approvedTakes: [...resume.approvedTakes,
+        { spread: turn.spread, passage: turn.index, takeHash: take.takeHash, storageKey: take.storageKey, cached: !!take.cached }] });
+      for (const part of speechShots(take.buffer, take.measure.trim)) {
+        shots.push({ ...turn, ...part, audio: part.buffer, buffer: undefined, index: shots.length, takeHash: take.takeHash, lufs: take.measure.lufs, takeKey: take.storageKey });
+      }
+      report(0.14 + 0.1 * (turn.index + 1) / script.turns.length, `Recorded passage ${turn.index + 1} of ${script.turns.length}`);
+    }
+    const seconds = shots.reduce((sum, shot) => sum + shot.seconds, 0);
+    if (shots.length > 256 || seconds > 1800) throw filmError(`The story needs ${shots.length} shots / ${Math.ceil(seconds)} seconds, above this worker’s full-film budget. No story content was removed.`, 'film_budget_exceeded');
+    let offset = 0;
+    for (const shot of shots) { shot.from = offset; offset += shot.seconds; shot.to = offset; }
 
     const filmHash = hash({ version: FULL_STORY_VIDEO_VERSION, script: script.hash, audio: shots.map(s => hash(s.audio)),
       frames: [...frames.values()].map(f => f.hash), bible: bible.hash, provider: provider.model, aspect, language, music, seed: p.seed,
@@ -246,11 +271,28 @@ async function generateFullStoryFilm(p) {
         const audioFile = path.join(dir, 'voice.wav'); await fs.promises.writeFile(audioFile, shot.audio);
         const brief = filmBrief(shot, { story, bookDef, profile, script, references });
         const startFrame = sceneFrames.get(shot.spread);
-        const shotHash = hash({ filmHash, shot: shot.index, brief: brief.hash, startFrame: startFrame.hash });
+        const shotHash = hash({ version: FULL_STORY_VIDEO_VERSION, shot: shot.index, brief: brief.hash, audio: hash(shot.audio),
+          startFrame: startFrame.hash, references: references.map(r => [r.kind, r.hash]),
+          provider: provider.model, aspect, seed: p.seed, modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null,
+          qa: QA_VERSION, audioQa: AUDIO_QA_VERSION, lipsync: LIPSYNC_VERSION });
         const key = `${base}/shots/${shotHash}.mp4`;
-        const marker = !p.forceNew && await storage.loadJson(`${key}.qa.json`).catch(() => null);
+        let marker = !p.forceNew && await storage.loadJson(`${key}.qa.json`).catch(() => null);
         let buffer = marker?.pass ? await storage.downloadBuffer(key).catch(() => null) : null;
         if (buffer && hash(buffer) !== marker.hash) buffer = null;
+        if (!buffer && !p.forceNew) {
+          // The previous key included the entire film. Its exact film hash
+          // still proves compatible inputs, so migrate approved old clips
+          // without purchasing them again during the first upgraded resume.
+          const legacyKey = `${base}/shots/${hash({ filmHash, shot: shot.index, brief: brief.hash, startFrame: startFrame.hash })}.mp4`;
+          const legacy = await storage.loadJson(`${legacyKey}.qa.json`).catch(() => null);
+          const prior = legacy?.pass ? await storage.downloadBuffer(legacyKey).catch(() => null) : null;
+          if (prior && hash(prior) === legacy.hash) {
+            buffer = prior; marker = legacy;
+            await storage.uploadBuffer(buffer, key, 'video/mp4');
+            await storage.saveJson(marker, `${key}.qa.json`);
+          }
+        }
+        if (buffer) costTracker?.recordReuse?.('video', shotHash);
         let score = marker?.score ?? null;
         if (!buffer) {
           const beat = bookDef.book.beats.find(b => b.spread === shot.spread);
@@ -357,8 +399,13 @@ async function generateFullStoryFilm(p) {
       bookBible: await summarizeBible(bible), provider: provider.provider, model: provider.model, unresolved: [], advisories: [], warnings: [],
       cast: Object.values(script.cast).map(c => ({ role: c.id, name: c.name, voiceKey: c.voiceKey })), planHash: filmHash };
     await storage.saveJson(result, manifestKey);
+    await checkpoint({ stage: 'ready', filmKey: storageKey, outstanding: [] });
     report(1, 'Full-story film ready');
     return { ...result, video: { ...video, url, posterUrl } };
+  } catch (err) {
+    await checkpoint({ stage: err.recovery ? 'verification_pending' : 'needs_review', recovery: err.recovery || null,
+      outstanding: err.details?.unresolved || [], failureCode: err.failureCode || null }).catch(() => {});
+    throw err;
   } finally {
     clearInterval(heartbeat);
     clearTimeout(timeout);

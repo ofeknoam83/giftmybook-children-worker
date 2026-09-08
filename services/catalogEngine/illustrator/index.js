@@ -35,6 +35,7 @@
 
 const { generateIllustration, verifyImageText, downloadPhotoAsBase64, isModestBathWaterScene } = require('../../illustrationGenerator');
 const { downloadBuffer, uploadBuffer, getSignedUrl, deletePrefix } = require('../../gcsStorage');
+const { durableCandidate } = require('./durableCandidate');
 const { buildScenePrompt, hasCarryThroughProps, visualPropsForSpread, continuityPropsForSpread, companionOnSpread, inertPropValue } = require('./scenes');
 const { checkSpreadRenderV2, repairNoteV2, checkWorldConsistency, worldRepairNote, classifyDefects } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
@@ -58,6 +59,7 @@ const { readManifest, saveManifest, readReviewedRender } = require('./reviewedAr
 const { checkSavedText, recoverText } = require('./textRecovery');
 const { textVerificationCurrent, applyTextVerification, TEXT_MISMATCH } = require('../../shared/illustration/manuscript');
 const { objectsForSpread, designText, criticalObjectFailures } = require('./storyObjects');
+const { recoveryFor } = require('../../shared/llm/visualJudge');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Spreads rendered in parallel (each slot fans out into
@@ -265,12 +267,14 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     if (reviewedObjects.length && (objectPixelsChanged || saved.marker.storyObjectHash !== bible.storyObjects.hash || !saved.qa?.verdict?.props || criticalObjectFailures([saved], bible.storyObjects).length)) {
       const objectQa = await checkSpreadRenderV2(saved.buffer, {
         label: `reviewedObjects:${bookId}:s${spread}`, expectedText: embedText ? spreadText : null,
+        recoveryRoot: retryUnresolved ? `children-jobs/${bookId}/visual-checks/spread-${spread}` : null, costTracker,
         props: reviewedObjects.map(def => ({ name: def.value, specText: designText(def), sheet: propSheetFor(bible, def.value),
+          reference: propSheetFor(bible, def.value)?.reference || def.reference,
           storyObject: true, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity,
           expected: def.occurrence.required ? 'required' : 'optional' })),
       });
       saved.blocking = [...saved.blocking.filter(d => !d.startsWith('prop ')), ...(objectQa.blocking || []).filter(d => d.startsWith('prop '))];
-      saved.qa = { ...saved.qa, blocking: saved.blocking, verdict: { ...saved.qa?.verdict, props: objectQa.verdict?.props || [] }, qaUnavailable: objectQa.qaUnavailable || null };
+      saved.qa = { ...saved.qa, blocking: saved.blocking, verdict: { ...saved.qa?.verdict, props: objectQa.verdict?.props || [] }, qaUnavailable: objectQa.qaUnavailable || null, verification: objectQa.verification || null };
       await uploadBuffer(Buffer.from(JSON.stringify({ ...saved.marker, renderHash: renderContentHash(saved.buffer),
         storyObjectHash: bible.storyObjects.hash, qa: saved.qa, unresolved: saved.blocking.length > 0,
       })), `${saved.storageKey}.qa.json`, 'application/json');
@@ -441,6 +445,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // every candidate, repair, and replay re-check of this spread.
   const qaOpts = {
     retryUnavailable: retryUnresolved,
+    recoveryRoot: retryUnresolved ? `children-jobs/${bookId}/visual-checks/spread-${spread}` : null,
+    costTracker,
     expectedText: embedText ? spreadText : null,
     // qa-10 (ce-18): the book's ONE pinned ink — the target the painted
     // block's MEASURED colour is held to (the same hex the prompt states).
@@ -461,7 +467,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     props: [...sceneObjects.map(def => {
       const sheet = propSheetFor(bible, def.value);
       return { name: def.value, specText: designText(def), sheet, expected: def.occurrence.required ? 'required' : 'optional',
-        storyObject: true, critical: def.critical, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity };
+        storyObject: true, critical: def.critical, reference: sheet?.reference || def.reference || null, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity };
     }), ...[...declaredProps, ...carriedProps].map(name => {
       const sheet = propSheetFor(bible, name); // normalized match (case/whitespace)
       // A declared prop is the beat's evidence (absence BLOCKS); a carried
@@ -517,9 +523,16 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   let url = null;
   if (!forceRerender) {
     try {
-      const cached = await downloadBuffer(storageKey);
+      let replayKey = storageKey;
+      const cached = await downloadBuffer(storageKey).catch(async err => {
+        if (legacyUnanchoredKey && (err.code === 404 || /not found|No such object|cache miss|no marker/i.test(err.message))) {
+          replayKey = legacyUnanchoredKey;
+          return downloadBuffer(replayKey);
+        }
+        throw err;
+      });
       try {
-        let marker = JSON.parse((await downloadBuffer(qaMarkerKey)).toString('utf8'));
+        let marker = JSON.parse((await downloadBuffer(replayKey === storageKey ? qaMarkerKey : `${replayKey}.qa.json`)).toString('utf8'));
         // The marker vouches for SPECIFIC pixels under a SPECIFIC checker: a
         // forced overwrite that failed before its marker write leaves new
         // bytes beside the old marker, and an older QA_VERSION judged with
@@ -552,8 +565,8 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         const replayAdvisories = Array.isArray(marker.advisories) ? [...marker.advisories] : [];
         if (undersizedNote(cachedSize)) replayAdvisories.push({ stage: 'render', spread, note: undersizedNote(cachedSize) });
         return {
-          spread, buffer: cached, storageKey,
-          url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS),
+          spread, buffer: cached, storageKey: replayKey,
+          url: await getSignedUrl(replayKey, SIGNED_URL_TTL_MS),
           advisories: replayAdvisories,
           fresh: false,
           size: cachedSize,
@@ -609,14 +622,26 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       const attemptLog = [];
       let cUrl = null;
       try {
-        cUrl = await generateIllustration(sceneText, characterRefUrl, 'pixar_premium', { ...renderOpts, attemptLog, gcsPath: key });
+        if (retryUnresolved) {
+          const buffer = await durableCandidate({ root: `${storageKey}.recovery-v1`, identity: { sceneText, k, pass, references: renderOpts.referenceImages },
+            limit: renderBudget?.limit || 3, costTracker,
+            generate: async candidatePath => {
+              const made = await generateIllustration(sceneText, characterRefUrl, 'pixar_premium', { ...renderOpts, attemptLog, gcsPath: candidatePath });
+              if (!made) throw new Error('No image returned');
+              return downloadBuffer(candidatePath);
+            } });
+          await uploadBuffer(buffer, key, 'image/png');
+          cUrl = await getSignedUrl(key, SIGNED_URL_TTL_MS);
+        } else {
+          cUrl = await generateIllustration(sceneText, characterRefUrl, 'pixar_premium', { ...renderOpts, attemptLog, gcsPath: key });
+        }
       } catch (err) {
         // One thrown candidate costs only that candidate (the others may
         // still ship); when EVERY candidate throws, the first error
         // propagates with its attempt log — the legacy single-render
         // contract (renderStorySpreads turns it into the spread's
         // `render errored` advisory with detail.attempts).
-        if (!Array.isArray(err.attempts) && attemptLog.length > 0) err.attempts = attemptLog;
+      if (!Array.isArray(err.attempts) && attemptLog.length > 0) err.attempts = attemptLog;
         return { k, key, url: null, buffer: null, attemptLog, error: err };
       }
       if (!cUrl) return { k, key, url: null, buffer: null, attemptLog };
@@ -1074,7 +1099,7 @@ function propReferenceIndex(refs, value) {
  * world gate.
  * @returns {Promise<{pass: boolean, checked: number, flagged?: Array, rerendered?: number[], unavailable?: string}|null>}
  */
-async function runContactSheetGate({ results, bible, evidence = [], rerender, onProgress = () => {}, log }) {
+async function runContactSheetGate({ results, bible, bookId, costTracker, evidence = [], rerender, onProgress = () => {}, log }) {
   if (!flags.contactQaEnabled() || !bible || !bible.sheet) return null;
   const rendered = results.filter(r => r.buffer);
   if (rendered.length < 2) return null;
@@ -1108,9 +1133,13 @@ async function runContactSheetGate({ results, bible, evidence = [], rerender, on
     // value (the story's wording vs the sheet's value).
     for (const p of (bible.props || []).filter(x => x && x.sheet)) {
       const wantProp = normalizePropValue(p.value);
+      const definition = bible.storyObjects?.objects.find(d => normalizePropValue(`Story object: ${d.name}`) === wantProp);
+      const reference = p.sheet.reference || definition?.reference;
       const spreads = new Set();
       for (const r of rendered) {
-        if (objectsForSpread(bible.storyObjects, r.spread).some(d => normalizePropValue(d.value) === wantProp)) spreads.add(r.spread);
+        const occurrence = definition?.occurrences.find(o => o.spread === r.spread);
+        const checked = r.qa?.verdict?.props?.find(q => normalizePropValue(q.name) === wantProp);
+        if (occurrence && (occurrence.required || checked?.presence === 'present')) spreads.add(r.spread);
       }
       for (const ev of Array.isArray(evidence) ? evidence : []) {
         if (ev && ev.visual_required === true && normalizePropValue(inertPropValue(ev.source_value)) === wantProp) {
@@ -1125,14 +1154,15 @@ async function runContactSheetGate({ results, bible, evidence = [], rerender, on
       // sheet when cropped); the whole spread only as a named fallback.
       const tiles = [];
       for (const r of rendered.filter(x => spreads.has(x.spread))) {
-        const box = (r.propBoxes || []).find(b => b && b.bbox && normalizePropValue(b.name) === wantProp);
+        const box = (!reference || reference.kind === 'single') && (r.propBoxes || []).find(b => b && b.bbox && normalizePropValue(b.name) === wantProp);
         const crop = box ? await metrics.cropBbox(r.buffer, box.bbox, { pad: 0.08 }).catch(() => null) : null;
         tiles.push({ spread: r.spread, buffer: crop || r.buffer, cropped: !!crop });
       }
       if (tiles.length < 2) continue;
       const v = await checkPropContactSheet({
         tiles,
-        states: bible.storyObjects?.objects.find(d => `Story object: ${d.name}` === p.value)?.occurrences,
+        states: definition?.occurrences, reference,
+        recoveryRoot: bookId && definition ? `children-jobs/${bookId}/visual-checks/object-set-${definition.id}` : null, costTracker,
         propSheet: { buffer: Buffer.from(p.sheet.base64, 'base64'), specText: p.sheet.specText || null, name: p.value },
         label: `contactQa:prop:${p.value.slice(0, 20)}`,
       });
@@ -1456,9 +1486,10 @@ async function renderStorySpreads(params) {
   const electNow = !reviewedOnly && anchorEnabled && !typographyAnchor && wanted.length > 1;
   let anchorSpreadNo = typographyAnchor ? typographyAnchor.spread : (electNow ? wanted[0].spread : null);
   const hashFor = (spread) => {
-    if (anchorOff) return `${storyHash}-ta0`;
-    if (typographyAnchor && spread !== anchorSpreadNo) return `${storyHash}-ta${typographyAnchor.hash.slice(0, 8)}`;
-    return storyHash;
+    const perSpread = retryUnresolved && !reviewedOnly ? storyHash.replace(`-b${bible.hash}`, `-d${require('./visualDependencies').spreadDependencies(bible, spread)}`) : storyHash;
+    if (anchorOff) return `${perSpread}-ta0`;
+    if (typographyAnchor && spread !== anchorSpreadNo) return `${perSpread}-ta${typographyAnchor.hash.slice(0, 8)}`;
+    return perSpread;
   };
   // Every spread renders WITH the reference once one exists — the pinned
   // page too when it is re-rendered (its own earlier text is the best
@@ -1469,7 +1500,8 @@ async function renderStorySpreads(params) {
     reviewedOnly, automaticTextRecovery, retryUnresolved, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
     legacyUnanchoredKey: reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
-      ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag) : null,
+      ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag)
+      : retryUnresolved && !reviewedOnly ? renderCachePath(bookId, anchorOff ? `${storyHash}-ta0` : typographyAnchor && spread !== anchorSpreadNo ? `${storyHash}-ta${typographyAnchor.hash.slice(0, 8)}` : storyHash, spread, cacheAspect, tuningTag) : null,
     ...(typographyAnchor ? { typographyAnchor } : {}),
     ...extra,
   });
@@ -1559,6 +1591,7 @@ async function renderStorySpreads(params) {
       blocking: [],
       candidates: [],
       qa: null,
+      recovery: s.reason?.recovery || null,
       bbox: null,
     };
   });
@@ -1566,7 +1599,7 @@ async function renderStorySpreads(params) {
   results.sort((a, b) => a.spread - b.spread);
 
   const rerender = (spread, note) => {
-    if (retryUnresolved && results.find(r => r.spread === spread)?.qa?.qaUnavailable) {
+    if (results.find(r => r.spread === spread)?.qa?.qaUnavailable) {
       throw new Error('Scene verification unavailable; keep the existing image for rechecking');
     }
     if ((renderBudget.used.get(spread) || 0) >= renderBudget.limit) {
@@ -1590,7 +1623,7 @@ async function renderStorySpreads(params) {
   // ce-9 contact-sheet gate: character crops vs the model sheet, prop crops
   // vs their sheets.
   const contactGateStart = Date.now();
-  const contactQa = reviewedOnly ? null : await runContactSheetGate({ results, bible, evidence: story.personalization_evidence || [], rerender, onProgress, log });
+  const contactQa = reviewedOnly ? null : await runContactSheetGate({ results, bible, bookId, costTracker, evidence: story.personalization_evidence || [], rerender, onProgress, log });
   if (contactQa) log('info', `Contact gate done in ${Math.round((Date.now() - contactGateStart) / 1000)}s (${contactQa.rerendered?.length || 0} re-render(s))`);
   // ce-18 ink gate: every spread's measured text ink vs the book's median.
   const inkGateStart = Date.now();
@@ -1633,7 +1666,7 @@ async function renderStorySpreads(params) {
   const objectFailures = criticalObjectFailures(results, bible.storyObjects);
   // Check the FINAL selected set after every repair, including cached/admin
   // picks. A repair attempt alone is not proof the family is now consistent.
-  const objectContactFailures = await verifyCriticalObjectSet(results, bible, onProgress);
+  const objectContactFailures = await verifyCriticalObjectSet(results, bible, onProgress, { bookId, costTracker });
   objectFailures.push(...objectContactFailures);
   for (const failure of objectFailures) {
     const result = results.find(r => r.spread === failure.spread);
@@ -1642,7 +1675,10 @@ async function renderStorySpreads(params) {
       if (!candidate.url && candidate.storageKey) candidate.url = await getSignedUrl(candidate.storageKey, SIGNED_URL_TTL_MS).catch(() => null);
     }
     const existing = unresolved.find(u => u.spread === failure.spread);
-    if (existing) existing.defects = [...new Set([...existing.defects, ...failure.defects])];
+    if (existing) {
+      existing.defects = [...new Set([...existing.defects, ...failure.defects])];
+      if (failure.verification) existing.verification = failure.verification;
+    }
     else unresolved.push({ ...failure });
   }
   if (unresolved.length > 0 && !objectFailures.length && flags.shipOnExhaustion() && !results.some(r => r.qa?.textVerification && r.qa.textVerification.status !== 'verified')) {
@@ -1678,12 +1714,17 @@ async function renderStorySpreads(params) {
 }
 
 /** Final selected artwork must satisfy each critical family's reference. */
-async function verifyCriticalObjectSet(results, bible, onProgress = () => {}) {
+async function verifyCriticalObjectSet(results, bible, onProgress = () => {}, context = {}) {
   const failures = [];
   for (const definition of (bible.storyObjects?.objects || []).filter(d => d.critical)) {
     const value = `Story object: ${definition.name}`;
-    const spreads = new Set(definition.occurrences.map(o => o.spread));
-    const visible = results.filter(r => r.buffer && spreads.has(r.spread));
+    const visible = results.filter(r => {
+      const occurrence = definition.occurrences.find(o => o.spread === r.spread);
+      const checked = r.qa?.verdict?.props?.find(p => p.name?.toLowerCase() === value.toLowerCase());
+      // Optional off-screen occurrences have already passed spread QA. Only
+      // compare them across frames when that QA actually found the object.
+      return r.buffer && occurrence && (occurrence.required || checked?.presence === 'present');
+    });
     if (visible.length < 2) continue; // A one-spread object is covered by spread QA.
     const sheet = propSheetFor(bible, value);
     let verdict;
@@ -1691,7 +1732,7 @@ async function verifyCriticalObjectSet(results, bible, onProgress = () => {}) {
       if (!sheet?.base64) throw new Error('Missing critical object reference');
       onProgress(1, `Verifying story-object consistency: ${definition.name}...`);
       const tiles = await Promise.all(visible.map(async r => {
-        const box = (r.propBoxes || []).find(b => b.name === value)?.bbox;
+        const box = (!sheet.reference || sheet.reference.kind === 'single') && (r.propBoxes || []).find(b => b.name === value)?.bbox;
         const crop = box ? await metrics.cropBbox(r.buffer, box, { pad: 0.08 }).catch(() => null) : null;
         return { spread: r.spread, buffer: crop || r.buffer, cropped: !!crop };
       }));
@@ -1699,10 +1740,13 @@ async function verifyCriticalObjectSet(results, bible, onProgress = () => {}) {
         tiles,
         propSheet: { buffer: Buffer.from(sheet.base64, 'base64'), specText: designText(definition), name: value },
         states: definition.occurrences, label: `criticalObjectSet:${definition.id}`,
+        reference: sheet.reference || definition.reference,
+        recoveryRoot: context.bookId ? `children-jobs/${context.bookId}/visual-checks/object-set-${definition.id}` : null,
+        costTracker: context.costTracker,
       });
     } catch { verdict = null; }
     if (!verdict || typeof verdict.pass !== 'boolean' || verdict.qaUnavailable || !Number.isInteger(verdict.checked) || verdict.checked < visible.length) {
-      for (const r of visible) failures.push({ spread: r.spread, defects: [`Critical object set unverified: ${definition.name}`], candidates: r.candidateFiles || [] });
+      for (const r of visible) failures.push({ spread: r.spread, defects: [`Critical object set unverified: ${definition.name}`], candidates: r.candidateFiles || [], verification: verdict?.verification || { status: 'malformed', reason: 'Critical object set could not be checked', exhausted: true } });
     } else if (!verdict.pass) {
       const flagged = verdict.flagged?.length ? verdict.flagged.map(f => f.spread) : visible.map(r => r.spread);
       for (const spread of flagged) failures.push({ spread, defects: [`Critical object changes across spreads: ${definition.name}`], candidates: results.find(r => r.spread === spread)?.candidateFiles || [] });
@@ -1716,9 +1760,23 @@ async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
   const { results, aspect, tuningTag, worldQa, contactQa, textInkQa, outfitLockUsed, typographyAnchorUsed, bookBible, bible, unresolved, objectFailures, advisories: bookAdvisories } = await renderStorySpreads({
-    ...params, spreads: null, rerenderSpreads: null, probeNonce: null, recordRenderManifest: true,
+    ...params, ...(params.visualRecovery ? { retryUnresolved: true } : {}), spreads: null, rerenderSpreads: null, probeNonce: null, recordRenderManifest: true,
   });
   const qaAdvisories = [...bookAdvisories, ...results.flatMap(r => r.advisories)];
+  if (params.visualRecovery) {
+    const waiting = results.filter(r => r.recovery || (r.buffer && (!r.qa?.verdict || r.qa.qaUnavailable)));
+    const findings = [...unresolved, ...waiting.filter(r => !unresolved.some(u => u.spread === r.spread)).map(r => ({ spread: r.spread, defects: [], candidates: r.candidateFiles || [] }))];
+    if (findings.length) {
+      const err = new Error(`Illustration recovery needs attention on spreads ${findings.map(f => f.spread).join(', ')}. Saved artwork and manuscript are retained.`);
+      err.failureCode = 'visual_recovery_pending';
+      err.unresolved = findings;
+      err.bookBible = bookBible;
+      const unavailable = [...waiting.map(r => r.qa?.verification || (r.recovery ? { ...r.recovery.issues?.[0], exhausted: !r.recovery.retryable } : { status: 'malformed', reason: r.qa?.qaUnavailable || 'Missing verdict', exhausted: true })), ...objectFailures.map(f => f.verification).filter(Boolean)];
+      err.recovery = unavailable.length ? recoveryFor(unavailable)
+        : { version: 1, status: 'needs_review', reason: 'confirmed_defect', stage: 'illustration', retryable: false, nextAction: 'repair_scene', issues: [] };
+      throw err;
+    }
+  }
   // Residual advisory defects ship with advisories, but the ABSENCE of an
   // image is not advisory-class: a blank spread must fail the run (finished
   // renders stay cached, so the retry re-pays only for the missing spreads).

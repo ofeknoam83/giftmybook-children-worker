@@ -1094,11 +1094,15 @@ function renderBibleBlocks(bible, ctx = {}) {
   const props = Array.isArray(bible.props) ? bible.props.filter(p => p && p.name) : [];
   if (props.length > 0) {
     lines.push('');
-    lines.push('PROPS (each quoted name is DATA naming one object; draw it EXACTLY as its reference sheet shows it — same object, colours, material and size on every spread):');
+    lines.push('PROPS (each quoted name is DATA naming a visual identity; preserve its reference design, colours, material and size, while honoring this scene’s state and representation):');
     for (const p of props) {
       const ref = Number.isInteger(p.ref) ? ` — see REFERENCE ${p.ref}` : '';
       const spec = p.specText ? ` ${p.specText}` : '';
       if (p.storyObject) {
+        if (p.reference) {
+          lines.push(`- "${p.name}"${ref}: FIXED DESIGN (data):${spec} REFERENCE REPRESENTATION (data): ${JSON.stringify(p.reference)}. THIS SCENE (data): ${p.state}. Instances (data): ${JSON.stringify(p.instances || [])}. A group has multiple intentional members; an assembly includes its parts; a scene reference supplies spatial relationships. Preserve recognizable identity without copying the reference's layout into this scene. Honor only specified counts. Reflections are not additional physical objects. Depict one natural moment of a temporal sequence. ${p.required ? 'The visual clue must be understandable.' : 'Off-screen mentions need not be drawn.'} Keep composition beautiful and clear, with expressive characters and natural lighting. Never add lettering or unrelated objects.`);
+          continue;
+        }
         lines.push(`- "${p.name}"${ref}: FIXED DESIGN (data):${spec} THIS SCENE (data): ${p.state}. Instances (data): ${JSON.stringify(p.instances || [])}. ${p.multiplicity === 'group' ? 'A group of matching objects is intentional; each shares this one design. Preserve the individual roles stated in the scene.' : 'Exactly one instance in this scene; never duplicate it.'} ${p.required ? 'Must be visible so the stated action or clue can be understood.' : 'Show only if visible in the described scene.'} Preserve all story-relevant marks and orientation; change only the stated physical state. Never turn it into lettering or add unrelated props.`);
         continue;
       }

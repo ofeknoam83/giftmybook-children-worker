@@ -234,6 +234,7 @@ async function runBookPipeline(params) {
     // artwork even when the retry came through the ordinary generation URL.
     reviewedOnly: reviewedOnly || resumeArtwork,
     automaticTextRecovery: true,
+    visualRecovery: process.env.CATALOG_VISUAL_RECOVERY !== '0',
     onProgress: (frac, message) => onProgress('illustration', 0.2 + frac * 0.6, message),
     log,
   });

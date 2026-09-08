@@ -296,6 +296,18 @@ app.get('/healthz', (req, res) => {
 // there is no meaningful "variant" to produce. The endpoint returns 410 Gone
 // so legacy admin clients surface a clear error instead of silently generating
 // a misleading "gouache variant" that is actually Pixar.
+// Generic worker authentication alone cannot authorize a reviewed recheck.
+// The signed app attestation binds the active admin, book, exact saved
+// request and the explicitly configured Gemini 2.5 Pro destination.
+app.post('/v13/review-visual-check', authenticate, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    return res.json(await require('./services/shared/llm/visualReview').handleReview(req.body?.approval));
+  } catch {
+    return res.status(403).json({ success: false, error: 'Valid admin approval for this evidence and Gemini 2.5 Pro is required' });
+  }
+});
+
 app.post('/generate-style-variant', authenticate, (req, res) => {
   const { bookId, style } = req.body || {};
   console.warn(`[server] /generate-style-variant rejected (deprecated) — book=${bookId} style=${style}`);
@@ -1053,7 +1065,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       payload = {
         success: false, ...stable,
         video: null, plan: d.plan || [], stills: d.stills || [], textGate: d.textGate || [], bookBible: d.bookBible || null,
-        unresolved: d.unresolved || [], advisories: d.advisories || [], warnings: d.warnings || [],
+        unresolved: d.unresolved || [], recovery: err.recovery || d.recovery || null, advisories: d.advisories || [], warnings: d.warnings || [],
         costs: costTracker.getSummary(), failureCode: err.failureCode || null, error: err.message,
       };
     } finally {
@@ -1700,6 +1712,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         error: err.message,
         pipelineVersionUsed: 'catalog-v13',
         ...(err.failureCode ? { failureCode: err.failureCode } : {}),
+        ...(err.recovery ? { recovery: err.recovery } : {}),
         ...(err.validationErrors?.length ? { validationErrors: err.validationErrors } : {}),
         // Per-spread render diagnostics (render_failed): which spreads failed
         // and why, attempt by attempt — same shape as the probe callback's

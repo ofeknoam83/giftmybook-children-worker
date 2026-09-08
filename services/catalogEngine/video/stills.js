@@ -125,6 +125,14 @@ async function textGate(buffer, opts = {}) {
     + 'captions, signs, or logos appear anywhere in the artwork (pictograms, scribbles and non-letter shapes do not count); '
     + 'transcript is the exact legible text you can read, or "" when there is none.';
   try {
+    if (opts.recoveryRoot) {
+      const { judgeImage } = require('../../shared/llm/visualJudge');
+      const result = await judgeImage({ parts: [{ text: prompt }, { inline_data: { mimeType: 'image/png', data: buffer.toString('base64') } }],
+        model: QA_MODEL(), recoveryRoot: opts.recoveryRoot, costTracker: opts.costTracker, label,
+        validate: j => j && typeof j.text_present === 'boolean' && typeof j.transcript === 'string' ? null : 'text_present and transcript are required' });
+      if (result.status !== 'verified') return { pass: false, textPresent: false, transcript: null, unavailable: result.reason, verification: result };
+      return { pass: !result.json.text_present, textPresent: result.json.text_present, transcript: result.json.transcript.slice(0, 200) || null };
+    }
     const apiKey = getNextApiKey();
     const resp = await fetchWithTimeout(
       `${GEMINI_API}/${QA_MODEL()}:generateContent?key=${apiKey}`,
