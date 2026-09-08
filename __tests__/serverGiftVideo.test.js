@@ -57,6 +57,7 @@ jest.mock('../services/comics/castVisualBible', () => ({ generateCharacterRefShe
 
 const request = require('supertest');
 const app = require('../server');
+const shutdownHandler = process.listeners('SIGTERM').at(-1);
 
 test('reviewed visual verification requires an admin attestation in addition to the worker key', async () => {
   await request(app).post('/v13/review-visual-check').send({}).expect(403);
@@ -88,6 +89,28 @@ const validBody = () => ({
 });
 const post = body => request(app).post('/v13/generate-video').set('x-api-key', 'test-api-key').send(body);
 const settle = () => new Promise(r => setTimeout(r, 30));
+
+test('SIGTERM sends a video recovery callback before shutdown and suppresses the later aborted callback', async () => {
+  generateGiftVideo.mockImplementation(({ abortSignal }) => new Promise((_resolve, reject) => {
+    abortSignal.addEventListener('abort', () => reject(new Error('Scene 10: aborted')), { once: true });
+  }));
+  await post(validBody()).expect(202);
+  jest.useFakeTimers();
+  try {
+    await shutdownHandler();
+    // Flush the renderer rejection and both delivery paths without executing
+    // the real process-exit timer installed by the shutdown handler.
+    await jest.advanceTimersByTimeAsync(1);
+    const callbacks = global.fetch.mock.calls.filter(([url]) => url === validBody().callbackUrl);
+    expect(callbacks).toHaveLength(1);
+    expect(JSON.parse(callbacks[0][1].body)).toMatchObject({ success: false, bookId: 'video-book-1', dispatchId: 'gv_test_1',
+      failureCode: 'worker_interrupted', recovery: { reason: 'worker_interrupted', retryable: true } });
+    expect(require('../services/progressReporter').reportProgressForce).not.toHaveBeenCalled();
+  } finally {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  }
+});
 
 const readyResult = () => ({
   video: { url: 'https://signed/v.mp4', storageKey: 'k/video.mp4', posterUrl: 'https://signed/p.jpg', posterKey: 'k/poster.jpg', hash: 'h', version: VIDEO_VERSION, durationSeconds: 10, width: 1920, height: 1080, fps: 30, bytes: 123, music: 'none', cached: false },
