@@ -174,3 +174,42 @@ describe('replicate adapter', () => {
     await expect(replicate.download('https://x/v.mp4')).rejects.toThrow(/HTTP 404/);
   });
 });
+
+
+describe('official lip-sync model contract', () => {
+  let originalFetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; jest.restoreAllMocks(); });
+  test('verifies the official model through a read-only request', async () => {
+    const { LIPSYNC_MODEL } = require('../../../../services/catalogEngine/video/filmPerformance');
+    global.fetch = jest.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ owner: 'sync', name: 'lipsync-2', is_official: true }) }));
+    await expect(replicate.checkOfficialModel({ model: LIPSYNC_MODEL, token: 'test-token' })).resolves.toBe(true);
+    expect(global.fetch).toHaveBeenCalledWith(`https://api.replicate.com/v1/models/${LIPSYNC_MODEL}`,
+      expect.objectContaining({ method: 'GET' }));
+  });
+  test('invalid, inaccessible or nonofficial models fail before a prediction is submitted', async () => {
+    global.fetch = jest.fn(async () => ({ ok: false, status: 404, text: async () => '{}' }));
+    await expect(replicate.checkOfficialModel({ model: '../invalid', token: 'test-token' }))
+      .rejects.toMatchObject({ failureCode: 'film_lipsync_unavailable' });
+    expect(global.fetch).not.toHaveBeenCalled();
+    await expect(replicate.checkOfficialModel({ model: 'sync/lipsync-2', token: 'test-token' }))
+      .rejects.toMatchObject({ failureCode: 'film_lipsync_unavailable' });
+    expect(global.fetch.mock.calls[0][1].method).toBe('GET');
+    global.fetch.mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify({ owner: 'sync', name: 'lipsync-2', is_official: false }) });
+    await expect(replicate.checkOfficialModel({ model: 'sync/lipsync-2', token: 'test-token' }))
+      .rejects.toMatchObject({ failureCode: 'film_lipsync_unavailable' });
+  });
+  test('dialogue submits to the official model without a legacy version pin', async () => {
+    const storage = require('../../../../services/gcsStorage');
+    storage.downloadBuffer.mockResolvedValue(null); storage.loadJson.mockResolvedValue(null);
+    storage.uploadBuffer.mockResolvedValue('https://storage/clip');
+    const submit = jest.spyOn(replicate, 'submit').mockResolvedValue({ jobId: 'official-job' });
+    jest.spyOn(replicate, 'poll').mockResolvedValue({ status: 'done', videoUrl: 'https://video/done' });
+    jest.spyOn(replicate, 'download').mockResolvedValue(Buffer.from('synced'));
+    const { syncDialogue } = require('../../../../services/catalogEngine/video/filmPerformance');
+    await syncDialogue({ base: 'book/film', video: Buffer.from('motion'), audio: Buffer.from('speech'), seconds: 3, token: 'test-token' });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit.mock.calls[0][0]).toMatchObject({ model: 'sync/lipsync-2', input: { active_speaker: true, sync_mode: 'silence' } });
+    expect(submit.mock.calls[0][0].version).toBeUndefined();
+  });
+});

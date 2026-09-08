@@ -11,7 +11,7 @@ jest.mock('../../../../services/catalogEngine/video/filmInputs', () => ({ loadFi
 jest.mock('../../../../services/catalogEngine/video/filmScript', () => ({ ...jest.requireActual('../../../../services/catalogEngine/video/filmScript'), directScript: jest.fn() }));
 jest.mock('../../../../services/catalogEngine/audio/narrate', () => ({ renderChunk: jest.fn() }));
 jest.mock('../../../../services/catalogEngine/video/generate', () => ({ generateCandidates: jest.fn(async () => ({ candidates: [{ status: 'done', buffer: Buffer.from('motion') }] })) }));
-jest.mock('../../../../services/catalogEngine/video/filmPerformance', () => ({ LIPSYNC_VERSION: 'sync-test', syncDialogue: jest.fn(async () => Buffer.from('synced')), checkPerformance: jest.fn(async () => ({ pass: true, defects: [] })) }));
+jest.mock('../../../../services/catalogEngine/video/filmPerformance', () => ({ LIPSYNC_VERSION: 'sync-test', LEGACY_LIPSYNC_VERSION: 'sync-legacy', validateLipsyncModel: jest.fn(async () => true), syncDialogue: jest.fn(async () => Buffer.from('synced')), checkPerformance: jest.fn(async () => ({ pass: true, defects: [] })) }));
 jest.mock('../../../../services/catalogEngine/video/verify', () => ({ verifyClip: jest.fn(async () => ({ blocking: [], score: 100, frames: [], judge: {} })) }));
 jest.mock('../../../../services/catalogEngine/video/stills', () => ({ ...jest.requireActual('../../../../services/catalogEngine/video/stills'), fetchStill: jest.fn(async () => ({ buffer: Buffer.from('frame') })), textGate: jest.fn(async () => ({ pass: true })), prepareStartFrame: jest.fn(async () => ({ buffer: Buffer.from('prepared') })) }));
 jest.mock('../../../../services/catalogEngine/video/ffmpeg', () => ({ ...jest.requireActual('../../../../services/catalogEngine/video/ffmpeg'), runFfmpeg: jest.fn(), probeVideo: jest.fn() }));
@@ -52,6 +52,11 @@ test('all 12 scenes reach the final film; only character dialogue is lip-synced'
   expect(result.mode).toBe('full-story');
   expect(generateCandidates).toHaveBeenCalledTimes(12);
   expect(syncDialogue).toHaveBeenCalledTimes(6);
+  for (const [call] of generateCandidates.mock.calls) {
+    const clip = result.plan[call.segment.index];
+    if (clip.role === 'narrator') expect(clip.clip.hash).toBe(call.clipHash);
+    else expect(clip.clip.hash).not.toBe(call.clipHash); // updated lip sync does not change raw motion identity
+  }
   expect(checkPerformance).not.toHaveBeenCalled();
   expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ mode: 'full-story' }), expect.stringMatching(/film.json$/));
 });
@@ -257,5 +262,13 @@ test('an unavailable verifier is distinct from a recording that dropped words', 
     failureCode: 'film_audio_verification_unavailable',
     details: { unresolved: [expect.objectContaining({ defects: ['audio verification unavailable'], qaUnavailable: expect.stringContaining('HTTP 503') })] },
   });
+  expect(generateCandidates).not.toHaveBeenCalled();
+});
+
+
+test('an unavailable lip-sync pin stops before new animation is purchased', async () => {
+  const { validateLipsyncModel } = require('../../../../services/catalogEngine/video/filmPerformance');
+  validateLipsyncModel.mockRejectedValueOnce(Object.assign(new Error('pin unavailable'), { failureCode: 'film_lipsync_unavailable' }));
+  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_lipsync_unavailable' });
   expect(generateCandidates).not.toHaveBeenCalled();
 });
