@@ -1,3 +1,6 @@
+// The checkpoint pacing/backoff clock is tested in filmCheckpoint.test.js.
+// Keep end-to-end media orchestration deterministic without real one-second sleeps.
+jest.mock('node:timers/promises', () => ({ setTimeout: jest.fn(async () => {}) }));
 const fs = require('fs');
 jest.mock('../../../../services/catalogEngine/audio/geminiAudio', () => ({ judgeAudio: jest.fn() }));
 jest.mock('../../../../services/gcsStorage', () => ({ uploadBuffer: jest.fn(async (_b, k) => `https://stored/${k}`), downloadBuffer: jest.fn(async () => null), loadJson: jest.fn(async () => null), saveJson: jest.fn(async () => {}), objectExists: jest.fn(async () => false), getSignedUrl: jest.fn(async k => `https://signed/${k}`) }));

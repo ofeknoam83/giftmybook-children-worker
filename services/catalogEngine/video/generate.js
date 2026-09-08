@@ -179,7 +179,13 @@ async function generateCandidates(p) {
     }
     const started = Date.now();
     log('info', `segment ${p.segment.index}: candidate ${k} (pass ${pass}) submitted to ${provider.provider} as ${ref.jobId}`);
-    while (Date.now() - started < deadlineMs) {
+    const keepWaiting = p.persistJobs && p.waitForPersistedJob && abortSignal;
+    let nextNotice = started + deadlineMs;
+    while (keepWaiting || Date.now() - started < deadlineMs) {
+      if (keepWaiting && Date.now() >= nextNotice) {
+        log('info', `segment ${p.segment.index}: vendor job ${ref.jobId} is still pending; continuing the saved prediction`);
+        nextNotice = Date.now() + deadlineMs;
+      }
       if (abortSignal && abortSignal.aborted) return { k, pass, storageKey, buffer: null, status: 'failed', error: 'aborted', providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
       await sleep(pollIntervalMs);
       touch();

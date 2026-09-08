@@ -145,3 +145,31 @@ test('full films resume an in-flight prediction instead of buying the same motio
   expect(a.poll).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'already-paid' }));
   expect(result.candidates[0].status).toBe('done');
 });
+
+test('a persisted full-film prediction can finish past the clip deadline without another purchase', async () => {
+  const storage = require('../../../../services/gcsStorage'); storage.loadJson.mockResolvedValue(null);
+  const a = adapter(), controller = new AbortController();
+  a.poll.mockImplementationOnce(async () => { await new Promise(resolve => setTimeout(resolve, 12)); return { status: 'running' }; })
+    .mockResolvedValue({ status: 'done', videoUrl: 'https://video/done.mp4' });
+  const result = await generateCandidates(base(a, { n: 1, deadlineMs: 5, persistJobs: true, waitForPersistedJob: true,
+    ctx: { abortSignal: controller.signal, touch: jest.fn(), log: jest.fn() } }));
+  expect(result.candidates[0].status).toBe('done'); expect(a.submit).toHaveBeenCalledTimes(1);
+});
+test('the outer full-film deadline cancels extended polling and preserves the vendor job', async () => {
+  const storage = require('../../../../services/gcsStorage'); storage.loadJson.mockResolvedValue({ jobId: 'saved-job' }); storage.saveJson.mockClear();
+  const a = adapter(), controller = new AbortController();
+  a.poll.mockImplementation(async () => { controller.abort(); return { status: 'running' }; });
+  const result = await generateCandidates(base(a, { n: 1, deadlineMs: 1, persistJobs: true, waitForPersistedJob: true,
+    ctx: { abortSignal: controller.signal, touch: jest.fn(), log: jest.fn() } }));
+  expect(result.candidates[0]).toMatchObject({ status: 'failed', error: 'aborted', providerJobId: 'saved-job' });
+  expect(a.submit).not.toHaveBeenCalled(); expect(storage.saveJson).not.toHaveBeenCalled();
+});
+test('extended polling still stops on provider moderation or terminal failure', async () => {
+  const storage = require('../../../../services/gcsStorage'); storage.loadJson.mockResolvedValue(null);
+  for (const status of ['filtered', 'failed']) {
+    const a = adapter(); a.poll.mockResolvedValue({ status, error: 'provider verdict' });
+    const result = await generateCandidates(base(a, { n: 1, persistJobs: true, waitForPersistedJob: true,
+      ctx: { abortSignal: new AbortController().signal, touch: jest.fn(), log: jest.fn() } }));
+    expect(result.candidates[0].status).toBe(status); expect(a.submit).toHaveBeenCalledTimes(1);
+  }
+});
