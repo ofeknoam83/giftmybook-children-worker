@@ -24,6 +24,7 @@ const { speechShots, shotCommand, finishCommand } = require('./filmMedia');
 const { selectFilmReferenceSheets, shotReferenceSheets } = require('./filmReferences');
 const { imageBudget } = require('./providers/models');
 const ffmpeg = require('./ffmpeg');
+const { createCheckpointWriter } = require('./filmCheckpoint');
 const { FULL_STORY_VIDEO_VERSION, FILM_REFERENCE_VERSION, FILM_INPUT_VERSION, AUDIO_QA_VERSION } = require('../versions');
 
 const TTL = 30 * 24 * 60 * 60 * 1000;
@@ -129,10 +130,13 @@ async function generateFullStoryFilm(p) {
   const ctx = { signal: p.abortSignal, costTracker, touch, log };
   let resumeKey = `${base}/resume.json`;
   let resume = { version: 1, stage: 'preparing', frames: [], approvedTakes: [] };
+  const writeCheckpoint = createCheckpointWriter({ save: storage.saveJson, signal: p.abortSignal, log });
   const checkpoint = async patch => {
     resume = { ...resume, ...patch, updatedAt: new Date().toISOString() };
-    try { await storage.saveJson(resume, resumeKey); }
-    catch {
+    try { await writeCheckpoint(resume, resumeKey); }
+    catch (cause) {
+      if (p.abortSignal.aborted) throw cause;
+      log('error', `Film checkpoint could not be saved (code ${cause.code || cause.statusCode || 'unknown'})`);
       const err = filmError('Film checkpoint storage is unavailable; saved media retained.', 'film_scene_unresolved');
       err.recovery = recoveryFor([{ status: 'configuration', reason: 'Could not save film progress' }], 'checkpoint');
       throw err;
@@ -283,7 +287,7 @@ async function generateFullStoryFilm(p) {
             const gen = await generateCandidates({ bookId, segment: { index: shot.index, seconds: shot.seconds, requestedSeconds: shot.seconds },
               brief: attemptBrief, startFrame, references: shotReferences, provider, aspect, n: 1, pass,
               seed: p.seed, token: p.providerToken, costTracker, ctx: { touch, log, abortSignal: p.abortSignal },
-              canonicalKey: `${base}/motion/${shotHash}.mp4`, clipHash: shotHash, forceNew: !!p.forceNew, persistJobs: true });
+              canonicalKey: `${base}/motion/${shotHash}.mp4`, clipHash: shotHash, forceNew: !!p.forceNew, persistJobs: true, waitForPersistedJob: true });
             const candidate = gen.candidates[0];
             if (candidate?.status !== 'done' || !candidate.buffer) throw filmError(`Scene ${shot.spread}: ${candidate?.error || 'animation unavailable'}`, 'film_animation_failed');
             let animated = candidate.buffer;
