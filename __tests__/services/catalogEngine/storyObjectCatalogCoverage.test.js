@@ -71,19 +71,23 @@ describe.each(cases)('%s', (id, name, aliases) => {
     expect(f.appearances.length).toBeGreaterThan(1);
     const inputs = inputsFor(f.params);
     expect(() => validatePlan(f.incomplete, inputs)).toThrow(`Object occurrence omitted on spread ${f.omittedSpread}`);
-    fetchWithTimeout.mockResolvedValueOnce(response(f.incomplete)).mockResolvedValueOnce(response(f.complete));
+    const def = f.complete.objects[0];
+    const { spread, ...patch } = def.occurrences.find(o => o.spread === f.omittedSpread);
+    patch.evidence = `s${spread}_beat_1`;
+    const key = `${def.id}__s${spread}`;
+    fetchWithTimeout.mockResolvedValueOnce(response(f.incomplete)).mockResolvedValueOnce(response({ [key]: patch }));
     const result = await resolveStoryObjects(f.params);
     expect(result.objects[0].occurrences.map(o => o.spread)).toEqual(f.appearances.map(b => b.spread));
-    const retry = JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text;
-    expect(retry).toContain(`Object occurrence omitted on spread ${f.omittedSpread}`);
+    const retry = JSON.parse(fetchWithTimeout.mock.calls[1][1].body);
+    expect(retry.generationConfig.responseJsonSchema.required).toEqual([key]);
     expect(uploadBufferIfAbsent).toHaveBeenCalledTimes(1);
   });
 
   test('an unchanged omission still fails without storing a partial plan', async () => {
     const f = fixture(id, name, aliases);
-    fetchWithTimeout.mockResolvedValue(response(f.incomplete));
+    fetchWithTimeout.mockResolvedValueOnce(response(f.incomplete)).mockResolvedValue(response({}));
     await expect(resolveStoryObjects(f.params)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
-    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
     expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
   });
 });
