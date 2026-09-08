@@ -62,10 +62,21 @@ Decorative personalization props and story objects explicitly marked noncritical
 are omitted from the video request, using the pinned story-object plan. The book's
 artwork, illustration references and quality checks remain unchanged. Omitted props
 are recorded in the film checkpoint, worker log and result warnings. Unknown
-story-object criticality keeps its reference. More than seven remaining references
-still stops the run before scene checks, narration or animation; essential props
-are never silently truncated. Changed reference sets invalidate affected film/shot
-caches while preserving existing speech, artwork and unchanged reference sets.
+story-object criticality keeps its reference. Kling counts PICTURES per request —
+the start frame and every reference image together, seven at most (vendor error
+1201, 2026-09-08: a shot that sent one start frame + seven sheets was refused) —
+so each shot attaches at most six references, selected for ITS scene: the child's
+sheet always, the companion next, then the essential props with a required
+story-object occurrence on that spread, then props merely mentioned there, then
+the rest in kit order (`shotReferenceSheets`). A kit that fits is sent exactly
+as before, so its cache keys hold; a kit that does not is split by scene rather
+than refused, and every omission is loud — the worker log, the film checkpoint
+(`shotReferences`) and the result warnings name the spread and the props. Nothing
+is lost from the picture: the start frame is the scene's own verified illustration
+and already shows the prop; the reference only guards its design during motion.
+`CATALOG_VIDEO_MAX_IMAGES` overrides the vendor limit when it changes. Changed
+reference sets invalidate affected film/shot caches while preserving existing
+speech, artwork and unchanged reference sets.
 
 Deploy the worker before the app. `POST /v13/video-capabilities` advertises
 `full-story`; the app checks it before requesting a paid render, so an old worker
@@ -118,10 +129,15 @@ customer delivery, especially stylized animal lip sync and supporting actors.
 ## Verified model contracts
 
 - [Kling Omni input schema](https://replicate.com/kwaivgi/kling-v3-omni-video/api/schema),
-  checked 2026-09-07: `reference_images` (up to 7), `<<<image_N>>>` mentions,
+  checked 2026-09-07: `reference_images`, `<<<image_N>>>` mentions,
   `start_image`, `duration` (3–15), `mode: pro`, `generate_audio: false`.
   The hosted prompt limit is 2500 characters. Unsupported guessed element fields
-  from the legacy trailer are not used by this profile.
+  from the legacy trailer are not used by this profile. The vendor's picture
+  limit is SEVEN per request counting `start_image`, `end_image` and every
+  `reference_images` entry together (Kling error 1201 on 2026-09-08, "The
+  number of images and elements exceeds the limit, max number is 7"); the
+  profile's `imageLimit` and `imageBudget` (providers/models.js) hold every
+  request to it, and the input guard is the last line.
 - [Sync input schema](https://replicate.com/sync/lipsync-2/api/schema), checked
   2026-09-07: `video`, `audio`, `sync_mode`, `active_speaker`, `temperature`.
   Version is pinned in `filmPerformance.js`; `silence` avoids looping or cutting

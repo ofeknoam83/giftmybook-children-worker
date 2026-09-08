@@ -24,6 +24,7 @@ const ffmpeg = require('../../../../services/catalogEngine/video/ffmpeg');
 const storage = require('../../../../services/gcsStorage');
 const { generateFullStoryFilm } = require('../../../../services/catalogEngine/video/fullStory');
 const { loadFilmBible, prepareFilmStill } = require('../../../../services/catalogEngine/video/filmInputs');
+const { modelProfile } = require('../../../../services/catalogEngine/video/providers/models');
 
 const input = () => ({ bookId: 'film-test', story: { spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text: 'Hello.' })) }, profile: { name: 'Jo' }, bookDef: { ageBand: '1-3', theme: {}, book: { beats: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, beat: 'Jo waves.' })) } }, renders: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, storageKey: `children-jobs/film-test/ce-renders/v/h/spread-${i + 1}.wide-plain.png` })), approvedCoverUrl: 'https://cover/image.png', injectedKeys: { ELEVENLABS_API_KEY: 'test-key' }, voiceProvider: 'elevenlabs', music: 'story-score' });
 
@@ -72,15 +73,48 @@ test('an oversized kit reaches animation with only character and critical prop r
   expect(bible.props).toHaveLength(9);
 });
 
-test('essential-reference overflow fails before buying scene checks, speech or animation', async () => {
+test('an essential set beyond one Kling request is split by scene: every shot fits the seven-picture limit and keeps the props its spread stages', async () => {
+  // The request that failed with vendor error 1201: one start frame + seven sheets.
   const bible = await loadFilmBible();
   bible.props = Array.from({ length: 7 }, (_, i) => ({ value: `key-${i}`, storyObjectId: `p${i}`, sheet: { hash: `key-${i}`, base64: 'cmVm' } }));
+  bible.storyObjects = { objects: bible.props.map((p, i) => ({ id: p.storyObjectId, critical: true, occurrences: [
+    ...(i === 5 ? [{ spread: 3, required: true }] : []), ...(i === 6 ? [{ spread: 3, required: false }] : []),
+  ] })) };
+  const result = await generateFullStoryFilm(input());
+  expect(generateCandidates).toHaveBeenCalledTimes(12);
+  const omni = modelProfile('kwaivgi/kling-v3-omni-video');
+  for (const [call] of generateCandidates.mock.calls) {
+    expect(call.references.length).toBeLessThanOrEqual(6);
+    expect(call.references[0].hash).toBe('sheet');
+    // the exact vendor input the shot would send stays within the limit
+    const sent = omni.input({ brief: call.brief, startFrameUrl: 'https://s/f.jpg', endFrameUrl: null, referenceUrls: call.references, seconds: 3, aspect: '16:9' });
+    expect(1 + sent.reference_images.length).toBeLessThanOrEqual(7);
+    expect(call.brief.prompt).toContain('prop: [REF6]');
+    expect(call.brief.prompt).not.toContain('[REF7]');
+  }
+  const spread3 = generateCandidates.mock.calls.find(([c]) => c.segment.index === 2)[0];
+  expect(spread3.references.map(r => r.hash)).toEqual(['sheet', 'key-0', 'key-1', 'key-2', 'key-5', 'key-6']);
+  const spread1 = generateCandidates.mock.calls.find(([c]) => c.segment.index === 0)[0];
+  expect(spread1.references.map(r => r.hash)).toEqual(['sheet', 'key-0', 'key-1', 'key-2', 'key-3', 'key-4']);
+  // every sheet some shot uses is staged once; the omission is loud on the checkpoint, the log and the result
+  const uploadedRefs = storage.uploadBuffer.mock.calls.map(([, key]) => key).filter(k => k.includes('/refs/'));
+  expect(uploadedRefs).toHaveLength(8);
+  expect(new Set(uploadedRefs).size).toBe(8);
+  expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ shotReferences: expect.arrayContaining([
+    { spread: 1, omitted: ['key-5', 'key-6'] }, { spread: 3, omitted: ['key-3', 'key-4'] },
+  ]) }), expect.any(String));
+  expect(result.warnings.find(w => w.includes('7-image limit'))).toContain('spread 3 omits key-3, key-4');
+  expect(result.video.durationSeconds).toBe(36);
+});
+
+test('a kit that fits every shot is keyed exactly as before the budget (six sheets with the start frame)', async () => {
+  const bible = await loadFilmBible();
+  bible.props = Array.from({ length: 5 }, (_, i) => ({ value: `key-${i}`, storyObjectId: `p${i}`, sheet: { hash: `key-${i}`, base64: 'cmVm' } }));
   bible.storyObjects = { objects: bible.props.map(p => ({ id: p.storyObjectId, critical: true })) };
-  await expect(generateFullStoryFilm(input())).rejects.toMatchObject({ failureCode: 'film_reference_budget', message: expect.stringContaining('still needs 8') });
-  expect(textGate).not.toHaveBeenCalled();
-  expect(renderChunk).not.toHaveBeenCalled();
-  expect(generateCandidates).not.toHaveBeenCalled();
-  expect(storage.uploadBuffer).not.toHaveBeenCalled();
+  const result = await generateFullStoryFilm(input());
+  for (const [call] of generateCandidates.mock.calls) expect(call.references.map(r => r.hash)).toEqual(['sheet', 'key-0', 'key-1', 'key-2', 'key-3', 'key-4']);
+  expect(result.warnings).toEqual(['Visual review was not run for this film.']);
+  expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ shotReferences: [], omittedVideoProps: [] }), expect.any(String));
 });
 
 test('a filtered reference set cannot replay a completed film or approved shots from the full kit', async () => {

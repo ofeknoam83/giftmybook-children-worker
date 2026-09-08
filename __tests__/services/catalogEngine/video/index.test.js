@@ -368,4 +368,53 @@ describe('generateGiftVideo', () => {
     expect(replicate.submit).toHaveBeenCalledTimes(1);
     expect(r.video.durationSeconds).toBe(10);
   });
+
+  // Kling error 1201 (2026-09-08): start frame + end frame + references ≤ 7.
+  const PROP_VALUES = ['a wagon', 'a kite', 'a hat', 'a tractor', 'a pail', 'a duck'];
+  const propEvidence = (spread = 1) => PROP_VALUES.map(v => ({ spread, visual_required: true, source_value: v, moment_type: 'object_presence', source_field: 'object' }));
+  const bibleWithProps = async () => {
+    const bible = await buildBookBible();
+    buildBookBible.mockResolvedValue({ ...bible, props: PROP_VALUES.map((v, i) => ({ value: v, sheet: { base64: PNGS.get(2).toString('base64'), mimeType: 'image/png', hash: `p${i}`, specText: null } })) });
+  };
+
+  test('the take holds its reference kit to the seven-picture limit: start + end frames leave five elements, the omission is an advisory', async () => {
+    await bibleWithProps();
+    const r = await generateGiftVideo(params({ story: { ...story, personalization_evidence: propEvidence() } }));
+    expect(replicate.submit).toHaveBeenCalledTimes(1);
+    const input = replicate.submit.mock.calls[0][0].input;
+    expect(input.start_image).toBeTruthy();
+    expect(input.end_image).toBeTruthy();
+    expect(input.elements).toHaveLength(5);
+    expect(input.elements[0].images).toHaveLength(2); // the child (cover + sheet) is never the one dropped
+    expect(input.prompt).toContain('@Element5');
+    expect(input.prompt).not.toContain('@Element6');
+    const advisory = r.advisories.find(a => a.stage === 'video' && /at most 7 images per request/.test(a.note));
+    expect(advisory.note).toMatch(/attaches 5 of [78] references/);
+    expect(advisory.note).toContain('a duck');
+    expect(advisory.note).not.toContain('a wagon');
+    // the verifier still checks every declared prop against its sheet
+    expect(verifyClip.mock.calls[0][0].checks.props.map(p => p.name)).toEqual(PROP_VALUES);
+    expect(r.video.durationSeconds).toBe(10);
+  });
+
+  test('the Omni profile on the take sends start + end frames + five reference images — never the eight that failed', async () => {
+    await bibleWithProps();
+    // Two stills: the three-act journey brief alone runs past Omni's 2500-character prompt cap (a separate, older limit).
+    const r = await generateGiftVideo(params({ model: 'kwaivgi/kling-v3-omni-video', renders: [{ spread: 4, storageKey: key(4) }, { spread: 9, storageKey: key(9) }], story: { ...story, personalization_evidence: propEvidence(4) } }));
+    const input = replicate.submit.mock.calls[0][0].input;
+    expect(input.reference_images).toHaveLength(5);
+    expect(1 + 1 + input.reference_images.length).toBe(7);
+    expect(input.prompt).toContain('<<<image_1>>>');
+    expect(input.elements).toBeUndefined();
+    expect(r.advisories.some(a => /kwaivgi\/kling-v3-omni-video accepts at most 7 images/.test(a.note))).toBe(true);
+  });
+
+  test('a kit that fits the budget is sent whole, with no advisory', async () => {
+    await bibleWithProps();
+    const r = await generateGiftVideo(params({ story: { ...story, personalization_evidence: propEvidence().slice(0, 2) } }));
+    const input = replicate.submit.mock.calls[0][0].input;
+    expect(input.elements.length).toBeLessThanOrEqual(5);
+    expect(input.elements.map(e => e.images.length)).toContain(2);
+    expect(r.advisories.some(a => /images per request/.test(a.note))).toBe(false);
+  });
 });

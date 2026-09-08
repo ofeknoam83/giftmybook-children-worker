@@ -1123,6 +1123,15 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `/v13/pick-clip` (503). `CATALOG_VIDEO_PROVIDERS` (default `replicate`),
   `CATALOG_VIDEO_MODEL` (default `kwaivgi/kling-v3-video`),
   `CATALOG_VIDEO_ELEMENTS=0` (no identity-kit reference elements),
+  `CATALOG_VIDEO_MAX_IMAGES` (3-32; unset: the model's own limit — Kling
+  takes at most SEVEN pictures per request, start frame + end frame +
+  reference images/elements TOGETHER, vendor error 1201 on 2026-09-08 when
+  a full-story shot sent one start frame + seven sheets; `imageBudget` in
+  `video/providers/models.js` is what every reference pack is selected
+  against — the child's sheet, the companion, then props by priority, the
+  full-story film choosing each shot's props from ITS spread's story-object
+  occurrences (`shotReferenceSheets`) — with every omission a stage `video`
+  advisory / result warning, never a refused request),
   `CATALOG_VIDEO_MODEL_INPUT_JSON` (per-revision input field overrides),
   `CATALOG_VIDEO_SCENES` (gv-2: stills the single take travels through,
   3, 1-4), `CATALOG_VIDEO_END_FRAME=0` (gv-2: no end frame on the take),

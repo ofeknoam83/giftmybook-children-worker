@@ -30,7 +30,7 @@ The elected sheet paths/style version are unchanged, so previously verified char
 
 ## Film preparation
 
-Full-story films now use direct Kling inputs (`FILM_INPUT_VERSION=gfi-1`). They load the completed book's saved `bible.json` and essential character/companion/story-object sheets without rebuilding the kit or invoking illustration QA. The saved cover identity must match; missing assets still fail explicitly. Personalization and noncritical prop sheets are omitted. The seven-reference model limit remains enforced.
+Full-story films now use direct Kling inputs (`FILM_INPUT_VERSION=gfi-1`). They load the completed book's saved `bible.json` and essential character/companion/story-object sheets without rebuilding the kit or invoking illustration QA. The saved cover identity must match; missing assets still fail explicitly. Personalization and noncritical prop sheets are omitted. Kling's seven-picture limit counts the start frame, so each shot attaches at most six references, chosen for its own scene (`docs/FULL_STORY_FILM.md`); a kit beyond that is split by scene with the omissions on record, never refused by the vendor.
 
 Plain source pages are prepared directly. Pages with embedded story text receive a cached, source-content-keyed text-removal edit under `gift-video/inputs/gfi-1`, preserving the book's original artwork. This is an image edit, not a visual approval. Its two durable attempts retain provider refusals and prevent duplicate active purchases. No image-provider or Kling safety settings change.
 
