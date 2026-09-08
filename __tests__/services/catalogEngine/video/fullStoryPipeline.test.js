@@ -61,6 +61,23 @@ test('all 12 scenes reach the final film; only character dialogue is lip-synced'
   expect(storage.saveJson).toHaveBeenCalledWith(expect.objectContaining({ mode: 'full-story' }), expect.stringMatching(/film.json$/));
 });
 
+test('resume progress distinguishes saved recordings and shots from newly completed work', async () => {
+  await generateFullStoryFilm(input());
+  const markers = new Map(storage.saveJson.mock.calls.filter(([, key]) => key.endsWith('.media.json')).map(([value, key]) => [key, value]));
+  const media = new Map(storage.uploadBuffer.mock.calls.map(([buffer, key]) => [key, buffer]));
+  storage.loadJson.mockImplementation(async key => markers.get(key) || null);
+  storage.downloadBuffer.mockImplementation(async key => media.get(key) || null);
+  renderChunk.mockResolvedValue({ ...(await renderChunk()), cached: true });
+  generateCandidates.mockClear();
+  const onProgress = jest.fn();
+  await generateFullStoryFilm({ ...input(), onProgress });
+  expect(generateCandidates).not.toHaveBeenCalled();
+  const messages = onProgress.mock.calls.map(([, message]) => message);
+  expect(messages).toContain('Prepared passage 12 of 12 (12 saved recordings reused)');
+  expect(messages).toContain('Prepared 12 of 12 shots (12 reused, 0 newly completed)');
+  expect(messages.some(message => message.startsWith('Animated '))).toBe(false);
+});
+
 test('an oversized kit reaches animation with only character and critical prop references', async () => {
   const bible = await loadFilmBible();
   bible.companion = { hash: 'companion', base64: 'cmVm' };

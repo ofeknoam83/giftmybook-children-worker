@@ -201,8 +201,9 @@ async function generateFullStoryFilm(p) {
       frames: [...frames].map(([spread, frame]) => ({ spread, hash: frame.hash, storageKey: frame.storageKey })),
       references, omittedVideoProps: omittedProps, shotReferences: trimmedReferences, stage: 'scenes_prepared' });
 
-    report(0.14, 'Recording the complete story with the cast…');
+    report(0.14, 'Preparing the complete narration, reusing saved recordings…');
     const shots = [];
+    let reusedRecordings = 0;
     for (const turn of script.turns) {
       checkAbort();
       const chunk = { index: 0, speaker: turn.speaker, lines: [{ ...turn, index: 0, isRefrain: false, pauseAfterMs: 0 }] };
@@ -211,13 +212,16 @@ async function generateFullStoryFilm(p) {
         language, band: bookDef.ageBand, name: profile.name, costTracker, log, touch, signal: p.abortSignal, forceRetake: !!p.forceNew, opts: { requireExactText: true } });
       // The audiobook allows a small STT tolerance; the full film requires every spoken word.
       requireVerifiedSpeech(take, turn, script.cast[turn.speaker].name, language);
-      if (take.cached) costTracker?.recordReuse?.('speech', take.takeHash);
+      if (take.cached) {
+        reusedRecordings++;
+        costTracker?.recordReuse?.('speech', take.takeHash);
+      }
       await checkpoint({ stage: 'recording', approvedTakes: [...resume.approvedTakes,
         { spread: turn.spread, passage: turn.index, takeHash: take.takeHash, storageKey: take.storageKey, cached: !!take.cached }] });
       for (const part of speechShots(take.buffer, take.measure.trim)) {
         shots.push({ ...turn, ...part, audio: part.buffer, buffer: undefined, index: shots.length, takeHash: take.takeHash, lufs: take.measure.lufs, takeKey: take.storageKey });
       }
-      report(0.14 + 0.1 * (turn.index + 1) / script.turns.length, `Recorded passage ${turn.index + 1} of ${script.turns.length}`);
+      report(0.14 + 0.1 * (turn.index + 1) / script.turns.length, `Prepared passage ${turn.index + 1} of ${script.turns.length} (${reusedRecordings} saved recordings reused)`);
     }
     const seconds = shots.reduce((sum, shot) => sum + shot.seconds, 0);
     if (shots.length > 256 || seconds > 1800) throw filmError(`The story needs ${shots.length} shots / ${Math.ceil(seconds)} seconds, above this worker’s full-film budget. No story content was removed.`, 'film_budget_exceeded');
@@ -240,7 +244,7 @@ async function generateFullStoryFilm(p) {
       return { ...existing, video: { ...existing.video, url: await storage.getSignedUrl(existing.video.storageKey, TTL), posterUrl: await storage.getSignedUrl(existing.video.posterKey, TTL), cached: true } };
     }
     if (shots.some(shot => shot.speaker !== 'narrator')) await validateLipsyncModel(p.providerToken);
-    const plan = []; const takes = []; let finished = 0;
+    const plan = []; const takes = []; let finished = 0; let reusedShots = 0;
     const sceneFrames = new Map(frames);
     // Keep all sibling tasks joined before cleaning the shared temporary directory.
     const limit = pLimit(3); let stopped = false;
@@ -278,7 +282,8 @@ async function generateFullStoryFilm(p) {
             await storage.saveJson(marker, `${key}.media.json`);
           }
         }
-        if (buffer) costTracker?.recordReuse?.('video', shotHash);
+        const reusedShot = !!buffer;
+        if (reusedShot) costTracker?.recordReuse?.('video', shotHash);
         const score = marker?.score ?? null;
         if (!buffer) {
           let defects = [];
@@ -326,7 +331,9 @@ async function generateFullStoryFilm(p) {
           const url = await storage.uploadBuffer(prepared.buffer, frameKey, 'image/jpeg');
           sceneFrames.set(shot.spread, { url, hash: frameHash, storageKey: frameKey });
         }
-        finished++; report(0.3 + 0.6 * finished / shots.length, `Animated ${finished} of ${shots.length} shots across the full story`);
+        finished++;
+        if (reusedShot) reusedShots++;
+        report(0.3 + 0.6 * finished / shots.length, `Prepared ${finished} of ${shots.length} shots (${reusedShots} reused, ${finished - reusedShots} newly completed)`);
         takes[shot.index] = { path: audioFile, at: shot.from, trim: { start: 0, end: shot.seconds }, lufs: shot.lufs };
       } catch (err) { stopped = true; throw err; }
     };
