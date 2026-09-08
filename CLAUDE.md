@@ -131,9 +131,40 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   validation errors.
 - `pipeline.js` — full-book run: resolve story (request pair → checkpoint →
   fresh) → illustrate → `assemblePdf` (minPages 32; 12 spreads + front matter)
-  → cover PDF (`coverGenerator`, unchanged) → callback payload. Failure codes:
-  `invalid_story`, `missing_book_definition`; `StoryGenerationError` carries
-  `validationErrors`.
+  → cover PDF (`coverGenerator`, unchanged) → **Lulu preflight** → callback
+  payload. Failure codes: `invalid_story`, `missing_book_definition`,
+  `interior_pdf_failed`, `cover_pdf_failed`; `StoryGenerationError` carries
+  `validationErrors`. **The print spec (`services/luluSpec.js`,
+  2026-09-08)** is the ONE place Lulu's numbers live — 0.125" bleed, the
+  0.5" safety margin + 0.2" gutter, 300 ppi, the two picture-book
+  products by the app's `bindingType` (`0850X0850FCSTDPB080CW444GXX`
+  perfect bound, 32–800 pages, spine = pages / 444 + 0.06";
+  `0850X0850FCSTDCW080CW444GXX` casewrap, 24–800 pages, 0.875" beyond the
+  trim on every outer edge, spine from Lulu's stepped table — 24–84 pages
+  0.25", 85–140 0.5" … — so 8.5×8.5 at 32 pages is Lulu's 19.0×10.25"
+  canvas; 0.75" cover safety on a casewrap, no spine text under 80 pages)
+  — and `layoutEngine` (interior: `SAFE` = bleed + 0.7"), `coverGenerator`
+  (the wrap canvas via `coverGeometry`) and `preflightPictureBook` all read
+  from it, so the file we build and the file we check can never disagree.
+  The preflight runs on BOTH PDFs before upload (page count in the
+  product's range and even, every interior page at trim + bleed, the cover
+  exactly ONE page of the geometry its page count demands, every
+  non-base-14 font embedded) and fails the run `interior_pdf_failed` /
+  `cover_pdf_failed` (the app's existing resume contract; deterministic, so
+  the cover half is never retried with saved artwork, and the failure
+  carries the verdict as `preflight`); the verdict rides
+  the completion callback as `preflight` (product, SKU, measured/expected
+  sizes, `notes` naming the base-14 fonts still in use — Helvetica-Bold on
+  the upsell label, Times on the designed back cover — which Lulu's
+  normalizer substitutes; the bylines/footers embed Liberation Sans).
+  `/rebuild-cover-pdf` runs the cover half against the interior's page
+  count and echoes `preflight` too. The same change moved the interior's
+  upsell spread inside the safety margin (its cards sat 0.25" and its
+  footer 0.06" inside the trim) and onto a VERSO so its two pages face
+  each other (page 1 prints on the right; with 12 spreads it used to open
+  on recto 29), the title-page byline onto the safety line, and the
+  casewrap spine to Lulu's exact 0.25" (a "6 mm" 17pt spine left the
+  canvas 1pt short).
 - `illustrator/` — the slim illustrator: the fixed BEAT is the scene
   (`scenes.js`), identity anchors on the parent-approved cover (raw photo only
   as coverless-test fallback; NO anchor at all fails the run with
@@ -1472,7 +1503,9 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 
 ## Kept services (untouched by the cutover)
 
-`coverGenerator.js` (Lulu wrap cover; still the identity/style anchor —
+`luluSpec.js` (the Lulu print spec + picture-book preflight — see
+`pipeline.js` above), `coverGenerator.js` (Lulu wrap cover, its canvas from
+`luluSpec.coverGeometry`; still the identity/style anchor —
 since 2026-09-07 every cover prompt it builds carries `FLAT_COVER_ART_RULE`:
 a cover IS the printed surface, full-bleed to all four edges, NEVER a
 picture of a book — no 3D mockup, pages, spine, shadow, border, mat, card

@@ -35,15 +35,19 @@ const sharp   = require('sharp');
 // are now rendered as full-page AI-generated images with text baked in.
 
 
-// ── Geometry constants ───────────────────────────────────────────────────────
-const BLEED       = 9;    // 0.125" in pts
-const SAFE        = BLEED + 50; // safe text inset from page edge
-const TARGET_DPI  = 300;
-const PTS_PER_INCH= 72;
+// ── Geometry constants (Lulu spec — services/luluSpec.js is the source) ─────
+const LULU = require('./luluSpec');
+const PTS_PER_INCH= LULU.PT_PER_IN;
+const BLEED       = LULU.GUIDELINES.bleedIn * PTS_PER_INCH; // 9pt — 0.125"
+// Every typeset element stays inside Lulu's 0.5" safety margin PLUS the 0.2"
+// inner-edge gutter. Blocks are centred, so both edges get the sum: 0.7"
+// inside the trim, 60pt from the page edge (2026-09-08; was 59pt).
+const SAFE        = BLEED + Math.ceil((LULU.GUIDELINES.safetyIn + LULU.GUIDELINES.gutterIn) * PTS_PER_INCH);
+const TARGET_DPI  = LULU.GUIDELINES.targetPpi;
 
 const FORMATS = {
-  PICTURE_BOOK: { width: 612, height: 612 },
-  EARLY_READER: { width: 612, height: 612 },
+  PICTURE_BOOK: { width: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimWidthIn * PTS_PER_INCH, height: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimHeightIn * PTS_PER_INCH },
+  EARLY_READER: { width: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimWidthIn * PTS_PER_INCH, height: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimHeightIn * PTS_PER_INCH },
 };
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -68,6 +72,11 @@ const FONT_PATHS = {
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
   kalam:          path.join(FONT_DIR, 'Kalam-Regular.ttf'),
   comicNeue:      path.join(FONT_DIR, 'ComicNeue-Bold.ttf'),
+  // Metric-compatible Helvetica/Arial clone — EMBEDDED, so the bylines and
+  // footers no longer ride the unembedded base-14 Helvetica (Lulu: "embed
+  // all fonts"; the base-14 names are the one exception its normalizer
+  // substitutes, and the picture-book preflight reports them).
+  liberation:     path.join(FONT_DIR, 'LiberationSans-Regular.ttf'),
 };
 
 // ── Text helpers ──────────────────────────────────────────────────────────────
@@ -282,15 +291,18 @@ async function loadFonts(pdfDoc) {
   // disagree. Ligatures add nothing at caption sizes; disable them for all
   // embedded fonts.
   const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p), { features: { liga: false } }) : null;
-  const [bubblegum, playfair, playfairItalic, dancing, kalam, helv, helvB] = await Promise.all([
+  const [bubblegum, playfair, playfairItalic, dancing, kalam, liberation, helvB] = await Promise.all([
     load(FONT_PATHS.bubblegum),
     load(FONT_PATHS.playfair),
     load(FONT_PATHS.playfairItalic),
     load(FONT_PATHS.dancing),
     load(FONT_PATHS.kalam),
-    pdfDoc.embedFont(StandardFonts.Helvetica),
+    load(FONT_PATHS.liberation),
     pdfDoc.embedFont(StandardFonts.HelveticaBold),
   ]);
+  // The `helv` slot is the embedded Liberation Sans (same metrics as
+  // Helvetica); the base-14 Helvetica only if the TTF is missing.
+  const helv = liberation || await pdfDoc.embedFont(StandardFonts.Helvetica);
   // P5 (2026-07-23 audit): the caption halo used to be layered pdf-lib text
   // (the same line drawn 8× around the fill + a drop shadow). pdftotext saw
   // every copy, so each caption word was extracted TWICE in the shipped PDF.
@@ -1021,7 +1033,9 @@ function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
   // Byline
   const by = 'Created by GiftMyBook';
   const byW = helv.widthOfTextAtSize(by, 10);
-  p.drawText(by, { x: (pw - byW) / 2, y: BLEED + 22, size: 10, font: helv, color: C.grayLight });
+  // Baseline on the safety line (0.7" inside the trim) — it used to sit
+  // 0.3" inside, within Lulu's 0.5" trim-variance zone.
+  p.drawText(by, { x: (pw - byW) / 2, y: SAFE, size: 10, font: helv, color: C.grayLight });
 }
 
 function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
@@ -1114,6 +1128,36 @@ function buildClosingPage(pdfDoc, pw, ph, fonts) {
   p.drawText('GiftMyBook.com', { x: (pw - bw) / 2, y: ph / 2 - 34, size: 10, font: helv, color: C.grayLight });
 }
 
+/**
+ * Upsell-spread card geometry — pure, exported for tests. Every card (with
+ * its QR code and labels) and the footer stay inside SAFE, Lulu's 0.5"
+ * safety margin plus the 0.2" gutter. Before 2026-09-08 the cards sat
+ * 0.25" inside the trim and the footer 0.06" — inside the zone Lulu's own
+ * guidelines say the trim can cut through — and the QR codes with them.
+ *
+ * @param {{pw: number, ph: number, cardsTopY: number}} p - page size and the
+ *   y below which the cards may start (the header's bottom, or the safety line)
+ * @returns {{cardW: number, coverH: number, labelH: number, gap: number, offsetY: number, coverY: number,
+ *   footerY: number, cardX: (i: number) => number, fits: boolean}}
+ */
+function computeUpsellCardLayout({ pw, ph, cardsTopY }) {
+  const GAP = 14;
+  const LABEL_H = 52;
+  const FOOTER_H = 14; // the footer's baseline sits ON the safety line; cards start above it
+  const cardW = (pw - SAFE * 2 - GAP) / 2;
+  const coverH = Math.round(cardW * (2400 / 1792)); // 3:4 portrait ratio
+  const cardH = coverH + LABEL_H;
+  const top = Math.min(cardsTopY, ph - SAFE);
+  const availH = top - (SAFE + FOOTER_H);
+  const offsetY = SAFE + FOOTER_H + Math.max(0, (availH - cardH) / 2);
+  return {
+    cardW, coverH, labelH: LABEL_H, gap: GAP,
+    offsetY, coverY: offsetY + LABEL_H, footerY: SAFE,
+    cardX: (i) => SAFE + i * (cardW + GAP),
+    fits: availH >= cardH,
+  };
+}
+
 async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
   const { playfair, playfairItalic, helv, helvB } = fonts;
   const { upsellCovers, childName, bookId } = opts;
@@ -1122,40 +1166,32 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
   let qrcode;
   try { qrcode = require('qrcode'); } catch (_) {}
 
-  const MARGIN = 27;
-  const GAP    = 14;
-  const CARD_W = (pw - MARGIN * 2 - GAP) / 2;
-  const COVER_H= Math.round(CARD_W * (2400 / 1792)); // 3:4 portrait ratio
-  const LABEL_H= 52;
-
   for (let pageIdx = 0; pageIdx < 2; pageIdx++) {
     const p = pdfDoc.addPage([pw, ph]);
     const pagePair = upsellCovers.slice(pageIdx * 2, pageIdx * 2 + 2);
     if (pagePair.length === 0) continue;
 
-    // Header (left page only)
+    // Header (left page only) — its first line's glyphs sit below the
+    // safety line (baseline one em down).
     let cardsTopY;
     if (pageIdx === 0) {
       const tag    = `What will ${childName || 'your child'}\u2019s next story be?`;
       const tagSz  = 18;
-      const tagLines = wrapText(tag, playfair || helv, tagSz, pw - MARGIN * 2);
+      const tagLines = wrapText(tag, playfair || helv, tagSz, pw - SAFE * 2);
       const tagLH  = tagSz * 1.35;
-      let ty = ph - MARGIN - 4;
+      let ty = ph - SAFE - tagSz;
       for (const line of tagLines) { drawCentered(p, line, playfair || helv, tagSz, ty, C.black); ty -= tagLH; }
       drawCentered(p, 'Choose the next adventure...', playfairItalic || helv, 11, ty - 2, C.brownMid);
       cardsTopY = ty - 16;
     } else {
-      cardsTopY = ph - MARGIN - 4;
+      cardsTopY = ph - SAFE;
     }
 
-    const availH  = cardsTopY - MARGIN;
-    const cardH   = COVER_H + LABEL_H;
-    const offsetY = MARGIN + Math.max(0, (availH - cardH) / 2);
-    const coverY  = offsetY + LABEL_H;
+    const { cardW: CARD_W, coverH: COVER_H, labelH: LABEL_H, offsetY, coverY, footerY, cardX: cardXAt } = computeUpsellCardLayout({ pw, ph, cardsTopY });
 
     for (let ci = 0; ci < pagePair.length; ci++) {
       const uc   = pagePair[ci];
-      const cardX = MARGIN + ci * (CARD_W + GAP);
+      const cardX = cardXAt(ci);
       const buf   = uc.coverBuffer;
 
       if (buf) {
@@ -1210,10 +1246,10 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
       }
     }
 
-    // Footer
+    // Footer — on the safety line, never in the trim zone.
     const ft = `GiftMyBook.com  \u00B7  A personalized book made just for ${childName || 'your child'}`;
     const ftW = helv.widthOfTextAtSize(ft, 7);
-    p.drawText(ft, { x: (pw - ftW) / 2, y: BLEED + 4, size: 7, font: helv, color: C.grayLight });
+    p.drawText(ft, { x: (pw - ftW) / 2, y: footerY, size: 7, font: helv, color: C.grayLight });
   }
 }
 
@@ -1403,11 +1439,18 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
 
   // ── Upsell spread ─────────────────────────────────────────────────────────
   if (upsellCovers && upsellCovers.length > 0) {
+    // A spread's two pages must FACE each other: Lulu prints page 1 on the
+    // right, so odd pages are rectos and the spread's first (header) page
+    // must be a verso — an even page number. With 12 story spreads the
+    // closing page is page 28, so the upsell used to open on recto 29 and
+    // finish on verso 30, split by a page turn (2026-09-08).
+    if (pdfDoc.getPageCount() % 2 === 0) buildBlankPage(pdfDoc, pw, ph);
     await buildUpsellSpread(pdfDoc, pw, ph, fonts, { upsellCovers, childName, bookId });
   }
 
-  // Enforce Lulu minimum page count and ensure even page count for binding
-  const MIN_PAGES = opts.minPages || 32;
+  // Enforce Lulu's minimum page count (perfect bound: 32) and an even count
+  // — every leaf prints two pages.
+  const MIN_PAGES = opts.minPages || LULU.INTERIOR_MIN_PAGES;
   while (pdfDoc.getPageCount() < MIN_PAGES || pdfDoc.getPageCount() % 2 !== 0) {
     pdfDoc.addPage([pw, ph]);
   }
@@ -2483,4 +2526,9 @@ module.exports = {
   drawCaptionOverlay,
   loadFonts,
   OVERLAY,
+  // 2026-09-08: the upsell-spread card geometry (inside the Lulu safety
+  // margin + gutter) and the safety inset itself, for the sharp-free suite.
+  computeUpsellCardLayout,
+  SAFE,
+  BLEED,
 };

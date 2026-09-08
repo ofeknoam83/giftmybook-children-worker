@@ -2114,11 +2114,21 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
     );
     if (!coverData?.coverPdfBuffer) throw new Error('generateCover returned no buffer');
 
+    // Lulu preflight (picture books): the wrap must be ONE page of exactly
+    // the canvas the binding + interior page count demand — the same check
+    // the full pipeline runs, so a rebuilt cover can never drift from the
+    // interior it will be ordered with.
+    let preflight = null;
+    if (/^(picture_book|early_reader)$/i.test(bookFormat || 'PICTURE_BOOK')) {
+      preflight = await require('./services/luluSpec').preflightPictureBook({ coverPdf: coverData.coverPdfBuffer, pageCount, bindingType });
+      if (!preflight.ok) throw new Error(`Cover PDF failed the Lulu preflight: ${preflight.errors.join('; ')}`);
+    }
+
     const coverPath = `children-jobs/${bookId}/cover.pdf`;
     await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
     const coverPdfUrl = await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000);
     console.log(`[rebuild-cover-pdf] Done for book ${bookId}: ${coverPdfUrl} (pages=${pageCount}, binding=${bindingType || 'paperback'})`);
-    return res.json({ success: true, coverPdfUrl,
+    return res.json({ success: true, coverPdfUrl, preflight,
       backCoverImageUrl: coverData.backCoverImageUrl,
       backCoverDesignAdvisory: coverData.backCoverDesignAdvisory,
       backCoverRepairNote: coverData.backCoverRepairNote,

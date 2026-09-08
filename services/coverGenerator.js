@@ -25,6 +25,7 @@ const { downloadBuffer } = require('./gcsStorage');
 const { TEXT_RULES } = require('./shared/illustration/config');
 const sharp = require('sharp');
 const { drawBookBackCover } = require('./backCoverLayout');
+const LULU = require('./luluSpec');
 const { backCoverArtworkCopy, pictureBackCoverPrompt, pictureBackCoverCleanupPrompt, typesetBackCoverCopy, embedBackCoverCodes, pictureBackCoverCachePath } = require('./pictureBackCover');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
@@ -414,7 +415,9 @@ function drawBackCoverTypeset(page, geom, fonts, content) {
   const { font, boldFont, italicFont } = fonts;
   const { synopsis, heartfeltNote, bookFrom, childName } = content;
 
-  const SAFE = 45; // 0.625" inside trim — comfortably clear of Lulu trim variance
+  // 0.625" inside the trim on a paperback, 0.75" on a casewrap (Lulu's
+  // hardcover safety margin) — geom.safe comes from the cover geometry.
+  const SAFE = geom.safe || 45;
   const contentWidth = trimWidth - SAFE * 2;
   const centerX = edgeBleed + trimWidth / 2;
   const cream = rgb(0.98, 0.95, 0.86);
@@ -1109,39 +1112,37 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     trimWidth = 432;  // 6" (chapter book and other portrait formats)
     trimHeight = 648; // 9"
   }
-  const bleed = 9; // 0.125" Lulu standard
-
-  const pageCount = opts.pageCount || 32;
+  const pageCount = opts.pageCount || LULU.INTERIOR_MIN_PAGES;
   const isHardcover = (opts.bindingType || '').toUpperCase().includes('HARDCOVER');
 
-  let totalWidth, totalHeight, spineWidth, hinge, edgeBleed;
+  // ── Wrap geometry: the Lulu spec (services/luluSpec.js) ──────────────────
+  // The same numbers the picture-book preflight checks the finished PDF
+  // against. Paperback (perfect bound): bleed + back + spine + front +
+  // bleed, spine = pages / paper PPI + 0.06" (444 PPI for every 80#/60#
+  // SKU we print; the graphic-novel SKU's 70# stock is 460). Hardcover
+  // (casewrap): 0.875" beyond the trim on every outer edge (board overhang
+  // + wrap — the wrap IS the bleed), spine from Lulu's stepped table:
+  // 8.5×8.5 at 24–84 pages is Lulu's 19.0×10.25" canvas with the 0.25"
+  // spine (18pt; before 2026-09-08 a "6 mm" 17pt spine left the canvas
+  // 1pt short, and the table's higher rows were a 6 mm-per-84-page guess
+  // that disagreed with Lulu's 85–140 → 0.5" row).
+  const geometry = LULU.coverGeometry({
+    trimWidthIn: trimWidth / 72,
+    trimHeightIn: trimHeight / 72,
+    binding: isHardcover ? 'casewrap' : 'perfect',
+    paperPpi: isGraphicNovel ? 460 : 444,
+  }, pageCount);
+  const spineWidth  = geometry.spinePt;
+  const edgeBleed   = geometry.edgePt;
+  const totalWidth  = geometry.widthPt;
+  const totalHeight = geometry.heightPt;
+  // Text and machine codes stay this far inside the trim: 0.75" on a
+  // casewrap (Lulu's hardcover safety margin — before 2026-09-08 the
+  // hardcover back cover used the paperback inset), 0.625" on a paperback
+  // (the house margin, above Lulu's 0.5").
+  const coverSafe = Math.max(45, Math.round(geometry.safetyPt));
 
-  if (isHardcover) {
-    // ── Lulu Hardcover Casewrap spec ──────────────────────────────────────────
-    // Source: https://help.lulu.com/en/support/solutions/articles/64000308572
-    // Canvas = wrap(0.875") + back + spine + front + wrap(0.875")
-    // Height = wrap(0.875") + trim + wrap(0.875")
-    // Required by Lulu for 8.5x8.5: 19.0" x 10.25" total canvas
-    // Spine (Lulu hardcover table, mm → pt):
-    //   24–84 pages: 6mm=17pt  |  85–168: 12mm=34pt  |  169–252: 18mm=51pt
-    const wrap = 63; // 0.875" × 72 = 63pt (verified against Lulu error for 8.5x8.5)
-    const spineTable = [[84,17],[168,34],[252,51],[336,69],[420,86],[504,103],[Infinity,120]];
-    spineWidth = (spineTable.find(([max]) => pageCount <= max) || spineTable[spineTable.length-1])[1];
-    hinge = 0;      // Hinge is part of the wrap area — no separate gap in PDF layout
-    edgeBleed = wrap; // outer edge = wrap (includes bleed)
-    totalWidth  = wrap + trimWidth + spineWidth + trimWidth + wrap;
-    totalHeight = wrap + trimHeight + wrap;
-  } else {
-    // ── Lulu Paperback Perfect Bound spec ────────────────────────────────────
-    const spineInches = pageCount * 0.002252 + 0.06;
-    spineWidth  = Math.max(spineInches * 72, 6);
-    hinge       = 0;
-    edgeBleed   = bleed; // 0.125" standard bleed
-    totalWidth  = bleed + trimWidth + spineWidth + trimWidth + bleed;
-    totalHeight = trimHeight + bleed * 2;
-  }
-
-  console.log(`[CoverGenerator] Cover canvas: ${(totalWidth/72).toFixed(3)}"x${(totalHeight/72).toFixed(3)}", spine=${(spineWidth/72).toFixed(3)}", edge=${(edgeBleed/72).toFixed(3)}" (${pageCount}pp, ${isHardcover ? 'hardcover' : 'paperback'})`);
+  console.log(`[CoverGenerator] Cover canvas: ${(totalWidth/72).toFixed(3)}"x${(totalHeight/72).toFixed(3)}", spine=${(spineWidth/72).toFixed(3)}", edge=${(edgeBleed/72).toFixed(3)}", safety=${(coverSafe/72).toFixed(3)}" (${pageCount}pp, ${isHardcover ? 'hardcover' : 'paperback'})`);
 
   const coverSourceUrl = opts.coverSourceUrl || '';
   // A source is "known 3D" only when it is provably already on-brand: an
@@ -1352,12 +1353,12 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   if (embeddedBackText) {
     // The final artwork already contains the copy and exact machine codes.
   } else if (isPictureBook && opts.bookId) {
-    await drawBookBackCover(page, { edgeBleed, trimWidth, totalHeight }, {
+    await drawBookBackCover(page, { edgeBleed, trimWidth, totalHeight, safe: coverSafe }, {
       title, synopsis, heartfeltNote, bookFrom, childName, bookId: opts.bookId,
     });
   } else drawBackCoverTypeset(
     page,
-    { edgeBleed, trimWidth, totalHeight },
+    { edgeBleed, trimWidth, totalHeight, safe: coverSafe },
     { font, boldFont, italicFont },
     { synopsis, heartfeltNote, bookFrom, childName },
   );
@@ -1367,7 +1368,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   // Lulu recommends: no spine text for books under 80 pages
   // Lower spineWidth threshold to 14pt — at 80 pages paperback spine is ~17pt
-  if (pageCount >= 80 && spineWidth >= 14 && title) {
+  if (pageCount >= LULU.GUIDELINES.spineTextMinPages && spineWidth >= 14 && title) {
     // Font size with Lulu safety margins (0.125" = 9pt from each edge)
     const safetyMargin = 9; // 0.125" in points (Lulu recommendation)
     const availableWidth = spineWidth - (2 * safetyMargin);
