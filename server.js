@@ -24,6 +24,13 @@ process.on('SIGTERM', async () => {
     console.warn(`[PROCESS] SIGTERM: ${inFlight.length} in-flight book(s): ${inFlight.join(', ')}`);
     for (const mapKey of inFlight) {
       const ctx = activeBooks.get(mapKey);
+      if (ctx?.onShutdown) {
+        // Deliver the video interruption before Cloud Run's shutdown grace
+        // expires, even when its renderer is still polling a vendor.
+        ctx.onShutdown().catch(err => console.error(`[PROCESS] Video shutdown callback failed: ${err.message}`));
+        ctx.abortController.abort();
+        continue;
+      }
       // Abort in-progress LLM calls so the generation fails fast
       ctx?.abortController?.abort();
       if (ctx?.progressCallbackUrl) {
@@ -1011,9 +1018,13 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
   const costTracker = new CostTracker();
   const mapKey = `video:${bookId}`;
   const ctx = createBookContext(bookId, { mapKey, callbackUrl, progressCallbackUrl: progressCallbackUrl || null });
+  const stable = { bookId, mode, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion, provider: providerPick.provider, model: providerPick.model };
+  const delivery = require('./services/videoDelivery').createVideoDelivery({
+    stable, costTracker, send: (payload, options) => postWithRetry(callbackUrl, payload, options),
+  });
+  ctx.onShutdown = () => delivery.interrupt();
   (async () => {
     const started = Date.now();
-    const stable = { bookId, mode, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion, provider: providerPick.provider, model: providerPick.model };
     let payload;
     try {
       const generateGiftVideo = mode === 'full-story' ? require('./services/catalogEngine/video/fullStory').generateFullStoryFilm : require('./services/catalogEngine/video').generateGiftVideo;
@@ -1072,7 +1083,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
     } finally {
       removeBookContext(mapKey);
     }
-    await postWithRetry(callbackUrl, payload);
+    await delivery.complete(payload);
   })();
 });
 
@@ -1748,10 +1759,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
  * as delivered silently loses the callback (the app-side round then hangs
  * until its stall reconcile) whenever the app hiccups on capture.
  */
-async function postWithRetry(url, payload) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+async function postWithRetry(url, payload, { timeoutMs = 15000, attempts = 3, retryDelayMs = 2000 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(), 15000);
+    const timeout = setTimeout(() => abort.abort(), timeoutMs);
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -1762,13 +1773,13 @@ async function postWithRetry(url, payload) {
       if (!res.ok) throw new Error(`callback endpoint answered ${res.status}`);
       return true;
     } catch (err) {
-      console.error(`[server] callback attempt ${attempt + 1}/3 to ${url} failed: ${err.message}`);
-      if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+      console.error(`[server] callback attempt ${attempt + 1}/${attempts} to ${url} failed: ${err.message}`);
+      if (attempt < attempts - 1) await new Promise(r => setTimeout(r, (attempt + 1) * retryDelayMs));
     } finally {
       clearTimeout(timeout);
     }
   }
-  console.error(`[server] callback to ${url} LOST after 3 attempts — the caller must reconcile this run as stalled`);
+  console.error(`[server] callback to ${url} LOST after ${attempts} attempts — the caller must reconcile this run as stalled`);
   return false;
 }
 
