@@ -23,6 +23,7 @@ const { getCharacterSheet } = require('./characterSheet');
 const { getBibleProps, getPropSheet, normalizePropValue } = require('./propSheet');
 const pLimit = require('p-limit');
 const { resolveStoryObjects, objectsForSpread, propName, designText } = require('../storyObjects');
+const { resolveScenePresence } = require('../scenePresence');
 const { getOutfitLock } = require('../outfitLock');
 const { getEmotionPlan, renderEmotionLine } = require('../emotionPlan');
 const { getWorldPlate } = require('../worldPlate');
@@ -172,7 +173,9 @@ async function buildBookBible(p) {
   // A legacy PDF-only rebuild must preserve the old namespace and paid-for
   // artwork. Explicit illustration regeneration upgrades it to object locks.
   const storyObjects = p.legacyReviewed ? { objects: [], hash: 'legacy', version: null }
-    : await resolveStoryObjects({ book: p.book, story: p.story, theme: p.theme, costTracker: p.costTracker, log }).catch(err => {
+    : await resolveStoryObjects({ book: p.book, story: p.story, theme: p.theme, costTracker: p.costTracker, log })
+      .then(plan => resolveScenePresence({ ...p, plan, log })).catch(err => {
+      if (err.recovery) throw err;
       const recovery = require('../referenceContract').pending('Story continuity plan needs review; the saved manuscript is retained.',
         { status: 'contract_conflict', reason: err.message, exhausted: true }, 'story_object_planning');
       recovery.recovery.reason = 'contract_conflict';
@@ -389,7 +392,7 @@ function buildPromptBible(bible, refs, ctx) {
     props.push({ name: def.value, specText: designText(def), ref: refs.props[def.value] || null,
       storyObject: true, critical: def.critical, state: def.occurrence.state,
       reference: (bible.props || []).find(p => p.storyObjectId === def.id)?.sheet?.reference || def.reference || null,
-      multiplicity: def.occurrence.multiplicity, required: def.occurrence.required,
+      multiplicity: def.occurrence.multiplicity, required: def.occurrence.required, visibility: def.occurrence.visibility,
       instances: def.instances.filter(i => def.occurrence.instanceIds.includes(i.id)),
     });
   }

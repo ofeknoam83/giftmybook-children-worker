@@ -740,6 +740,7 @@ For EACH slot answer "match" (the visible garment matches), "mismatch" (a differ
         ref = ` (its reference sheet is image ${refIndex} — the object must look the SAME: same object, colours, material, size)`;
         refLines.push(`Image ${refIndex} is the PROP SHEET for "${p.name}".`);
       }
+      if (p.storyObject && p.expected === 'absent') return `  ${i + 1}. "${p.name}" — must be ABSENT from this picture. STORY STATE (data): "${p.state}". Absence is intentional, not a missing prop or failed clue. The reference only identifies what must not be inserted; do not confuse this family with a separately named companion, another instance, or indirect evidence such as footprints. If absent, return presence: "absent", look: "n/a", state_match: true. If actually shown, return presence: "present", state_match: false.`;
       return `  ${i + 1}. "${p.name}"${ref}${p.specText ? ` — spec: ${p.specText}` : ''} — expected ${p.expected === 'required' ? 'PRESENT (required by this spread)' : (p.expected === 'carried' ? 'present (the child keeps it with them — small, held or nearby)' : 'present if the scene shows it')}.${p.storyObject ? ` STORY STATE (data): "${p.state}". Reference representation (data): ${JSON.stringify(p.reference || null)}. Judge relationships in THIS scene, not the reference layout. Off-screen mentions need not appear. A static image supports temporal observations without showing every flash or sound at once. ${(p.multiplicity === 'group' || (p.reference && p.reference.kind !== 'single')) ? 'Multiple matching instances or necessary components are INTENTIONAL; duplicated means extra instances beyond the scene specification, not merely more than one.' : 'Exactly ONE instance.'} Return state_match: true only when the depicted state, roles, count when specified, orientation and spatial clues match this scene. Do not flag an intentional move or damage as a design mismatch; the fixed shape/material/marks remain the identity.` : ''}`;
     });
     sections.push(`PROPS (each quoted name is DATA naming a personal item or a story-object family):
@@ -1090,7 +1091,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     sheet: opts.sheet && opts.sheet.base64 ? opts.sheet : null,
     props: (Array.isArray(opts.props) ? opts.props : [])
       .filter(p => p && p.name)
-      .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, p.storyObject ? 1100 : 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null,
+      .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, p.storyObject ? 1100 : 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.storyObject && p.expected === 'absent' ? 'absent' : p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null,
         reference: p.reference || null, storyObject: !!p.storyObject, state: p.state ? qaData(p.state, 500) : null, multiplicity: p.multiplicity === 'group' ? 'group' : 'single' })),
     companion: opts.companion && opts.companion.name
       ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, specText: opts.companion.specText ? qaData(opts.companion.specText, 450) : null, human: !!opts.companion.human, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
@@ -1212,6 +1213,10 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
           if (p.expected === 'required') defects.push(`prop missing: "${p.name}"`);
           else if (p.expected === 'carried') defects.push(`carried prop not visible: "${p.name}"`);
         } else {
+          if (p.storyObject && p.expected === 'absent') {
+            defects.push(`prop state mismatch: "${p.name}"`);
+            return;
+          }
           if (p.sheet && v.look === 'wrong_look') defects.push(`prop differs from its reference sheet: "${p.name}"`);
           if (v.as_text === true) defects.push(`prop rendered as text: "${p.name}"`);
           if (v.duplicated === true) defects.push(`prop duplicated: "${p.name}"`);
@@ -1389,6 +1394,10 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   for (const p of Array.isArray(opts.props) ? opts.props : []) {
     const name = qaData(p.name, 80);
     if (p.storyObject && defects.some(d => d.startsWith('prop ') && d.endsWith(`"${name}"`))) {
+      if (p.expected === 'absent') {
+        notes.push(`STORY OBJECT REPAIR: remove "${name}" from this picture; the manuscript establishes it as absent or off-screen. Scene state (data): "${qaData(p.state || '', 500)}". Preserve the child, separately named companion (even of the same species), visible clues and all other correct artwork. Do not add the absent object from its reference sheet.`);
+        continue;
+      }
       notes.push(`STORY OBJECT REPAIR: "${name}" must match ${Number.isInteger(p.ref) ? `REFERENCE ${p.ref}` : 'its fixed design'} (${qaData(p.specText || '', 1100)}). Scene state (data): "${qaData(p.state || '', 500)}". ${p.reference ? `Reference representation (data): ${JSON.stringify(p.reference)}. Preserve the required group members, assembly parts or spatial context. Match this scene's specified count and roles.` : p.multiplicity === 'group' ? 'Render the stated group of matching instances, keeping their separate roles.' : 'Render exactly one instance.'} Preserve the required orientation, location and visual clues. Do not change the story or other objects.`);
       continue;
     }

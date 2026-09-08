@@ -59,6 +59,7 @@ const { readManifest, saveManifest, readReviewedRender } = require('./reviewedAr
 const { checkSavedText, recoverText } = require('./textRecovery');
 const { textVerificationCurrent, applyTextVerification, TEXT_MISMATCH } = require('../../shared/illustration/manuscript');
 const { objectsForSpread, designText, criticalObjectFailures } = require('./storyObjects');
+const { presenceHash, forbidden, resolveScenePresence } = require('./scenePresence');
 const { recoveryFor } = require('../../shared/llm/visualJudge');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -223,7 +224,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   if (reviewedOnly) {
     if (forceRerender) throw new Error('Reviewed rebuild cannot generate new artwork');
     const recheckSaved = buffer => checkSpreadRenderV2(buffer, { label: `reviewedRecovery:${bookId}:s${spread}`, expectedText: embedText ? spreadText : null, outfitSpec: bible?.outfit?.outfit || null });
-    const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, recheckSaved);
+    const reviewedObjects = objectsForSpread(bible.storyObjects, spread);
+    const staleObjectContract = marker => reviewedObjects.length > 0 && (marker.storyObjectHash !== bible.storyObjects.hash
+      || (marker.storyPresenceHash || null) !== presenceHash(bible.storyObjects, spread));
+    const saved = await readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, recheckSaved, staleObjectContract);
     let objectPixelsChanged = false;
     if (embedText && !textVerificationCurrent(saved.qa?.textVerification, spreadText)) {
       const check = automaticTextRecovery ? checkSavedText : (buffer, text, costs) => verifyImageText(buffer, text, undefined, costs);
@@ -263,20 +267,28 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       saved.marker = marker;
       await uploadBuffer(Buffer.from(JSON.stringify(marker)), `${saved.storageKey}.qa.json`, 'application/json').catch(err => log('warn', `Could not cache spelling check: ${err.message}`));
     }
-    const reviewedObjects = objectsForSpread(bible.storyObjects, spread);
-    if (reviewedObjects.length && (objectPixelsChanged || saved.marker.storyObjectHash !== bible.storyObjects.hash || !saved.qa?.verdict?.props || criticalObjectFailures([saved], bible.storyObjects).length)) {
+    if (reviewedObjects.length && (objectPixelsChanged || staleObjectContract(saved.marker)
+      || !saved.qa?.verdict?.props || criticalObjectFailures([saved], bible.storyObjects).length)) {
       const objectQa = await checkSpreadRenderV2(saved.buffer, {
         label: `reviewedObjects:${bookId}:s${spread}`, expectedText: embedText ? spreadText : null,
         recoveryRoot: retryUnresolved ? `children-jobs/${bookId}/visual-checks/spread-${spread}` : null, costTracker,
         props: reviewedObjects.map(def => ({ name: def.value, specText: designText(def), sheet: propSheetFor(bible, def.value),
           reference: propSheetFor(bible, def.value)?.reference || def.reference,
           storyObject: true, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity,
-          expected: def.occurrence.required ? 'required' : 'optional' })),
+          expected: forbidden(def.occurrence) ? 'absent' : def.occurrence.required ? 'required' : 'optional' })),
       });
-      saved.blocking = [...saved.blocking.filter(d => !d.startsWith('prop ')), ...(objectQa.blocking || []).filter(d => d.startsWith('prop '))];
-      saved.qa = { ...saved.qa, blocking: saved.blocking, verdict: { ...saved.qa?.verdict, props: objectQa.verdict?.props || [] }, qaUnavailable: objectQa.qaUnavailable || null, verification: objectQa.verification || null };
+      const objectNames = new Set(reviewedObjects.map(d => d.value.toLowerCase()));
+      const objectDefect = d => d.startsWith('prop ') && reviewedObjects.some(o => d.toLowerCase().endsWith(`"${o.value.toLowerCase()}"`));
+      const otherProps = (saved.qa?.verdict?.props || []).filter(p => !objectNames.has(String(p.name).toLowerCase()));
+      saved.blocking = [...saved.blocking.filter(d => !objectDefect(d)), ...(objectQa.blocking || []).filter(objectDefect)];
+      saved.propBoxes = [...(saved.propBoxes || []).filter(p => !objectNames.has(String(p.name).toLowerCase())), ...(objectQa.propBoxes || [])];
+      saved.qa = { ...saved.qa, blocking: saved.blocking,
+        defects: [...(saved.qa?.defects || []).filter(d => !objectDefect(d)), ...(objectQa.defects || []).filter(objectDefect)],
+        propBoxes: saved.propBoxes,
+        verdict: { ...saved.qa?.verdict, props: [...(objectQa.verdict?.props || []), ...otherProps] },
+        qaUnavailable: objectQa.qaUnavailable || null, verification: objectQa.verification || null };
       await uploadBuffer(Buffer.from(JSON.stringify({ ...saved.marker, renderHash: renderContentHash(saved.buffer),
-        storyObjectHash: bible.storyObjects.hash, qa: saved.qa, unresolved: saved.blocking.length > 0,
+        storyObjectHash: bible.storyObjects.hash, storyPresenceHash: presenceHash(bible.storyObjects, spread), qa: saved.qa, unresolved: saved.blocking.length > 0,
       })), `${saved.storageKey}.qa.json`, 'application/json');
     }
     saved.size = await imageDimensions(saved.buffer);
@@ -466,7 +478,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     sheet: sheetImage,
     props: [...sceneObjects.map(def => {
       const sheet = propSheetFor(bible, def.value);
-      return { name: def.value, specText: designText(def), sheet, expected: def.occurrence.required ? 'required' : 'optional',
+      return { name: def.value, specText: designText(def), sheet, expected: forbidden(def.occurrence) ? 'absent' : def.occurrence.required ? 'required' : 'optional',
         storyObject: true, critical: def.critical, reference: sheet?.reference || def.reference || null, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity };
     }), ...[...declaredProps, ...carriedProps].map(name => {
       const sheet = propSheetFor(bible, name); // normalized match (case/whitespace)
@@ -541,6 +553,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
         if (retryUnresolved && (!marker.qa?.verdict || marker.qa.qaUnavailable)) throw new Error('marker has no usable scene verdict');
         if (sceneObjects.length && marker.storyObjectHash !== bible.storyObjects.hash) throw new Error('marker predates this story-object contract');
+        if (sceneObjects.length && (marker.storyPresenceHash || null) !== presenceHash(bible.storyObjects, spread)) throw new Error('scene-presence requirements need rechecking on saved artwork');
         if (criticalObjectFailures([{ spread, qa: marker.qa }], bible.storyObjects).length) throw new Error('critical story-object QA needs rechecking');
         if (embedText && !textVerificationCurrent(marker.qa?.textVerification, spreadText)) {
           const verification = automaticTextRecovery ? await checkSavedText(cached, spreadText, costTracker) : await verifyImageText(cached, spreadText, undefined, costTracker);
@@ -819,6 +832,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           size,
           qaVersion: QA_VERSION,
           storyObjectHash: bible.storyObjects?.hash || null,
+          storyPresenceHash: presenceHash(bible.storyObjects, spread),
           qa: best.qa ? { defects: best.qa.defects, blocking: best.qa.blocking, advisory: best.qa.advisory, verdict: best.qa.verdict ? { props: best.qa.verdict.props || [] } : null, qaUnavailable: best.qa.qaUnavailable || null, bbox: best.qa.bbox || null, propBoxes: Array.isArray(best.qa.propBoxes) ? best.qa.propBoxes : [], companionBox: best.qa.companionBox || null, textInk: best.qa.textInk || null, templateConformance: best.qa.templateConformance || null, textVerification: best.qa.textVerification || null, score: best.score } : null,
           // Residual findings remain attached to the canonical best artwork,
           // including after automatic completion and subsequent cache replay.
@@ -1341,7 +1355,7 @@ async function renderStorySpreads(params) {
       storyObjects: reviewedManifest.bookBible?.storyObjects || null,
       props: await Promise.all((reviewedManifest.bookBible?.props || []).filter(p => p.value.startsWith('Story object: ')).map(async p => ({
         value: p.value,
-        sheet: await downloadBuffer(p.storageKey).then(bytes => ({ base64: bytes.toString('base64'), mimeType: 'image/png', specText: p.specText })).catch(() => null),
+        sheet: await downloadBuffer(p.storageKey).then(bytes => ({ base64: bytes.toString('base64'), mimeType: 'image/png', specText: p.specText, reference: p.reference || null })).catch(() => null),
       }))),
       outfit: reviewedManifest.bookBible?.outfitSpec
         ? { outfit: reviewedManifest.bookBible.outfitSpec.text, hash: reviewedManifest.bookBible.outfitSpec.hash } : null,
@@ -1351,6 +1365,9 @@ async function renderStorySpreads(params) {
       anchorUrl: characterRefUrl, refPhoto, childPhoto, characterDescription: characterDescription || null,
       costTracker, log,
     });
+    if (reviewedManifest && bible.storyObjects?.objects?.length) {
+      bible.storyObjects = await resolveScenePresence({ plan: bible.storyObjects, book, story, theme, bookId, costTracker, log });
+    }
   } finally {
     clearInterval(bibleHeartbeat);
   }
@@ -1662,7 +1679,7 @@ async function renderStorySpreads(params) {
       try { c.url = await getSignedUrl(c.storageKey, SIGNED_URL_TTL_MS); } catch { c.url = null; }
     }
   }
-  const bookBible = reviewedManifest ? reviewedManifest.bookBible : await summarizeBible(bible);
+  const bookBible = reviewedManifest ? { ...reviewedManifest.bookBible, storyObjects: bible.storyObjects } : await summarizeBible(bible);
   const objectFailures = criticalObjectFailures(results, bible.storyObjects);
   // Check the FINAL selected set after every repair, including cached/admin
   // picks. A repair attempt alone is not proof the family is now consistent.

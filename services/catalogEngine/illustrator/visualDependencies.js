@@ -2,7 +2,9 @@ const { digest } = require('../../shared/llm/visualJudge');
 function spreadDependencies(bible, spread) {
   const m = bible.manifest;
   if (!m) return bible.hash;
-  const objects = (bible.storyObjects?.objects || []).filter(d => d.occurrences.some(o => o.spread === spread));
+  // Presence corrections alter the checking contract, not the paid image's
+  // location. Markers track that contract separately and recheck these bytes.
+  const objects = (bible.storyObjects?.renderObjects || bible.storyObjects?.objects || []).filter(d => d.occurrences.some(o => o.spread === spread));
   const ids = new Set(objects.map(d => `Story object: ${d.name}`));
   return digest({ version: 1, style: m.styleVersion, anchor: m.anchorHash, child: m.characterSheet?.hash,
     outfit: m.outfitSpec, world: m.worldPlate, companion: m.companion,

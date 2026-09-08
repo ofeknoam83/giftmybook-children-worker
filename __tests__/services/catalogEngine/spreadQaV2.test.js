@@ -899,6 +899,23 @@ describe('qa-14 (ce-20): the WHOLE body is judged, not counted — a truncated b
 describe('story-object state and family QA', () => {
   const storyOpts = () => ({ props: [{ name: 'Story object: route marker', storyObject: true, state: 'The third marker leans in the grass; the other two stand upright.', multiplicity: 'group', expected: 'required', sheet: PROP, specText: 'Knee-high wood post with one orange stripe' }] });
   const objectVerdict = over => cleanVerdict({ props: [{ name: 'Story object: route marker', presence: 'present', look: 'match', duplicated: false, as_text: false, state_match: true, ...over }] });
+  test('an explicitly absent family passes only when absent; repair removes it without removing its companion', async () => {
+    const opts = storyOpts();
+    opts.props[0].expected = 'absent';
+    opts.props[0].state = 'No route marker is here; the companion waits beside its empty place.';
+    fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict({ presence: 'absent', look: 'n/a' })));
+    expect((await checkSpreadRenderV2(IMG, opts)).blocking).toEqual([]);
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls.at(-1)[1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('must be ABSENT');
+    expect(prompt).not.toContain('PRESENT (required by this spread)');
+    fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict({ state_match: true })));
+    const wrong = await checkSpreadRenderV2(IMG, opts);
+    expect(wrong.blocking).toContain('prop state mismatch: "Story object: route marker"');
+    const repair = repairNoteV2(wrong.defects, null, opts);
+    expect(repair).toContain('remove "Story object: route marker"');
+    expect(repair).toContain('separately named companion');
+    expect(repair).not.toContain('Render the stated group');
+  });
   test('intentional groups pass; a wrong story state is blocking and gets a state-aware repair', async () => {
     fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict({})));
     const clean = await checkSpreadRenderV2(IMG, storyOpts());

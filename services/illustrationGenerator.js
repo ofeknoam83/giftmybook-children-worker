@@ -1099,6 +1099,10 @@ function renderBibleBlocks(bible, ctx = {}) {
       const ref = Number.isInteger(p.ref) ? ` — see REFERENCE ${p.ref}` : '';
       const spec = p.specText ? ` ${p.specText}` : '';
       if (p.storyObject) {
+        if (['absent', 'off_screen'].includes(p.visibility)) {
+          lines.push(`- "${p.name}": ABSENT FROM THIS PICTURE (${p.visibility}). THIS SCENE (data): ${p.state}. Its mention or importance is not a request to draw it. Do not insert the family from its reference sheet. Keep any separately named companion and other visible clues; a companion of the same species is a distinct subject.`);
+          continue;
+        }
         if (p.reference) {
           lines.push(`- "${p.name}"${ref}: FIXED DESIGN (data):${spec} REFERENCE REPRESENTATION (data): ${JSON.stringify(p.reference)}. THIS SCENE (data): ${p.state}. Instances (data): ${JSON.stringify(p.instances || [])}. A group has multiple intentional members; an assembly includes its parts; a scene reference supplies spatial relationships. Preserve recognizable identity without copying the reference's layout into this scene. Honor only specified counts. Reflections are not additional physical objects. Depict one natural moment of a temporal sequence. ${p.required ? 'The visual clue must be understandable.' : 'Off-screen mentions need not be drawn.'} Keep composition beautiful and clear, with expressive characters and natural lighting. Never add lettering or unrelated objects.`);
           continue;
