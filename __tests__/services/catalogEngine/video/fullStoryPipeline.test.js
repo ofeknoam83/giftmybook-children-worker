@@ -156,6 +156,19 @@ test('unavailable scene QA blocks animation even when the book has no critical s
   expect(renderChunk).not.toHaveBeenCalled();
 });
 
+test('a blocked scene check reports the unavailable verdict once without claiming every object is defective', async () => {
+  const art = sceneArt();
+  art.results[0].qa = { verdict: null, qaUnavailable: 'Verifier blocked the request: PROHIBITED_CONTENT',
+    verification: { status: 'provider_blocked', reason: 'Verifier blocked the request: PROHIBITED_CONTENT' } };
+  art.unresolved = [{ spread: 1, defects: ['Critical story-object QA unavailable', 'Critical story object unverified: echo bells', 'Critical story object unverified: hollow log'] }];
+  renderStorySpreads.mockResolvedValue(art);
+  const err = await generateFullStoryFilm(embeddedInput()).catch(e => e);
+  expect(err.recovery).toMatchObject({ retryable: false, nextAction: 'review_provider_block' });
+  expect(err.details.unresolved[0].defects).toEqual(['scene verification unavailable: Verifier blocked the request: PROHIBITED_CONTENT']);
+  expect(err.message).toContain('unchanged retry cannot clear a provider block');
+  expect(generateCandidates).not.toHaveBeenCalled();
+});
+
 test.each([
   [{ pass: true, unavailable: 'HTTP 503' }, 'text verification unavailable: HTTP 503'],
   [{ pass: false, transcript: 'Hello' }, 'painted text remains: Hello'],

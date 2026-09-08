@@ -80,7 +80,7 @@ const { getEmotionPlan } = require('../../../services/catalogEngine/illustrator/
 const { checkSpreadRenderV2 } = require('../../../services/catalogEngine/illustrator/spreadQa');
 const { inkSetOutliers } = require('../../../services/catalogEngine/illustrator/metrics');
 const { checkCharacterContactSheet, checkPropContactSheet, checkCompanionContactSheet } = require('../../../services/catalogEngine/illustrator/contactSheet');
-const { renderStorySpreads, illustrateStory, verifyCriticalObjectSet } = require('../../../services/catalogEngine/illustrator');
+const { renderStorySpreads, illustrateStory, verifyCriticalObjectSet, recoverCriticalObjectSet } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
 const { QA_VERSION } = require('../../../services/catalogEngine/versions');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
@@ -911,6 +911,79 @@ describe('recurring story objects across the production render path', () => {
     const result = await renderStorySpreads(baseParams());
     expect(result.objectFailures).toEqual(expect.arrayContaining([expect.objectContaining({ defects: ['Critical object set unverified: route marker'] })]));
     checkPropContactSheet.mockResolvedValue({ pass: true, flagged: [], checked: 2 });
+  });
+
+  test('video recovery repairs a final-only critical-object defect into an isolated scene key and rechecks the set', async () => {
+    let finalChecks = 0;
+    checkPropContactSheet.mockImplementation(async ({ label }) => {
+      if (label.startsWith('criticalObjectSet:') && ++finalChecks === 1) return { pass: false, checked: 2, flagged: [{ spread: 1 }] };
+      return { pass: true, checked: 2, flagged: [] };
+    });
+    const result = await renderStorySpreads(baseParams({ retryUnresolved: true }));
+    expect(finalChecks).toBe(2);
+    expect(result.unresolved).toEqual([]);
+    expect(result.objectFailures).toEqual([]);
+    expect(generateIllustration).toHaveBeenCalledTimes(3);
+    const repair = generateIllustration.mock.calls[2];
+    expect(repair[0]).toContain('CRITICAL OBJECT REPAIR');
+    expect(repair[0]).toContain('route marker');
+    expect(repair[3].gcsPath).toContain('-ocr-1-');
+    expect(result.results[0].storageKey).toContain('-ocr-1-');
+    expect(result.results[1].storageKey).not.toContain('-ocr-1-');
+  });
+
+  const recoveryFixture = () => {
+    const results = [1, 3].map(spread => ({ spread, buffer: Buffer.from(`original-${spread}`), storageKey: `original-${spread}.png`,
+      fresh: false, qa: markerQa(), blocking: [], advisories: [], candidateFiles: [] }));
+    const bible = { storyObjects: markerPlan(), props: [{ value: 'Story object: route marker', sheet: PROP_SHEET }] };
+    const rerender = jest.fn(async spread => ({ ...results.find(r => r.spread === spread), buffer: Buffer.from(`repaired-${spread}`), storageKey: `isolated-${spread}.png`, fresh: true }));
+    return { results, bible, rerender, repair: true };
+  };
+  test('cached scenes with confirmed drift can be repaired and must pass a fresh final check', async () => {
+    const p = recoveryFixture();
+    checkPropContactSheet.mockResolvedValueOnce({ pass: false, checked: 2, flagged: [{ spread: 3 }] })
+      .mockResolvedValue({ pass: true, checked: 2, flagged: [] });
+    expect(await recoverCriticalObjectSet(p)).toEqual([]);
+    expect(p.rerender).toHaveBeenCalledTimes(1);
+    expect(p.rerender.mock.calls[0][0]).toBe(3);
+    expect(p.results[0].buffer.toString()).toBe('original-1');
+    expect(p.results[1].buffer.toString()).toBe('repaired-3');
+    expect(checkPropContactSheet).toHaveBeenCalledTimes(2);
+    expect(checkPropContactSheet.mock.calls[1][0].tiles[1].buffer.toString()).toBe('repaired-3');
+  });
+  test('a failed repair recheck stays unresolved without another repair loop', async () => {
+    const p = recoveryFixture();
+    checkPropContactSheet.mockResolvedValue({ pass: false, checked: 2, flagged: [{ spread: 3 }] });
+    expect(await recoverCriticalObjectSet(p)).toEqual([expect.objectContaining({ spread: 3, defects: ['Critical object changes across spreads: route marker'] })]);
+    expect(p.rerender).toHaveBeenCalledTimes(1);
+    checkPropContactSheet.mockResolvedValue({ pass: true, checked: 2, flagged: [] });
+  });
+  test('a blocked set check cannot trigger new images or a different verifier', async () => {
+    const p = recoveryFixture();
+    checkPropContactSheet.mockResolvedValue({ qaUnavailable: 'PROHIBITED_CONTENT', verification: { status: 'provider_blocked', reason: 'PROHIBITED_CONTENT' } });
+    const failures = await recoverCriticalObjectSet(p);
+    expect(failures).toHaveLength(2);
+    expect(failures[0].verification.status).toBe('provider_blocked');
+    expect(p.rerender).not.toHaveBeenCalled();
+    checkPropContactSheet.mockResolvedValue({ pass: true, checked: 2, flagged: [] });
+  });
+  test('an unverified repair keeps the original pixels and the unresolved drift finding', async () => {
+    const p = recoveryFixture();
+    p.rerender.mockResolvedValue({ ...p.results[1], buffer: Buffer.from('unchecked'), qa: { qaUnavailable: 'HTTP 503' } });
+    checkPropContactSheet.mockResolvedValue({ pass: false, checked: 2, flagged: [{ spread: 3 }] });
+    expect(await recoverCriticalObjectSet(p)).toHaveLength(1);
+    expect(p.results[1].buffer.toString()).toBe('original-3');
+    expect(checkPropContactSheet).toHaveBeenCalledTimes(1);
+    checkPropContactSheet.mockResolvedValue({ pass: true, checked: 2, flagged: [] });
+  });
+  test('the final repair pass respects its spread budget and retains remaining failures', async () => {
+    process.env.CATALOG_CONTACT_MAX_RERENDERS = '1';
+    const p = recoveryFixture();
+    checkPropContactSheet.mockResolvedValue({ pass: false, checked: 2, flagged: [{ spread: 3 }, { spread: 1 }] });
+    expect(await recoverCriticalObjectSet(p)).toHaveLength(2);
+    expect(p.rerender).toHaveBeenCalledTimes(1);
+    expect(p.rerender.mock.calls[0][0]).toBe(1);
+    checkPropContactSheet.mockResolvedValue({ pass: true, checked: 2, flagged: [] });
   });
 });
 

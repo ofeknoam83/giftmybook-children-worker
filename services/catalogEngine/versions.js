@@ -339,6 +339,8 @@ const VIDEO_VERSION = 'gv-2';
 const FULL_STORY_VIDEO_VERSION = 'gfs-1';
 /** Video-only prop filtering; keep existing artwork, speech and unaffected clips. */
 const FILM_REFERENCE_VERSION = 'gfr-1';
+/** Isolated critical-object set repairs during scene recovery. */
+const OBJECT_SET_REPAIR_VERSION = 'ocr-1';
 
 /**
  * Coloring-book version (cb-1 — docs/COLORING_BOOK_V2_PLAN.md §5.4) — owns
@@ -390,6 +392,7 @@ module.exports = {
   VIDEO_VERSION,
   FULL_STORY_VIDEO_VERSION,
   FILM_REFERENCE_VERSION,
+  OBJECT_SET_REPAIR_VERSION,
   COLORING_VERSION,
   COLORING_QA_VERSION,
   AUDIO_VERSION,

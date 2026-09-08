@@ -38,15 +38,22 @@ function sceneFailure(unresolved, bookBible = null, results = []) {
   const scenes = unresolved.map(u => {
     const result = results.find(r => r.spread === u.spread);
     const qaUnavailable = u.qaUnavailable || u.verification?.reason || result?.qa?.qaUnavailable || result?.recovery?.issues?.[0]?.reason || (result?.buffer && !result.qa?.verdict ? 'no usable scene verdict' : null);
-    const defects = [...new Set([...(u.defects || []), ...(qaUnavailable ? [`scene verification unavailable: ${qaUnavailable}`] : [])])];
+    // Missing judgments are one unavailable check, not a separate defect for
+    // every object. Preserve actual observed defects alongside that reason.
+    const findings = qaUnavailable ? (u.defects || []).filter(d => d !== 'Critical story-object QA unavailable' && !d.startsWith('Critical story object unverified:')) : (u.defects || []);
+    const defects = [...new Set([...findings, ...(qaUnavailable ? [`scene verification unavailable: ${qaUnavailable}`] : [])])];
     return { ...u, kind: 'scene', storageKey: u.storageKey || result?.storageKey || null,
       verification: u.verification || result?.qa?.verification || (result?.recovery ? { ...result.recovery.issues?.[0], exhausted: !result.recovery.retryable } : null),
       qaUnavailable, defects: defects.length ? defects : ['scene verification failed'] };
   });
   const summary = scenes.map(u => `Spread ${u.spread}: ${u.defects.join('; ')}`).join(' | ');
-  const err = filmError(`Text-free scenes could not be approved. ${summary}. Retry video rechecks failed scenes; approved audio and clean scenes are kept.`, 'film_scene_unresolved');
   const outcomes = scenes.filter(s => s.qaUnavailable).map(s => s.verification || { status: 'malformed', reason: s.qaUnavailable, exhausted: true });
   const recovery = outcomes.length ? recoveryFor(outcomes) : { version: 1, status: 'needs_review', reason: 'confirmed_defect', stage: 'scene_verification', retryable: false, nextAction: 'repair_scene', issues: [] };
+  const nextStep = recovery.reason === 'provider_blocked'
+    ? 'Inspect the saved blocked verification requests; an unchanged retry cannot clear a provider block.'
+    : recovery.retryable ? 'Saved scene work can resume automatically when its retry is due.'
+      : 'Review the remaining findings; retry resumes saved scenes and their bounded repair budget.';
+  const err = filmError(`Text-free scenes could not be approved. ${summary}. ${nextStep} Approved audio and clean scenes are kept.`, 'film_scene_unresolved');
   err.recovery = recovery;
   err.details = { unresolved: scenes, recovery, ...(bookBible ? { bookBible } : {}) };
   return err;
