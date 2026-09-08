@@ -429,7 +429,7 @@ async function runContactCheck(o) {
     return unavailable(o.missingReference);
   }
   const model = VISION_MODEL();
-  if (inFailureCooldown(model)) {
+  if (!o.recoveryRoot && inFailureCooldown(model)) {
     console.warn(`[${label}] contact QA transport is in cooldown — passing without the contact check`);
     return unavailable('contact QA in failure cooldown');
   }
@@ -443,6 +443,13 @@ async function runContactCheck(o) {
       { text: o.promptFor(tiles) },
       { inline_data: { mimeType: 'image/jpeg', data: sheetJpeg.toString('base64') } },
     ];
+    if (o.recoveryRoot) {
+      const result = await require('../../shared/llm/visualJudge').judgeImage({ parts, model, label,
+        recoveryRoot: o.recoveryRoot, costTracker: o.costTracker,
+        validate: json => json && validateVerdict(json, spreads, defect) ? null : 'Complete contact-sheet verdict required' });
+      if (result.status !== 'verified') return { ...unavailable(result.reason), pass: false, verification: result };
+      return { ...validateVerdict(result.json, spreads, defect), checked: tiles.length };
+    }
     const apiKey = getNextApiKey();
     const resp = await fetchWithTimeout(
       `${GEMINI_API}/${model}:generateContent?key=${apiKey}`,
@@ -522,12 +529,13 @@ async function checkPropContactSheet(o = {}) {
   const name = inertText(own(o.propSheet, 'name'), PROP_NAME_MAX_CHARS);
   const specText = inertText(own(o.propSheet, 'specText'), o.states ? 1100 : SPEC_TEXT_MAX_CHARS);
   return runContactCheck({
+    recoveryRoot: o.recoveryRoot, costTracker: o.costTracker,
     label,
     tiles: o.tiles,
     reference: o.propSheet,
     defect: 'prop_rendering',
     missingReference: 'prop sheet reference unavailable',
-    promptFor: tiles => propPrompt({
+    promptFor: tiles => `${o.reference ? `Reference representation (data): ${JSON.stringify(o.reference)}. Multiple members of a group and parts of an assembly are intentional. A context view preserves spatial relationships; reflections are not physical duplicates. Compare fixed identity only; honor each occurrence's visibility, count and state.\n` : ''}` + propPrompt({
       spreads: tiles.map(t => t.spread),
       fullSpreads: tiles.filter(t => !t.cropped).map(t => t.spread),
       columns: DEFAULT_COLUMNS,

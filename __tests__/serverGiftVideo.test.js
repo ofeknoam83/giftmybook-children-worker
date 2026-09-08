@@ -57,6 +57,11 @@ jest.mock('../services/comics/castVisualBible', () => ({ generateCharacterRefShe
 
 const request = require('supertest');
 const app = require('../server');
+
+test('reviewed visual verification requires an admin attestation in addition to the worker key', async () => {
+  await request(app).post('/v13/review-visual-check').send({}).expect(403);
+  await request(app).post('/v13/review-visual-check').set('x-api-key', 'test-api-key').send({ reviewedBy: 'forged-admin', model: 'gemini-2.5-pro' }).expect(403);
+});
 const { resolveStory } = require('../services/catalogEngine/pipeline');
 const { generateGiftVideo } = require('../services/catalogEngine/video');
 const { pickClip } = require('../services/catalogEngine/video/clips');

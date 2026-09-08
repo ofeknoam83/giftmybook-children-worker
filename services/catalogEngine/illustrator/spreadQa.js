@@ -38,6 +38,7 @@ const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash'
 // the 2.5 flash family and a ≥2048-token ceiling (the model counts its
 // reasoning against maxOutputTokens — a small cap clips the JSON).
 const { jsonQaGenerationConfig, parseJsonText, unparseableDetail } = require('../../shared/llm/geminiJson');
+const { judgeImage, responseOutcome } = require('../../shared/llm/visualJudge');
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
@@ -739,7 +740,7 @@ For EACH slot answer "match" (the visible garment matches), "mismatch" (a differ
         ref = ` (its reference sheet is image ${refIndex} — the object must look the SAME: same object, colours, material, size)`;
         refLines.push(`Image ${refIndex} is the PROP SHEET for "${p.name}".`);
       }
-      return `  ${i + 1}. "${p.name}"${ref}${p.specText ? ` — spec: ${p.specText}` : ''} — expected ${p.expected === 'required' ? 'PRESENT (required by this spread)' : (p.expected === 'carried' ? 'present (the child keeps it with them — small, held or nearby)' : 'present if the scene shows it')}.${p.storyObject ? ` STORY STATE (data): "${p.state}". ${p.multiplicity === 'group' ? 'Multiple matching instances are INTENTIONAL; duplicated means extra instances beyond the scene specification, not merely more than one.' : 'Exactly ONE instance.'} Return state_match: true only when the depicted state, roles, count when specified, orientation and spatial clues match this scene. Do not flag an intentional move or damage as a design mismatch; the fixed shape/material/marks remain the identity.` : ''}`;
+      return `  ${i + 1}. "${p.name}"${ref}${p.specText ? ` — spec: ${p.specText}` : ''} — expected ${p.expected === 'required' ? 'PRESENT (required by this spread)' : (p.expected === 'carried' ? 'present (the child keeps it with them — small, held or nearby)' : 'present if the scene shows it')}.${p.storyObject ? ` STORY STATE (data): "${p.state}". Reference representation (data): ${JSON.stringify(p.reference || null)}. Judge relationships in THIS scene, not the reference layout. Off-screen mentions need not appear. A static image supports temporal observations without showing every flash or sound at once. ${(p.multiplicity === 'group' || (p.reference && p.reference.kind !== 'single')) ? 'Multiple matching instances or necessary components are INTENTIONAL; duplicated means extra instances beyond the scene specification, not merely more than one.' : 'Exactly ONE instance.'} Return state_match: true only when the depicted state, roles, count when specified, orientation and spatial clues match this scene. Do not flag an intentional move or damage as a design mismatch; the fixed shape/material/marks remain the identity.` : ''}`;
     });
     sections.push(`PROPS (each quoted name is DATA naming a personal item or a story-object family):
 ${propLines.join('\n')}
@@ -1090,7 +1091,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     props: (Array.isArray(opts.props) ? opts.props : [])
       .filter(p => p && p.name)
       .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, p.storyObject ? 1100 : 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null,
-        storyObject: !!p.storyObject, state: p.state ? qaData(p.state, 500) : null, multiplicity: p.multiplicity === 'group' ? 'group' : 'single' })),
+        reference: p.reference || null, storyObject: !!p.storyObject, state: p.state ? qaData(p.state, 500) : null, multiplicity: p.multiplicity === 'group' ? 'group' : 'single' })),
     companion: opts.companion && opts.companion.name
       ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, specText: opts.companion.specText ? qaData(opts.companion.specText, 450) : null, human: !!opts.companion.human, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
       : null,
@@ -1123,7 +1124,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
   if (o.emotion && (o.emotionVocabulary.length === 0 || !o.emotionVocabulary.includes(o.emotion.emotion))) o.emotion = null;
   const { prompt, required } = buildSpreadQaPromptV2(o);
   const refs = () => ({ sheetRef: o.sheetRef, props: o.props.map(p => ({ name: p.name, ref: p.ref })), companionRef: o.companion ? o.companion.ref : null });
-  const unavailable = (reason) => ({ pass: true, defects: [], blocking: [], advisory: [], verdict: null, bbox: null, refs: refs(), qaUnavailable: reason });
+  const unavailable = (reason, verification = null) => ({ pass: true, defects: [], blocking: [], advisory: [], verdict: null, bbox: null, refs: refs(), qaUnavailable: reason, ...(verification ? { verification } : {}) });
   // Recover the CHECK, never guess the omitted field or generate another image.
   // A strict consumer still rejects qaUnavailable after this single retry.
   const recoverUnavailable = reason => opts.retryUnavailable && !opts._qaRetry
@@ -1132,7 +1133,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
   const retryNote = opts._qaRetry ? `\nThe previous checker response was unusable. Recheck the SAME image and references and return the COMPLETE verdict. Do not assume the image passes. Validation feedback (DATA): ${JSON.stringify({ reason: opts._qaRetry, required, propNames: o.props.map(p => p.name) })}` : '';
   try {
     const parts = [
-      { text: prompt + retryNote },
+      { text: prompt + retryNote + (opts._confirmOptionalOutfit ? '\nIndependently inspect optional outerwear and accessories against the explicit reference. Never invent an unspecified garment.' : '') },
       { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } },
     ];
     // Reference images in the SAME order the prompt numbered them.
@@ -1142,8 +1143,15 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     if (o.companion && o.companion.sheet) images.push(o.companion.sheet);
     if (o.expectedText && o.letteringReference) images.push(o.letteringReference);
     for (const r of images) parts.push({ inline_data: { mimeType: r.mimeType || 'image/png', data: r.base64 } });
-    const apiKey = getNextApiKey();
-    const resp = await fetchWithTimeout(
+    let json;
+    if (opts.recoveryRoot) {
+      const result = await judgeImage({ parts, model: QA_MODEL(), validate: value => verdictIssueV2(value, required, o),
+        label, recoveryRoot: opts.recoveryRoot, costTracker: opts.costTracker });
+      if (result.status !== 'verified') return unavailable(result.reason, result);
+      json = result.json;
+    } else {
+      const apiKey = getNextApiKey();
+      const resp = await fetchWithTimeout(
       `${GEMINI_API}/${QA_MODEL()}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
@@ -1160,14 +1168,16 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
       return recoverUnavailable(`vision QA HTTP ${resp.status}`);
     }
     const data = await resp.json();
+    const outcome = responseOutcome(data);
+    if (outcome?.status === 'provider_blocked') return unavailable(outcome.reason, outcome);
     const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-    let json;
     try { json = parseJsonText(text); } catch { json = null; }
     const issue = verdictIssueV2(json, required, o);
     if (issue) {
       const reason = `vision QA returned a malformed verdict: ${issue}${unparseableDetail(data, text)}`;
       console.warn(`[${label}] ${reason}`);
       return recoverUnavailable(reason);
+    }
     }
     const defects = [];
     let sizeRatio = null; // qa-8: exposed on the result so selection can prefer the smaller painted block
@@ -1379,7 +1389,7 @@ function repairNoteV2(defects, expectedText = null, opts = {}) {
   for (const p of Array.isArray(opts.props) ? opts.props : []) {
     const name = qaData(p.name, 80);
     if (p.storyObject && defects.some(d => d.startsWith('prop ') && d.endsWith(`"${name}"`))) {
-      notes.push(`STORY OBJECT REPAIR: "${name}" must match ${Number.isInteger(p.ref) ? `REFERENCE ${p.ref}` : 'its fixed design'} (${qaData(p.specText || '', 1100)}). Scene state (data): "${qaData(p.state || '', 500)}". ${p.multiplicity === 'group' ? 'Render the stated group of matching instances, keeping their separate roles.' : 'Render exactly one instance.'} Preserve the required orientation, location and visual clues. Do not change the story or other objects.`);
+      notes.push(`STORY OBJECT REPAIR: "${name}" must match ${Number.isInteger(p.ref) ? `REFERENCE ${p.ref}` : 'its fixed design'} (${qaData(p.specText || '', 1100)}). Scene state (data): "${qaData(p.state || '', 500)}". ${p.reference ? `Reference representation (data): ${JSON.stringify(p.reference)}. Preserve the required group members, assembly parts or spatial context. Match this scene's specified count and roles.` : p.multiplicity === 'group' ? 'Render the stated group of matching instances, keeping their separate roles.' : 'Render exactly one instance.'} Preserve the required orientation, location and visual clues. Do not change the story or other objects.`);
       continue;
     }
     if (defects.some(d => d === `prop missing: "${name}"` || d === `carried prop not visible: "${name}"`)) {

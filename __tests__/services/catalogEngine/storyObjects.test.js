@@ -72,7 +72,7 @@ test('extracts once, persists, and replays the same frozen design without a mode
   expect(costTracker.addTextUsage).toHaveBeenCalledWith(expect.any(String), 100, 200);
   const body = JSON.parse(fetchWithTimeout.mock.calls[0][1].body);
   expect(body.contents[0].parts[0].text).toContain(texts[3]);
-  expect(body.contents[0].parts[0].text).toContain('plot-critical object');
+  expect(body.contents[0].parts[0].text).toContain('plot-critical visual entity');
 });
 
 test('changed manuscript rekeys extraction while the authored design remains fixed', async () => {
