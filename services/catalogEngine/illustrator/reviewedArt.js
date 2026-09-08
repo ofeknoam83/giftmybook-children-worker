@@ -39,7 +39,7 @@ async function saveManifest(bookId, context, results, metadata) {
   })), manifestPath(bookId), 'application/json');
 }
 
-async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, recheck) {
+async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, recheck, recheckObjectContract = () => false) {
   let buffer;
   try { buffer = await downloadBuffer(storageKey); }
   catch (err) {
@@ -61,7 +61,9 @@ async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, 
   }
   if (marker.renderHash !== fnv1a(buffer.toString('base64')).toString(36)) throw new Error('marker does not match the saved artwork');
   if (marker.qaVersion !== QA_VERSION) throw new Error(`marker predates ${QA_VERSION}`);
-  if (marker.unresolved && !flags.shipOnExhaustion()) throw new Error('saved artwork still has unresolved blocking defects');
+  // A stale object requirement may be the reason this saved image failed.
+  // The caller must recheck it, retaining all unrelated blocking findings.
+  if (marker.unresolved && !flags.shipOnExhaustion() && !recheckObjectContract(marker)) throw new Error('saved artwork still has unresolved blocking defects');
   const blocking = marker.unresolved
     ? (Array.isArray(marker.qa?.blocking) && marker.qa.blocking.length ? marker.qa.blocking : ['saved artwork has unresolved QA findings'])
     : [];

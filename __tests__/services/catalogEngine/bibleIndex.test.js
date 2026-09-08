@@ -2,6 +2,10 @@ jest.mock('../../../services/catalogEngine/illustrator/storyObjects', () => ({
   ...jest.requireActual('../../../services/catalogEngine/illustrator/storyObjects'),
   resolveStoryObjects: jest.fn().mockResolvedValue({ objects: [], hash: 'empty', version: 'so-1' }),
 }));
+jest.mock('../../../services/catalogEngine/illustrator/scenePresence', () => ({
+  ...jest.requireActual('../../../services/catalogEngine/illustrator/scenePresence'),
+  resolveScenePresence: jest.fn(async ({ plan }) => plan),
+}));
 /**
  * The Book Bible render path (ce-9) end to end, with the bible modules
  * mocked: the reference pack and prompt blocks reach every render, N
@@ -726,6 +730,69 @@ describe('recurring story objects across the production render path', () => {
     const results = [{ spread: 1, buffer: Buffer.from('one'), qa: markerQa() }, { spread: 3, buffer: Buffer.from('three'), qa: markerQa({ presence: 'absent' }) }];
     expect(await verifyCriticalObjectSet(results, { storyObjects: plan })).toEqual([]);
     expect(checkPropContactSheet).not.toHaveBeenCalled();
+  });
+  test.each([false, true])('corrected presence rechecks pixels, clears the false blocker and reuses the verdict (reviewedOnly=%s)', async reviewedOnly => {
+    const { resolveScenePresence } = require('../../../services/catalogEngine/illustrator/scenePresence');
+    const p = baseParams({ recordRenderManifest: true });
+    p.bookDef = { ...p.bookDef, book: { ...p.bookDef.book, beats: p.bookDef.book.beats.filter(b => [1, 3].includes(b.spread)) } };
+    const files = new Map();
+    const originalDownload = downloadBuffer.getMockImplementation();
+    downloadBuffer.mockImplementation(async key => files.has(key) ? files.get(key) : originalDownload(key));
+    uploadBuffer.mockImplementation(async (buffer, key) => { files.set(key, buffer); });
+    const first = await renderStorySpreads(p);
+    const firstArt = first.results.map(r => r.storageKey);
+    for (const result of first.results) {
+      const key = result.storageKey;
+      // The render stub returns pixels when downloaded rather than storing
+      // them; retain those exact bytes for the next dispatch.
+      files.set(key, result.buffer);
+      const marker = JSON.parse(files.get(`${key}.qa.json`));
+      marker.qa.blocking = ['prop missing: "Story object: route marker"'];
+      marker.unresolved = true;
+      files.set(`${key}.qa.json`, Buffer.from(JSON.stringify(marker)));
+    }
+    const corrected = markerPlan();
+    corrected.renderObjects = corrected.objects;
+    corrected.objects = corrected.objects.map(d => ({ ...d, occurrences: d.occurrences.map(o => ({ ...o, required: false, visibility: 'absent', state: 'No marker is here.' })) }));
+    corrected.scenePresence = { version: 'scene-presence-1', spreadHashes: { 1: 'absent-1', 3: 'absent-3' } };
+    resolveScenePresence.mockResolvedValueOnce(corrected).mockResolvedValueOnce(corrected);
+    generateIllustration.mockClear(); checkSpreadRenderV2.mockClear(); checkPropContactSheet.mockClear();
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ presence: 'absent', look: 'n/a' }));
+    const result = await renderStorySpreads({ ...p, reviewedOnly });
+    expect(result.results.map(r => r.storageKey)).toEqual(firstArt);
+    expect(result.objectFailures).toEqual([]);
+    expect(result.unresolved).toEqual([]);
+    expect(generateIllustration).not.toHaveBeenCalled();
+    expect(checkSpreadRenderV2).toHaveBeenCalledTimes(2);
+    expect(checkSpreadRenderV2.mock.calls.every(c => c[1].props[0].expected === 'absent')).toBe(true);
+    expect(checkPropContactSheet).not.toHaveBeenCalled();
+    await renderStorySpreads({ ...p, reviewedOnly });
+    expect(checkSpreadRenderV2).toHaveBeenCalledTimes(2);
+    expect(generateIllustration).not.toHaveBeenCalled();
+    if (reviewedOnly) {
+      const key = `${firstArt[0]}.qa.json`;
+      const saved = JSON.parse(files.get(key));
+      delete saved.storyPresenceHash;
+      saved.unresolved = true;
+      const other = 'prop missing: "teddy bear"';
+      saved.qa.blocking = [other]; saved.qa.defects = [other];
+      const personal = { name: 'teddy bear', presence: 'absent', look: 'n/a', duplicated: false, as_text: false };
+      saved.qa.verdict.props.push(personal);
+      files.set(key, Buffer.from(JSON.stringify(saved)));
+      resolveScenePresence.mockResolvedValueOnce(corrected);
+      const stillBlocked = await renderStorySpreads({ ...p, reviewedOnly });
+      expect(stillBlocked.unresolved[0].defects).toContain(other);
+      expect(stillBlocked.results[0].qa.verdict.props).toContainEqual(personal);
+      expect(stillBlocked.results[0].qa.defects).toContain(other);
+      expect(generateIllustration).not.toHaveBeenCalled();
+    }
+  });
+  test('unavailable presence verification retains its retryable recovery before any spread generation', async () => {
+    const { resolveScenePresence } = require('../../../services/catalogEngine/illustrator/scenePresence');
+    const error = require('../../../services/catalogEngine/illustrator/referenceContract').pending('Presence check unavailable', { status: 'transient', reason: 'Verifier unavailable' }, 'story_object_presence');
+    resolveScenePresence.mockRejectedValueOnce(error);
+    await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'visual_recovery_pending', recovery: { stage: 'story_object_presence', retryable: true } });
+    expect(generateIllustration).not.toHaveBeenCalled();
   });
   test('both object contact checks retain the full group scene and typed reference', async () => {
     const reference = { kind: 'group', subject: 'object', description: 'A coherent line of matching markers' };

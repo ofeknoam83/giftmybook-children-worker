@@ -52,6 +52,16 @@ No production configuration, deployment, private evidence transfer or paid gener
 
 Before broad rollout, run a controlled visual pilot on firefly book `31f8bad7-e559-4a7e-8e45-9d936d020390`, marker book `6979a16e-d8c9-42af-a09e-f8874c3f7e97`, and representative singles/groups/assemblies/reflections across ages and languages. Review identity, story comprehension, anatomy and visual appeal; compare completion, review rate, cost and time. Structural catalog tests cover 228 definitions across 12 themes, but cannot establish the beauty or correctness of newly generated images. Unresolved checks remain review tasks and are not counted as successful completion.
 
+## Scene presence and negated mentions
+
+The shared children's illustration pipeline now checks occurrence visibility against the complete final manuscript, independently of the elected design plan. It distinguishes `visible`, `absent`, `off_screen`, and `optional`. Explicit absence is a scene requirement: “No meerkat group” must not trigger a missing-group repair, while an empty nesting box can still be a required visible box. Heard, recalled, imagined and concealed subjects are interpreted in context; partial visibility, viewpoint and mixed instance states remain part of the scene contract. A named companion stays distinct from a family of the same species.
+
+This text-only check uses the existing Gemini QA model and durable verifier. It runs for new plans and cached plans, including reviewed-art rebuilds and text-free film scene preparation. A successful result is reused; malformed or interrupted responses have a saved two-attempt budget. A provider block or unavailable check retains the manuscript/artwork through typed recovery rather than becoming a visual defect or buying new images. No child/reference image is sent by this new planning check.
+
+Original definitions, reference sheets and render namespaces remain fixed. The corrected plan retains `renderObjects` for existing image locations; each spread's `storyPresenceHash` in its QA marker records the independently checked scene contract. Missing or changed hashes trigger a check of existing pixels before any image repair. Prompts, spread QA, final critical-object checks and contact sheets all use the corrected occurrence states. Absent/off-screen families are not inserted from reference sheets; unexpectedly visible families require removal. Unrelated personal-prop and other quality findings remain blocking during an object-only recheck.
+
+The correction is worker-only, requires no database migration or new configuration, and is not an automatic regeneration of existing books. After deployment, resume saved work on `671aec39-cb8d-4d5c-9b7d-66067750ef11` to validate the existing spread 5 illustration against its absence requirement. Keep the other artwork and inspect the resulting book as the visual pilot. Unit/regression providers are mocked, so passing tests establish state handling and reuse, not a guarantee of model judgment or artwork quality.
+
 ## Local validation
 
 Run the catalog regression suite, cost tracker and worker video route tests with mocked providers:

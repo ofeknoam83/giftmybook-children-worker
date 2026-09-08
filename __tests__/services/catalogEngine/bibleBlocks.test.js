@@ -187,3 +187,13 @@ test('plot objects keep their story state and family count instead of decorative
   expect(rendered).not.toContain('never plot-critical');
   expect(rendered).not.toContain('Small and decorative');
 });
+
+test.each(['absent', 'off_screen'])('a %s story family is not requested from its reference sheet', visibility => {
+  const rendered = renderBibleBlocks({ props: [{ name: 'meerkat group', storyObject: true, required: false,
+    visibility, ref: 3, state: 'No group was there; Kito waited beside the child.', multiplicity: 'group',
+    reference: { kind: 'group', subject: 'creature', description: 'A group of meerkats' } }] }).join('\n');
+  expect(rendered).toContain('ABSENT FROM THIS PICTURE');
+  expect(rendered).toContain('separately named companion');
+  expect(rendered).not.toContain('A group has multiple intentional members');
+  expect(rendered).not.toContain('see REFERENCE 3');
+});

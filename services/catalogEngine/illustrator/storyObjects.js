@@ -264,7 +264,9 @@ function criticalObjectFailures(results, plan) {
     for (const d of critical) {
       const checked = r.qa?.verdict?.props?.find(p => String(p.name).toLowerCase() === d.value.toLowerCase());
       if (!checked || typeof checked.state_match !== 'boolean' || typeof checked.duplicated !== 'boolean' || typeof checked.as_text !== 'boolean' || !['present', 'absent'].includes(checked.presence)) defects.push(`Critical story object unverified: ${d.name}`);
-      else if ((d.occurrence.required && checked.presence !== 'present') || (checked.presence === 'present' && (checked.look !== 'match' || checked.as_text || checked.duplicated || !checked.state_match))) defects.push(`Critical story object differs or has wrong state: ${d.name}`);
+      else if ((d.occurrence.required && checked.presence !== 'present')
+        || (['absent', 'off_screen'].includes(d.occurrence.visibility) && checked.presence !== 'absent')
+        || (checked.presence === 'present' && (checked.look !== 'match' || checked.as_text || checked.duplicated || !checked.state_match))) defects.push(`Critical story object differs or has wrong state: ${d.name}`);
     }
     return defects.length ? [{ spread: r.spread, defects, candidates: r.candidateFiles || [] }] : [];
   });
