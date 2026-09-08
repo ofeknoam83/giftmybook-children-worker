@@ -146,6 +146,14 @@ describe('checkLineSheet', () => {
     fetchWithTimeout.mockResolvedValueOnce(respond({ readable_text: false }));
     expect((await checkLineSheet(page, { kind: 'hero', reference: img('c') })).unverifiable).toMatch(/malformed/);
   });
+  test('the hero sheet judge treats a blank patch/badge shape as the garment, not text (2026-09-08)', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(respond({ readable_text: false, shading_present: false, solid_fills: false, open_shapes: false, figure_count: 3, one_child: true, same_child: true, outfit_match: true, likeness: 0.9 }));
+    await checkLineSheet(page, { kind: 'hero', reference: img('c') });
+    const prompt = JSON.parse(fetchWithTimeout.mock.calls.at(-1)[1].body).contents[0].parts[0].text;
+    expect(prompt).toContain('a BLANK patch, badge or label shape on a garment (its letters left out) is a garment, not text');
+    expect(prompt).toContain('drawn in line art as that garment\'s blank outline shape: the shape stays, the letters go');
+    expect(prompt).toContain('draws as a blank outline shape is the SAME garment, not a difference');
+  });
   test('companion and border sheets use their own fields', async () => {
     fetchWithTimeout.mockResolvedValueOnce(respond({ readable_text: false, shading_present: false, solid_fills: false, open_shapes: false, same_subject: false, child_present: true, likeness: 0.4 }));
     const c = await checkLineSheet(page, { kind: 'companion', reference: img('c'), companion: { name: 'Farmer Bea', type: 'guide' } });

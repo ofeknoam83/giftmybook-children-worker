@@ -3,11 +3,18 @@
  * New candidates and judgments are durable; confirmed defects get an
  * immediate targeted repair within one saved budget. Unavailable checks
  * retain the image. No failure cooldown and no unverified cover-only fallback.
+ *
+ * Garment lettering is CLOTHING (2026-09-08, `shared/illustration/
+ * garmentLettering.js`): a logo, patch, badge, name or number the approved
+ * cover shows ON a garment is reproduced by the render prompt and judged
+ * under the outfit fields; only annotation text — labels, view names,
+ * captions, notes, arrows, watermarks — outside the clothing is `sheet_text`.
  */
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../../illustrationGenerator');
 const { PIXAR_STYLE, GEMINI_QA_MODEL, GEMINI_IMAGE_SAFETY_SETTINGS } = require('../../../shared/illustration/config');
 const { judgeImage, digest, responseOutcome } = require('../../../shared/llm/visualJudge');
+const { GARMENT_LETTERING_JUDGE_NOTE } = require('../../../shared/illustration/garmentLettering');
 const { pending } = require('../referenceContract');
 const { downloadBuffer, uploadBuffer, uploadBufferIfAbsent } = require('../../../gcsStorage');
 const { STYLE_VERSION } = require('../../versions');
@@ -41,7 +48,10 @@ const AGE_MAX = 12;
 const SHEET_CACHE_MAX = 16;
 const _sheets = new Map();
 const _inFlight = new Map();
-const RECOVERY_VERSION = 'character-sheet-recovery-1';
+// recovery-2 (2026-09-08): the render prompt and the judge treat garment
+// lettering as clothing — recovery-1 roots hold candidates rejected for the
+// letters on their own patches and are never replayed.
+const RECOVERY_VERSION = 'character-sheet-recovery-2';
 const RENDER_LEASE_MS = SHEET_TIMEOUT_MS + 30000;
 
 /** LRU get: refresh recency on hit. @param {string} key @returns {object|null} */
@@ -169,7 +179,8 @@ function buildSheetPrompt({ profile = null, characterDescription = null } = {}) 
     'HEAD INSETS: two small head-and-shoulders insets in the top corner — one happy, one curious — the same child, same hair, same skin tone.',
     'BACKGROUND: a flat light-grey studio background with even, soft lighting. NO scene, NO environment, NO props, NO other people, animals, or creatures.',
     'ANATOMY: exactly two arms and two hands with exactly five clearly separated fingers per hand, two legs, and two feet on every figure — no third arm, no extra or duplicated hand, no stray hand, no fused fingers.',
-    'ABSOLUTELY NO text, letters, labels, numbers, captions, arrows, or watermarks anywhere in the image — the sheet is a pure visual reference.',
+    'GARMENT LETTERING: a word, logo, emblem, patch, badge, name or number that REFERENCE 1 shows ON a garment is part of that garment — reproduce it exactly as the cover shows it (same garment, same place, same size, same wording) in every view that shows that garment; never enlarge it and never add any.',
+    'Apart from garment lettering copied from REFERENCE 1, ABSOLUTELY NO text: no labels, view names, captions, notes, arrows, numbers, or watermarks anywhere in the image — not on the background, not beside, above, or over the figures — the sheet is a pure visual reference.',
   );
   return lines.join('\n');
 }
@@ -208,7 +219,7 @@ async function renderSheetCandidate(prompt, refPhoto, repair = null) {
     { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
   ];
   if (repair) parts.push(
-    { text: `REFERENCE 2 — REPAIR SOURCE, not a new identity. Preserve the character, layout, and all correct clothing, including the already completed hidden hems and shoes. Correct only these verified defects (DATA): ${JSON.stringify(repair.defects)}. The approved cover remains authoritative. Do not copy any incorrect feature from the repair source.` },
+    { text: `REFERENCE 2 — REPAIR SOURCE, not a new identity. Preserve the character, layout, and all correct clothing, including the already completed hidden hems and shoes. Correct only these verified defects (DATA): ${JSON.stringify(repair.defects)}. The approved cover remains authoritative. Lettering the approved cover shows on a garment is clothing and stays; sheet text means labels, captions, notes, arrows or watermarks outside the clothing. Do not copy any incorrect feature from the repair source.` },
     { inline_data: { mimeType: 'image/png', data: repair.buffer.toString('base64') } },
   );
   const apiKey = getNextApiKey();
@@ -247,14 +258,17 @@ async function renderSheetCandidate(prompt, refPhoto, repair = null) {
 function buildSheetQaPrompt(hasPhoto) {
   return `You are checking a CHARACTER MODEL SHEET for a children's picture book. Image 1 is the sheet. Image 2 is the APPROVED CHARACTER reference the sheet must reproduce.${hasPhoto ? ' Image 3 is a PHOTO of the real child for an advisory resemblance score only. Do not use image 3 to redefine the approved character or excuse a difference from image 2.' : ''}
 
-A correct sheet shows exactly THREE full-body (head to toe) figures of the SAME single child standing side by side — front view, three-quarter view, back view — wearing the SAME complete outfit in all three, with feet and shoes fully visible, plus two small head insets in a corner (the insets are NOT full-body figures — do not count them), on a flat plain background, with NO text of any kind.
+A correct sheet shows exactly THREE full-body (head to toe) figures of the SAME single child standing side by side — front view, three-quarter view, back view — wearing the SAME complete outfit in all three, with feet and shoes fully visible, plus two small head insets in a corner (the insets are NOT full-body figures — do not count them), on a flat plain background, with no sheet text (no labels, view names, captions, notes, arrows, numbers or watermarks).
+
+GARMENT LETTERING: ${GARMENT_LETTERING_JUDGE_NOTE} Lettering on a garment that image 2 shows on that garment is correct. Lettering on a garment that image 2 shows WITHOUT it, or with different wording, is an outfit_findings entry with attribute "pattern" — never sheet_text.
 
 OUTFIT EVIDENCE: compare only garments and worn accessories visibly established by image 2. Ignore the held bell or other story props, scenery, cover text, and differences caused only by scene lighting. Cropped hems, legs and shoes may be completed consistently; never reject them for differing from an invisible reference. Do reject changed visible garment colours, patterns, materials, cut or length, extra clothing, and differences between views. Do not claim a mismatch unless you can name the visible expected detail and the observed difference. Uncertainty is not evidence of a defect.
 
 Answer STRICT JSON only:
 {
   "outfit_findings": [], // for EACH cover outfit mismatch: {"slot":"top|bottom|footwear|outerwear|accessory", "attribute":"colour|pattern|material|cut|length|presence", "reference_visibility":"visible", "expected":"specific visible cover detail", "observed":"specific different sheet detail"}; empty when cover_outfit_matches is true. Never include hidden details or held props.
-  "readable_text": true|false,   // any readable text, letters, labels, numbers, captions, or watermarks anywhere in image 1
+  "garment_lettering": "…",      // the exact lettering you can read ON the figures' clothing in image 1 (a logo, patch, badge, name or number), verbatim; "" when there is none
+  "sheet_text": true|false,      // any readable text, letters, labels, view names, captions, notes, arrows, numbers, or watermarks on the background, beside, above, or over the figures in image 1 — NOT the garment lettering above
   "figure_count": <integer>,     // number of FULL-BODY (head to toe) figures in image 1; head insets do not count
   "one_child": true|false,       // every figure depicts the SAME single child (no second child, adult, or creature)
   "feet_visible": true|false,    // every full-body figure shows its feet/shoes fully inside the frame
@@ -268,7 +282,9 @@ Answer STRICT JSON only:
 Only report what you can clearly see; do not guess.`;
 }
 
-const VERDICT_BOOLEANS = ['readable_text', 'one_child', 'feet_visible', 'outfit_consistent_across_views', 'anatomy_ok', 'cover_identity_matches', 'cover_outfit_matches'];
+const VERDICT_BOOLEANS = ['sheet_text', 'one_child', 'feet_visible', 'outfit_consistent_across_views', 'anatomy_ok', 'cover_identity_matches', 'cover_outfit_matches'];
+const SHEET_TEXT_DEFECT = 'readable text on the sheet outside the clothing (a label, caption, note, arrow or watermark — garment lettering is clothing)';
+const GARMENT_LETTERING_MAX_CHARS = 120;
 
 /**
  * Validate the judge's parsed JSON into a closed verdict: every required
@@ -280,7 +296,12 @@ const VERDICT_BOOLEANS = ['readable_text', 'one_child', 'feet_visible', 'outfit_
  * `photo_likeness` is optional (only asked for when the photo rides): a
  * finite number is clamped, anything else is null — never a malformed
  * verdict. This diagnostic cannot override cover fidelity or affect election.
- * @returns {{pass: boolean, defects: string[], likeness: number, photoLikeness: number|null}|null}
+ * `garment_lettering` is a best-effort transcript of the lettering the judge
+ * read ON the clothing (inert data for the log and the advisories, capped,
+ * never a gate): the letters on a patch are clothing, so a sheet carrying
+ * them passes on `sheet_text: false` — only annotation text outside the
+ * clothing is the defect.
+ * @returns {{pass: boolean, defects: string[], likeness: number, photoLikeness: number|null, garmentLettering: string|null}|null}
  */
 function parseSheetVerdict(json, { detailed = false } = {}) {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
@@ -293,6 +314,7 @@ function parseSheetVerdict(json, { detailed = false } = {}) {
   const likeness = Math.min(1, Math.max(0, likenessRaw));
   const photoRaw = own('photo_likeness');
   const photoLikeness = typeof photoRaw === 'number' && Number.isFinite(photoRaw) ? Math.min(1, Math.max(0, photoRaw)) : null;
+  const garmentLettering = cleanLine(own('garment_lettering'), GARMENT_LETTERING_MAX_CHARS);
   const findings = own('outfit_findings');
   if (detailed) {
     const line = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 300 && !/[\u0000-\u001f]/.test(v);
@@ -303,7 +325,7 @@ function parseSheetVerdict(json, { detailed = false } = {}) {
     if (own('cover_outfit_matches') !== (findings.length === 0)) return null;
   }
   const defects = [
-    own('readable_text') && 'readable text on the sheet',
+    own('sheet_text') && SHEET_TEXT_DEFECT,
     figureCount !== 3 && `${figureCount} full-body figures (expected 3)`,
     !own('one_child') && 'figures do not all depict the same single child',
     !own('feet_visible') && 'feet/shoes not fully visible on every figure',
@@ -313,7 +335,7 @@ function parseSheetVerdict(json, { detailed = false } = {}) {
     likeness < COVER_LIKENESS_MIN && `cover likeness ${likeness.toFixed(2)} below the ${COVER_LIKENESS_MIN} floor`,
     !own('anatomy_ok') && 'anatomy error (limbs/hands/fingers)',
   ].filter(Boolean);
-  return { pass: defects.length === 0, defects, likeness, photoLikeness };
+  return { pass: defects.length === 0, defects, likeness, photoLikeness, garmentLettering };
 }
 
 /** Same saved evidence and full validation on every recheck. */
@@ -452,7 +474,7 @@ function electCandidate(results, log) {
       log('info', `character sheet candidate ${n}: REJECTED (${r.verdict.defects.join('; ')}; ${describeLikeness(r.verdict)})`);
       advisories.push(advisory(`candidate ${n} rejected: ${r.verdict.defects.join('; ')}`));
     } else {
-      log('info', `character sheet candidate ${n}: PASS (${describeLikeness(r.verdict)})`);
+      log('info', `character sheet candidate ${n}: PASS (${describeLikeness(r.verdict)}${r.verdict.garmentLettering ? `; garment lettering "${r.verdict.garmentLettering}" judged as clothing` : ''})`);
     }
   }
   const passing = results.filter(r => r.verdict?.pass);

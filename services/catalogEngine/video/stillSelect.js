@@ -55,7 +55,7 @@ async function judgeStill(buffer, opts = {}) {
   const label = opts.label || 'videoStillJudge';
   const prompt = 'You are choosing illustrations from a children\'s picture book to build a short animated film. '
     + 'Judge THIS ONE image as a film frame. Answer with strict JSON only, exactly these fields: '
-    + '{"text_present": boolean — ANY legible letters, words, digits, captions, signs or logos anywhere in the image (pictograms, scribbles and non-letter shapes do not count); '
+    + '{"text_present": boolean — ANY legible letters, words, digits, captions, signs or logos anywhere in the image EXCEPT lettering that is part of a character\'s own clothing — a logo, patch, badge, name or number on a garment is clothing, not text (pictograms, scribbles and non-letter shapes do not count either); '
     + '"transcript": string — the exact legible text, or "" when there is none; '
     + '"child_visible": boolean — a child character is clearly visible; '
     + '"child_cut_off": boolean — the child\'s head or body is cropped by the frame edge, or the child is mostly hidden behind something; '

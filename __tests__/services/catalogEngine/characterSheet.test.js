@@ -48,7 +48,7 @@ beforeAll(async () => {
 });
 
 const CLEAN_VERDICT = {
-  readable_text: false, figure_count: 3, one_child: true, feet_visible: true,
+  sheet_text: false, garment_lettering: '', figure_count: 3, one_child: true, feet_visible: true,
   outfit_consistent_across_views: true, anatomy_ok: true, likeness: 0.8,
   cover_identity_matches: true, cover_outfit_matches: true, outfit_findings: [],
 };
@@ -127,7 +127,11 @@ describe('parseSheetVerdict', () => {
   test('type-checks every field; malformed ⇒ null (unverifiable), never a pass', () => {
     expect(parseSheetVerdict(null)).toBeNull();
     expect(parseSheetVerdict([])).toBeNull();
-    expect(parseSheetVerdict({ ...CLEAN_VERDICT, readable_text: 'false' })).toBeNull();
+    expect(parseSheetVerdict({ ...CLEAN_VERDICT, sheet_text: 'false' })).toBeNull();
+    // The retired field name never satisfies the schema — a judge answering
+    // the old question is malformed, never a pass.
+    const legacy = { ...CLEAN_VERDICT, readable_text: false }; delete legacy.sheet_text;
+    expect(parseSheetVerdict(legacy)).toBeNull();
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, figure_count: '3' })).toBeNull();
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, figure_count: 3.5 })).toBeNull();
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, likeness: 'high' })).toBeNull();
@@ -137,10 +141,10 @@ describe('parseSheetVerdict', () => {
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, cover_outfit_matches: 'true' })).toBeNull();
   });
   test('passes only the closed set of conditions and clamps likeness into 0-1', () => {
-    expect(parseSheetVerdict(CLEAN_VERDICT)).toEqual({ pass: true, defects: [], likeness: 0.8, photoLikeness: null });
+    expect(parseSheetVerdict(CLEAN_VERDICT)).toEqual({ pass: true, defects: [], likeness: 0.8, photoLikeness: null, garmentLettering: null });
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, likeness: 7 }).likeness).toBe(1);
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, likeness: -2 }).likeness).toBe(0);
-    expect(parseSheetVerdict({ ...CLEAN_VERDICT, figure_count: 4 })).toEqual({ pass: false, defects: ['4 full-body figures (expected 3)'], likeness: 0.8, photoLikeness: null });
+    expect(parseSheetVerdict({ ...CLEAN_VERDICT, figure_count: 4 })).toEqual({ pass: false, defects: ['4 full-body figures (expected 3)'], likeness: 0.8, photoLikeness: null, garmentLettering: null });
   });
   test('photo_likeness is optional: clamped when a finite number, null otherwise — never a malformed verdict', () => {
     expect(parseSheetVerdict({ ...CLEAN_VERDICT, photo_likeness: 0.62 }).photoLikeness).toBe(0.62);
@@ -189,7 +193,7 @@ describe('determinism', () => {
     expect(a).toContain('two small head-and-shoulders insets');
     expect(a).toContain('flat light-grey studio background');
     expect(a).toContain('exactly two arms and two hands with exactly five clearly separated fingers');
-    expect(a).toContain('NO text, letters, labels, numbers');
+    expect(a).toContain('Apart from garment lettering copied from REFERENCE 1, ABSOLUTELY NO text: no labels, view names, captions, notes, arrows, numbers, or watermarks');
     expect(a).not.toContain('REFERENCE 2');
     expect(a).toContain('must never override it or redesign the child');
     expect(buildSheetPrompt({})).not.toContain('The child is');
@@ -249,7 +253,7 @@ test('all required identity, anatomy, layout and text checks remain blocking thr
   installTransport([
     { ...CLEAN_VERDICT, cover_identity_matches: false, likeness: 1 },
     { ...CLEAN_VERDICT, anatomy_ok: false },
-    { ...CLEAN_VERDICT, readable_text: true, figure_count: 2, feet_visible: false },
+    { ...CLEAN_VERDICT, sheet_text: true, figure_count: 2, feet_visible: false },
   ]);
   const anchorUrl = freshAnchor();
   const failure = await run(anchorUrl).catch(e => e);
@@ -262,6 +266,62 @@ test('all required identity, anatomy, layout and text checks remain blocking thr
   expect(again.message).toBe(failure.message);
   expect(again.message).not.toMatch(/cooldown/);
   expect(fetchWithTimeout).toHaveBeenCalledTimes(calls);
+});
+
+describe('garment lettering is clothing (2026-09-08)', () => {
+  test('a sheet whose only lettering sits on the clothing passes and is elected; the transcript is inert data', async () => {
+    installTransport([{ ...CLEAN_VERDICT, garment_lettering: 'NASA \u0007 "USA"', likeness: 1 }]);
+    const log = jest.fn();
+    const anchorUrl = freshAnchor();
+    const sheet = await getCharacterSheet({ anchorUrl, refPhoto: REF, profile: PROFILE, log });
+    expect(sheet.base64).toBe(CANDIDATE_PNGS[0].toString('base64'));
+    expect(imageCalls()).toHaveLength(1);
+    expect(sheet.advisories).toEqual([]);
+    expect(log).toHaveBeenCalledWith('info', expect.stringContaining('garment lettering "NASA USA" judged as clothing'));
+    expect(parseSheetVerdict({ ...CLEAN_VERDICT, garment_lettering: 'x'.repeat(500) }).garmentLettering).toHaveLength(120);
+    expect(parseSheetVerdict({ ...CLEAN_VERDICT, garment_lettering: 42 }).garmentLettering).toBeNull();
+  });
+
+  test('annotation text outside the clothing is still the blocking defect, named so the repair keeps the garments', () => {
+    const verdict = parseSheetVerdict({ ...CLEAN_VERDICT, sheet_text: true, garment_lettering: 'NASA' });
+    expect(verdict.pass).toBe(false);
+    expect(verdict.defects).toEqual(['readable text on the sheet outside the clothing (a label, caption, note, arrow or watermark — garment lettering is clothing)']);
+  });
+
+  test('the render prompt reproduces cover garment lettering and forbids every other text; the judge asks the same way', () => {
+    const prompt = buildSheetPrompt({ profile: PROFILE });
+    expect(prompt).toContain('GARMENT LETTERING: a word, logo, emblem, patch, badge, name or number that REFERENCE 1 shows ON a garment is part of that garment');
+    expect(prompt).toContain('Apart from garment lettering copied from REFERENCE 1, ABSOLUTELY NO text');
+    expect(prompt).not.toMatch(/ABSOLUTELY NO text, letters, labels/);
+    for (const hasPhoto of [false, true]) {
+      const qa = buildSheetQaPrompt(hasPhoto);
+      expect(qa).toContain('is CLOTHING, not text');
+      expect(qa).toContain('an outfit_findings entry with attribute "pattern" — never sheet_text');
+      expect(qa).toContain('"garment_lettering": "…"');
+      expect(qa).toContain('"sheet_text": true|false');
+      expect(qa).not.toContain('readable_text');
+      expect(qa).not.toContain('NO text of any kind');
+    }
+  });
+
+  test('the repair call tells the model that cover garment lettering stays', async () => {
+    installTransport([{ ...CLEAN_VERDICT, sheet_text: true }, CLEAN_VERDICT]);
+    await run(freshAnchor());
+    expect(imageCalls()).toHaveLength(2);
+    const repairParts = JSON.parse(imageCalls()[1][1].body).contents[0].parts;
+    expect(repairParts[3].text).toContain('Lettering the approved cover shows on a garment is clothing and stays');
+    expect(repairParts[3].text).toContain('garment lettering is clothing');
+  });
+
+  test('recovery roots are versioned so candidates rejected for their own patches are never replayed', async () => {
+    installTransport([CLEAN_VERDICT]);
+    await run(freshAnchor());
+    const roots = [...objects.keys()].filter(k => k.includes('.recovery-v1/'));
+    expect(roots.length).toBeGreaterThan(0);
+    // The root digest folds RECOVERY_VERSION: the same anchor + prompt under
+    // recovery-1 lived at a different key, so its exhausted budget is gone.
+    expect(pngKeys()).toHaveLength(1);
+  });
 });
 
 test('a restarted worker reuses the durable budget, images and verifier outcomes', async () => {

@@ -29,6 +29,7 @@
 
 const sharp = require('sharp');
 const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustrationGenerator');
+const { GARMENT_LETTERING_JUDGE_NOTE } = require('../../shared/illustration/garmentLettering');
 const { SHOT_TYPE_QA_DESCRIPTIONS } = require('./shotPlan');
 const metrics = require('./metrics');
 const flags = require('../flags');
@@ -96,8 +97,9 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
     sections.push(`You are checking one interior illustration of a children's picture book.
 The book's ONE child hero must appear exactly once; the art must contain no
 readable text; the medium must be premium 3D CGI (like a modern animated
-feature film still), never flat 2D, watercolor, or a photograph.`);
-    fields.push('"readable_text": true|false,   // any readable words, letters, or numbers painted in the image');
+feature film still), never flat 2D, watercolor, or a photograph.
+${GARMENT_LETTERING_JUDGE_NOTE}`);
+    fields.push('"readable_text": true|false,   // any readable words, letters, or numbers painted in the image — NOT lettering that is part of a character\'s clothing (a logo, patch, badge, name or number on a garment is clothing)');
   }
 
   if (shotType && SHOT_TYPE_QA_DESCRIPTIONS[shotType]) {
@@ -682,7 +684,8 @@ The text must be ONE block on ONE side of the image (left or right), painted dir
 
 STORY TEXT THAT MUST APPEAR IN THE IMAGE:
 "${o.expectedText}"`
-    : `You are checking one interior illustration of a children's picture book (the RENDER, the first image). The book's ONE child hero must appear exactly once; the art must contain no readable text; the medium must be premium 3D CGI (a modern animated feature film still), never flat 2D, watercolor, or a photograph.`;
+    : `You are checking one interior illustration of a children's picture book (the RENDER, the first image). The book's ONE child hero must appear exactly once; the art must contain no readable text; the medium must be premium 3D CGI (a modern animated feature film still), never flat 2D, watercolor, or a photograph.
+${GARMENT_LETTERING_JUDGE_NOTE}`;
   sections.push(layoutIntro);
   if (o.expectedText) {
     fields.push(
@@ -704,7 +707,7 @@ STORY TEXT THAT MUST APPEAR IN THE IMAGE:
     );
     required.push('text_split_both_sides', 'text_on_band', 'text_backdrop_treated', 'text_in_center_gutter', 'text_lines_misaligned', 'text_style_inconsistent', 'text_typeface_mismatch', 'text_not_left_aligned');
   } else {
-    fields.push('"readable_text": true|false,   // any readable words, letters, or numbers painted in the RENDER');
+    fields.push('"readable_text": true|false,   // any readable words, letters, or numbers painted in the RENDER — NOT lettering that is part of a character\'s clothing (a logo, patch, badge, name or number on a garment is clothing)');
   }
 
   let refIndex = 1; // the render is image 1
@@ -829,7 +832,7 @@ Report whether it is present, whether it is ${sameAs}, whether it appears MORE T
     '"extra_limbs": true|false,     // an extra, missing, floating or duplicated arm/hand/leg',
     '"hand_defects": true|false,    // fused, extra, or malformed fingers',
     '"face_artifacts": true|false,',
-    '"stray_lettering_or_signage": true|false, // letters/words/logos/signage that are NOT the story text block',
+    '"stray_lettering_or_signage": true|false, // letters/words/logos/signage that are NOT the story text block and NOT part of a character\'s clothing (a logo, patch, badge, name or number on a garment is clothing, never stray lettering)',
     '"pseudo_script": true|false,   // letter-like glyphs, alien writing, or scribbled text-like marks',
   );
   fields.push(

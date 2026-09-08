@@ -32,6 +32,14 @@ const { renderLineRulesBlock, NO_TEXT_BLOCK, resolveLineRules } = require('./lin
 const { imageModelKey, stripColourWords } = require('./render');
 const { inert } = require('./moments');
 
+/**
+ * Garment lettering in LINE ART (2026-09-08): the colour sheet may carry a
+ * logo, patch, badge, name or number on a garment (an astronaut suit's
+ * emblem and flag patch); the line sheet keeps the SHAPE — a blank outline
+ * to colour — and drops the letters, so the pages that copy it never carry
+ * readable text and the outfit still matches garment by garment.
+ */
+const GARMENT_LETTERING_LINE_ART_RULE = 'GARMENT LETTERING: a logo, patch, badge, label, name or number on a garment in REFERENCE IMAGE 1 keeps its OUTLINE SHAPE (the patch, the badge, the label — a blank shape to colour) and loses its letters; that blank shape is the same garment, never readable text, and never invent lettering.';
 const SHEET_TIMEOUT_MS = 180000;
 const SHEET_ASPECT = '16:9';
 const BORDER_ASPECT = '3:4';
@@ -197,6 +205,7 @@ function buildHeroSheetPrompt(p) {
     'Keep EXACTLY: the same THREE full-body views side by side in the same order (front, three-quarter, back), the same proportions and apparent age, the same face, the same hair shape and length, feet and shoes fully visible, and the same complete outfit in every view, garment by garment' + (spec ? `: ${spec}` : '.'),
     'Keep the two small head insets. Flat, pure-white background — no scene, no floor line, no shadow, no frame.',
     'REFERENCE IMAGE 2 (when present) is the approved cover — an identity aid only; never copy its scene.',
+    GARMENT_LETTERING_LINE_ART_RULE,
     '',
     renderLineRulesBlock(p.rules),
     '',
@@ -216,6 +225,7 @@ function buildCompanionSheetPrompt(p) {
   return [
     `Redraw REFERENCE IMAGE 1 — the reference sheet of ${inert(c.name, 40)}, a ${inert(c.type, 60) || 'companion'} — as a clean coloring-book LINE-ART reference sheet of the SAME ${c.human ? 'person' : 'character'}.`,
     `Keep EXACTLY the same views, design, proportions${c.human ? ', face, hair shape and length, and the same complete outfit garment by garment' : ' and markings'}${spec ? ` — fixed look (data): ${spec}` : ''}. No child, no scene; flat pure-white background.`,
+    GARMENT_LETTERING_LINE_ART_RULE,
     '',
     renderLineRulesBlock(p.rules),
     '',
