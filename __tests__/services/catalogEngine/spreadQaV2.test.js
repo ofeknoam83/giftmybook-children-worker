@@ -49,6 +49,60 @@ const fullOpts = () => ({
 
 beforeEach(() => fetchWithTimeout.mockReset());
 
+describe('bounded recovery of unavailable film scene checks', () => {
+  test('a malformed response retries the same image and references with field feedback and more output room', async () => {
+    const bad = cleanVerdict();
+    delete bad.outfit.top;
+    fetchWithTimeout.mockResolvedValueOnce(answer(bad)).mockResolvedValueOnce(answer(cleanVerdict()));
+    const qa = await checkSpreadRenderV2(IMG, { ...fullOpts(), retryUnavailable: true });
+    expect(qa.qaUnavailable).toBeUndefined();
+    expect(qa.blocking).toEqual([]);
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    const [first, retry] = fetchWithTimeout.mock.calls.map(c => JSON.parse(c[1].body));
+    expect(retry.contents[0].parts.slice(1)).toEqual(first.contents[0].parts.slice(1));
+    expect(retry.contents[0].parts[0].text).toContain('outfit.top must be');
+    expect(retry.contents[0].parts[0].text).toContain('Do not assume the image passes');
+    expect(first.generationConfig.maxOutputTokens).toBe(4096);
+    expect(retry.generationConfig.maxOutputTokens).toBe(8192);
+  });
+
+  test('a persistent malformed verdict stops after two checks and names the missing field', async () => {
+    const bad = cleanVerdict();
+    delete bad.outfit;
+    fetchWithTimeout.mockResolvedValue(answer(bad));
+    const qa = await checkSpreadRenderV2(IMG, { ...fullOpts(), retryUnavailable: true });
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    expect(qa.qaUnavailable).toContain('outfit must contain garment verdicts');
+    expect(qa.verdict).toBeNull();
+  });
+
+  test('a usable retry still reports actual image defects', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer({})).mockResolvedValueOnce(answer(cleanVerdict({ multiple_children: true })));
+    const qa = await checkSpreadRenderV2(IMG, { ...fullOpts(), retryUnavailable: true });
+    expect(qa.pass).toBe(false);
+    expect(qa.blocking).toContain('duplicated child hero');
+    expect(qa.qaUnavailable).toBeUndefined();
+  });
+
+  test('a temporary HTTP failure retries the check, while ordinary book checks remain single-attempt', async () => {
+    fetchWithTimeout.mockResolvedValueOnce({ ok: false, status: 503 }).mockResolvedValueOnce(answer(cleanVerdict()));
+    expect((await checkSpreadRenderV2(IMG, { ...fullOpts(), retryUnavailable: true })).qaUnavailable).toBeUndefined();
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    fetchWithTimeout.mockClear();
+    fetchWithTimeout.mockResolvedValue({ ok: false, status: 503 });
+    expect((await checkSpreadRenderV2(IMG, fullOpts())).qaUnavailable).toContain('HTTP 503');
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  test('clipped JSON reports the provider finish reason in the correction request', async () => {
+    fetchWithTimeout.mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"readable_text": false,' }] } }] }) })
+      .mockResolvedValueOnce(answer(cleanVerdict()));
+    expect((await checkSpreadRenderV2(IMG, { ...fullOpts(), retryUnavailable: true })).qaUnavailable).toBeUndefined();
+    const retry = JSON.parse(fetchWithTimeout.mock.calls[1][1].body);
+    expect(retry.contents[0].parts[0].text).toContain('finishReason: MAX_TOKENS');
+  });
+});
+
 test('the prompt attaches the render first, then the sheet and prop sheets in the order it numbers them', async () => {
   fetchWithTimeout.mockResolvedValue(answer(cleanVerdict()));
   const r = await checkSpreadRenderV2(IMG, fullOpts());
@@ -862,6 +916,14 @@ describe('story-object state and family QA', () => {
   test.each([{ state_match: undefined }, { look: 'n/a' }])('incomplete object verdict %p cannot count as verified', async over => {
     fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict(over)));
     expect((await checkSpreadRenderV2(IMG, storyOpts())).qaUnavailable).toBeTruthy();
+  });
+  test('an omitted story-object state gets a fresh judgment, never an inferred approval', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(answer(objectVerdict({ state_match: undefined })))
+      .mockResolvedValueOnce(answer(objectVerdict({ state_match: false })));
+    const qa = await checkSpreadRenderV2(IMG, { ...storyOpts(), retryUnavailable: true });
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchWithTimeout.mock.calls[1][1].body).contents[0].parts[0].text).toContain('props[0].state_match must be boolean');
+    expect(qa.blocking).toContain('prop state mismatch: "Story object: route marker"');
   });
   test('story objects are not silently truncated behind personal props', async () => {
     const props = Array.from({ length: 7 }, (_, i) => ({ ...storyOpts().props[0], name: `Story object: item ${i}` }));

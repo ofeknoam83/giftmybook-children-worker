@@ -66,6 +66,22 @@ candidate keys and verifier error for diagnosis. They never include API keys.
 Retry video preserves verified passages; no complete-story regeneration is needed
 to retry a failed recording. The exact normalized-transcript requirement remains.
 
+Text-free still preparation reuses clean, current QA markers. Missing, malformed,
+or failed scene verdicts are rechecked on the saved image; a malformed or transiently
+unavailable checker gets one additional attempt with field-specific feedback and
+more output room, using the exact same pixels and references. No missing verdict
+field is inferred as a pass. Only a usable verdict with actual blocking defects
+enters the existing bounded image-repair loop, including when the book's automatic
+completion policy previously retained that image. Set repairs preserve an image
+while its per-scene checker is unavailable. These options apply to full-film still
+preparation; the ordinary book completion policy is unchanged.
+
+`film_scene_unresolved` includes each affected spread, its actual defects or
+unavailable-check reason, storage key and available candidate evidence. An unusable
+scene verdict blocks animation even without a critical story-object requirement.
+Retry video keeps approved audio and clean scene images; a checker format error
+alone does not require buying replacement illustrations.
+
 Spend is tracked by generated video seconds and synthesized characters. Current
 CostTracker rates are estimates, not a provider invoice; new models use its
 unknown-model estimate until account-specific rates are configured. Full films

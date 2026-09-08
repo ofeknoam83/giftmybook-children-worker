@@ -32,6 +32,20 @@ const TTL = 30 * 24 * 60 * 60 * 1000;
 const CAMERAS = ['push-in', 'pan-right', 'pull-out', 'rise'];
 const SCORE_MOODS = { joy: 'playful', wonder: 'light', curiosity: 'curious', determination: 'triumph', worry: 'suspense', calm: 'calm', surprise: 'light', pride: 'triumph', tenderness: 'tender', silly: 'playful' };
 
+function sceneFailure(unresolved, bookBible = null, results = []) {
+  const scenes = unresolved.map(u => {
+    const result = results.find(r => r.spread === u.spread);
+    const qaUnavailable = u.qaUnavailable || result?.qa?.qaUnavailable || (result?.buffer && !result.qa?.verdict ? 'no usable scene verdict' : null);
+    const defects = [...new Set([...(u.defects || []), ...(qaUnavailable ? [`scene verification unavailable: ${qaUnavailable}`] : [])])];
+    return { ...u, kind: 'scene', storageKey: u.storageKey || result?.storageKey || null,
+      qaUnavailable, defects: defects.length ? defects : ['scene verification failed'] };
+  });
+  const summary = scenes.map(u => `Spread ${u.spread}: ${u.defects.join('; ')}`).join(' | ');
+  const err = filmError(`Text-free scenes could not be approved. ${summary}. Retry video rechecks failed scenes; approved audio and clean scenes are kept.`, 'film_scene_unresolved');
+  err.details = { unresolved: scenes, ...(bookBible ? { bookBible } : {}) };
+  return err;
+}
+
 /** Preserve the actual take verdict in the callback instead of reporting every
  * audio failure (including outages or clipping) as missing manuscript words. */
 function requireVerifiedSpeech(take, turn, speaker, language) {
@@ -180,9 +194,15 @@ async function generateFullStoryFilm(p) {
     const frames = new Map();
     const embedded = entries.filter(e => e.embedded).map(e => e.spread);
     if (embedded.length) {
-      const art = await renderStorySpreads({ ...p, textLayout: 'half', spreads: embedded, forceRerender: false,
+      const art = await renderStorySpreads({ ...p, textLayout: 'half', spreads: embedded, forceRerender: false, retryUnresolved: true,
         onProgress: (_f, text) => report(0.27, text) });
-      if (art.unresolved?.length) throw filmError('Some text-free scene illustrations have unresolved defects.', 'film_scene_unresolved');
+      const unresolved = [...(art.unresolved || [])];
+      for (const result of art.results || []) {
+        if (result.buffer && (!result.qa?.verdict || result.qa.qaUnavailable) && !unresolved.some(u => u.spread === result.spread)) {
+          unresolved.push({ spread: result.spread, defects: [], candidates: result.candidateFiles || [] });
+        }
+      }
+      if (unresolved.length) throw sceneFailure(unresolved, art.bookBible, art.results);
       for (const result of art.results || []) {
         if (!result.buffer) throw filmError(`No text-free frame for spread ${result.spread}.`, 'video_source_missing');
         frames.set(result.spread, { buffer: result.buffer, storageKey: result.storageKey, rerendered: true });
@@ -193,7 +213,11 @@ async function generateFullStoryFilm(p) {
       checkAbort();
       const frame = frames.get(entry.spread) || { ...await fetchStill(entry.storageKey, `spread ${entry.spread}`), storageKey: entry.storageKey };
       const gate = await textGate(frame.buffer, { costTracker });
-      if (gate.unavailable || !gate.pass) throw filmError(`Spread ${entry.spread}: a text-free scene could not be verified.`, 'film_scene_unresolved');
+      if (gate.unavailable || !gate.pass) throw sceneFailure([{
+        spread: entry.spread, storageKey: frame.storageKey,
+        defects: [gate.unavailable ? `text verification unavailable: ${gate.unavailable}` : `painted text remains${gate.transcript ? `: ${gate.transcript}` : ''}`],
+        qaUnavailable: gate.unavailable || null,
+      }]);
       const prepared = await prepareStartFrame(frame.buffer, size);
       const frameHash = hash(prepared.buffer);
       const url = await storage.uploadBuffer(prepared.buffer, `${base}/frames/${frameHash}.jpg`, 'image/jpeg');
