@@ -14,7 +14,8 @@
  *  1. a KEYWORD TABLE over the frozen beat text (spread text as the
  *     tie-breaker, positional defaults last) — zero cost, always available,
  *     a pure function of the book definition + story;
- *  2. an OPTIONAL classifier: ONE structured text call per STORY (not per
+ *  2. an OPTIONAL classifier: one structured text call per STORY (one bounded
+ *     malformed/truncated JSON retry, not per
  *     render; cached in-process by the story fingerprint) that maps the
  *     twelve beat+text pairs onto the SAME enums. Every returned entry is
  *     validated against the enums (anything else is dropped) and merged
@@ -38,6 +39,7 @@
 
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 const { GEMINI_QA_MODEL } = require('../../shared/illustration/config');
+const { jsonQaGenerationConfig, responseText, parseJsonText, finishReasonOf } = require('../../shared/llm/geminiJson');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
@@ -552,46 +554,57 @@ function sanitizeClassifierVerdict(json, allowed) {
 }
 
 /**
- * One classifier call; throws on transport/HTTP/parse failure (the caller
- * converts every failure to null).
+ * Classify with one call and at most one malformed/truncated JSON retry,
+ * sharing the original time budget. Provider refusals and transport failures
+ * are not retried here; the caller preserves the table plan on failure.
  * @param {Array<{spread: number, beat: string, text: string}>} pairs
  * @param {Set<number>} allowed
  * @param {object} [costTracker]
  * @returns {Promise<Object<number, {emotion: string, intensity: string}>|null>}
  */
-async function callClassifier(pairs, allowed, costTracker) {
+async function callClassifier(pairs, allowed, costTracker, log) {
   const model = CLASSIFIER_MODEL();
-  const apiKey = getNextApiKey();
-  const resp = await fetchWithTimeout(
-    `${GEMINI_API}/${model}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: buildClassifierPrompt(pairs) }] }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 1024,
-          responseMimeType: 'application/json',
-          responseSchema: CLASSIFIER_RESPONSE_SCHEMA,
-        },
-      }),
-    },
-    CLASSIFIER_TIMEOUT_MS,
-  );
-  if (!resp.ok) throw new Error(`emotion classifier HTTP ${resp.status}`);
-  const data = await resp.json();
-  const usage = data?.usageMetadata;
-  if (costTracker && usage && typeof costTracker.addTextUsage === 'function') {
-    costTracker.addTextUsage(model, usage.promptTokenCount || 0, usage.candidatesTokenCount || 0);
+  const deadline = Date.now() + CLASSIFIER_TIMEOUT_MS;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('emotion classifier time budget exhausted');
+    const apiKey = getNextApiKey();
+    const resp = await fetchWithTimeout(
+      `${GEMINI_API}/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: buildClassifierPrompt(pairs) }] }],
+          generationConfig: {
+            ...jsonQaGenerationConfig(attempt === 0 ? 2048 : 4096, model),
+            responseSchema: CLASSIFIER_RESPONSE_SCHEMA,
+          },
+        }),
+      },
+      remaining,
+    );
+    if (!resp.ok) throw new Error(`emotion classifier HTTP ${resp.status}`);
+    const data = await resp.json();
+    const usage = data?.usageMetadata;
+    if (costTracker && usage && typeof costTracker.addTextUsage === 'function') {
+      costTracker.addTextUsage(model, usage.promptTokenCount || 0, usage.candidatesTokenCount || 0);
+    }
+    const reason = finishReasonOf(data);
+    if (reason && reason !== 'MAX_TOKENS') throw new Error(`emotion classifier stopped: ${reason}`);
+    try {
+      // A syntactically complete fragment with MAX_TOKENS is still truncated.
+      if (reason) throw new Error(`emotion classifier stopped: ${reason}`);
+      return sanitizeClassifierVerdict(parseJsonText(responseText(data)), allowed);
+    } catch (err) {
+      if (attempt === 1 || Date.now() >= deadline) throw err;
+      log('info', 'Emotion classifier response incomplete or malformed — retrying once with more output room');
+    }
   }
-  const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-  const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
-  return sanitizeClassifierVerdict(json, allowed);
 }
 
 /**
- * Classify a story's spreads onto the closed enums with ONE text call,
+ * Classify a story's spreads onto the closed enums with one bounded operation,
  * cached in-process by the story fingerprint. Returns the validated
  * PARTIAL plan (only the spreads the model labeled validly, each with
  * source 'classifier'), or null — when the classifier is disabled, the
@@ -627,7 +640,7 @@ async function classifyEmotions({ story, book, costTracker, log = () => {} } = {
   if (_inFlight.has(key)) return _inFlight.get(key);
   const work = (async () => {
     try {
-      const verdict = await callClassifier(pairs, allowed, costTracker);
+      const verdict = await callClassifier(pairs, allowed, costTracker, log);
       if (!verdict) {
         log('warn', `emotion classifier returned no valid labels for story ${key} — table plan stands`);
         recordFailure(key);

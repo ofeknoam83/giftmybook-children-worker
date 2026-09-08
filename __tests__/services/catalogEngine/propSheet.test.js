@@ -266,18 +266,49 @@ describe('election', () => {
 });
 
 describe('content QA', () => {
-  test('a contaminated sheet is retried once with the fixed defect note, then rejected — never uploaded or cached', async () => {
+  test('a contaminated prop exhausts its corrective and portrait candidates without uploading or caching a rejected image', async () => {
     const { mod, fetch, gcs } = fresh();
     fetch.mockImplementation(transport({ qa: { ...CLEAN_QA, readable_text: true, people_present: true } }));
     const log = jest.fn();
     await expect(mod.getPropSheet({ kind: 'prop', value: 'teddy bear', theme: FARM, log })).resolves.toBeNull();
-    expect(imageCalls(fetch)).toHaveLength(2);
+    expect(imageCalls(fetch)).toHaveLength(3);
     expect(promptOf(imageCalls(fetch)[1])).toContain('PREVIOUS ATTEMPT REJECTED — it contained: readable text in the sheet; a person in the sheet.');
     expect(gcs.uploadBufferIfAbsent).not.toHaveBeenCalled();
     expect(specCalls(fetch)).toHaveLength(0);
     // Cooldown: the next resolution inside the window makes no new attempt.
     await expect(mod.getPropSheet({ kind: 'prop', value: 'teddy bear', theme: FARM, log })).resolves.toBeNull();
-    expect(imageCalls(fetch)).toHaveLength(2);
+    expect(imageCalls(fetch)).toHaveLength(3);
+  });
+
+  test('a personal prop with duplicate objects then printed labels recovers with a checked single-view portrait', async () => {
+    const { mod, fetch, gcs } = fresh();
+    const verdicts = [
+      { ...CLEAN_QA, subject_count: 4 },
+      { ...CLEAN_QA, readable_text: true },
+      { ...CLEAN_QA, subject_count: 1 },
+    ];
+    fetch.mockImplementation(transport({ qa: () => verdicts.shift() }));
+    const costTracker = { addImageGeneration: jest.fn(), addTextUsage: jest.fn() };
+    const sheet = await mod.getPropSheet({ kind: 'prop', value: 'dj controller', theme: FARM, costTracker, log: quiet });
+    expect(sheet).not.toBeNull();
+    expect(imageCalls(fetch)).toHaveLength(3);
+    const prompt = promptOf(imageCalls(fetch)[2]);
+    expect(prompt).toContain('dj controller');
+    expect(prompt).toContain('shown ONCE');
+    expect(prompt).toContain('plain unlettered shapes');
+    expect(prompt).not.toContain('twice side by side');
+    expect(qaCalls(fetch)).toHaveLength(3);
+    expect(costTracker.addImageGeneration).toHaveBeenCalledTimes(3);
+    expect(gcs.uploadBufferIfAbsent).toHaveBeenCalledTimes(2);
+  });
+
+  test('the portrait candidate must contain only one view before it can be elected', async () => {
+    const { mod, fetch, gcs } = fresh();
+    let n = 0;
+    fetch.mockImplementation(transport({ qa: () => (++n < 3 ? { ...CLEAN_QA, readable_text: true } : CLEAN_QA) }));
+    await expect(mod.getPropSheet({ kind: 'prop', value: 'controller', theme: FARM, log: quiet })).resolves.toBeNull();
+    expect(imageCalls(fetch)).toHaveLength(3);
+    expect(gcs.uploadBufferIfAbsent).not.toHaveBeenCalled();
   });
 
   test('a corrective retry that passes is elected', async () => {
