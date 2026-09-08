@@ -113,6 +113,11 @@ test('the prompt attaches the render first, then the sheet and prop sheets in th
   expect(parts[0].text).toContain('Image 1 is the RENDER to check.');
   expect(parts[0].text).toContain('Image 2 is the CHARACTER MODEL SHEET');
   expect(parts[0].text).toContain('Image 3 is the PROP SHEET for "teddy bear"');
+  // qa-16: a logo, patch, badge, name or number on a garment is clothing —
+  // exempt from readable_text AND from stray_lettering_or_signage.
+  expect(parts[0].text).toContain('is CLOTHING, not text');
+  expect(parts[0].text).toContain('NOT lettering that is part of a character\'s clothing');
+  expect(parts[0].text).toContain('NOT part of a character\'s clothing (a logo, patch, badge, name or number on a garment is clothing, never stray lettering)');
   expect(parts[1].inline_data.data).toBe(IMG.toString('base64'));
   expect(parts[2].inline_data.data).toBe(SHEET.base64);
   expect(parts[3].inline_data.data).toBe(PROP.base64);

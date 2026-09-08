@@ -324,7 +324,21 @@ const SCENE_INTEGRATION_VERSION = 'si-1';
  * asked either question — replays re-check.
  */
 /** qa-15: text footprint affects candidate ranking only, never blocks a spread. */
-const QA_VERSION = 'qa-15';
+/**
+ * qa-16 (2026-09-08): garment lettering is CLOTHING
+ * (shared/illustration/garmentLettering.js). Every "any readable text"
+ * question — caption-layout spread QA v1/v2, `stray_lettering_or_signage`,
+ * the gift-video still judge (its pins follow QA_VERSION) and the
+ * character-sheet judge — now exempts a logo, patch, badge, name or number
+ * that is part of a garment a character wears: it is judged under the
+ * outfit checks, never as painted/stray text. An astronaut book's suit
+ * patches failed every character-sheet candidate `readable text on the
+ * sheet` and would have marked every caption spread and every film still
+ * the same way. qa-15 markers may carry that phantom finding — replays
+ * re-check (lenience only: a page rejected under qa-16 was rejected under
+ * qa-15 too).
+ */
+const QA_VERSION = 'qa-16';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

@@ -830,6 +830,41 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   are unchanged (`extra_limbs` blocking; hands/face advisory). The app's
   Art Bench rubric names the same two failures under Technical
   cleanliness (rubric v3). STYLE_VERSION `ce-20`, QA_VERSION `qa-14`.
+  **Garment lettering is CLOTHING (`qa-16`, 2026-09-08 —
+  `shared/illustration/garmentLettering.js`)**: an astronaut book's
+  approved cover dressed the child in a spacesuit with an agency emblem, a
+  flag patch and a mission badge; every character-sheet candidate copied
+  that outfit faithfully (cover likeness 1.0) and every one was rejected
+  `readable text on the sheet`, because the judge's text question counted
+  the letters on the patches as sheet text, and the repair pass was then
+  asked to remove "readable text" while preserving every garment — the
+  same three candidates, durable with their verdicts, replayed the same
+  failure on every regeneration with no new render (the app's "Resume
+  saved work" could never get past it). The rule, stated ONCE for every
+  judge: lettering that is part of a garment's own design — a word, logo,
+  emblem, patch, badge, name or number ON the clothing — is judged under
+  the OUTFIT checks (correct when the reference shows it on that garment,
+  an outfit difference when it does not), never as readable, painted or
+  stray text; text on the background, a sign, a panel, beside or over the
+  figures stays text. The sheet render prompt reproduces cover garment
+  lettering exactly and forbids every OTHER text; the sheet judge asks for
+  `garment_lettering` (an inert transcript for the log) and `sheet_text`
+  (annotation text outside the clothing — the field `readable_text` is
+  retired, so an old-shaped answer is malformed, never a pass), and
+  `RECOVERY_VERSION` is `character-sheet-recovery-2` so recovery-1 roots
+  (candidates rejected for their own patches, budget exhausted) are never
+  replayed — the next dispatch renders fresh. The same exemption rides
+  caption-layout spread QA v1/v2 (`readable_text` → `painted text in the
+  illustration`), v2's `stray_lettering_or_signage`, and the gift-video
+  still judge (`text_present`, whose pins follow QA_VERSION); the coloring
+  hero/companion line-sheet prompts keep a garment's logo/patch/badge as
+  its BLANK outline shape (the shape stays, the letters go — the pages
+  that copy it stay text-free) and the line-sheet judge names that blank
+  shape as the same garment, not text. QA_VERSION `qa-16` (lenience only:
+  markers re-check, and only a page the new checker rejects re-renders);
+  STYLE_VERSION and COLORING_VERSION stay — the sheet prompts only govern
+  anchors with no elected sheet, and an elected sheet passed the stricter
+  check.
 
 - `coloring/` — **the coloring book (`cb-1`, 2026-09-07 —
   `docs/COLORING_BOOK_V2_PLAN.md`)**: companion scenes from the story world,

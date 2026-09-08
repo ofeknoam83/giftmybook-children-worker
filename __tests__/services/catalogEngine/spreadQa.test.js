@@ -47,6 +47,9 @@ describe('caption layout (no expectedText)', () => {
     expect(qa.pass).toBe(false);
     expect(qa.defects).toEqual(['painted text in the illustration']);
     expect(sentPrompt()).toMatch(/contain no\s+readable text/);
+    // qa-16: lettering on a garment is clothing, never painted text.
+    expect(sentPrompt()).toContain('is CLOTHING, not text');
+    expect(sentPrompt()).toContain('NOT lettering that is part of a character\'s clothing');
   });
 
   test('a text-free render passes', async () => {

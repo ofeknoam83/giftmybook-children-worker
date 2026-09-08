@@ -35,6 +35,7 @@ const { measureLineArt } = require('../../../../services/catalogEngine/coloring/
 const { loadCatalog } = require('../../../../services/catalogEngine/catalog');
 const { COLORING_VERSION } = require('../../../../services/catalogEngine/versions');
 const sheets = require('../../../../services/catalogEngine/coloring/sheets');
+const { resolveLineRules } = require('../../../../services/catalogEngine/coloring/lineRules');
 
 const farm = loadCatalog().themes.farm;
 const colourSheet = { base64: Buffer.from('colour').toString('base64'), mimeType: 'image/png', hash: 'abc12345' };
@@ -85,6 +86,14 @@ describe('getHeroLineSheet', () => {
     expect(uploadBufferIfAbsent).toHaveBeenCalledWith(expect.any(Buffer), `catalog-assets/coloring-sheets/${COLORING_VERSION}/anchor2-abc12345.png`, 'image/png');
     expect(uploadBuffer).toHaveBeenCalledWith(expect.any(Buffer), `catalog-assets/coloring-sheets/${COLORING_VERSION}/anchor2-abc12345.json`, 'application/json');
     expect(s.advisories.map(a => a.note)).toEqual(['hero sheet candidate 2 rejected: readable text on the sheet']);
+  });
+  test('the hero and companion line-sheet prompts keep garment lettering as a blank shape (2026-09-08)', () => {
+    const rules = resolveLineRules('4-5');
+    const hero = sheets.buildHeroSheetPrompt({ outfitSpecText: 'a white spacesuit with a red patch', name: 'Emma', rules });
+    expect(hero).toContain('GARMENT LETTERING: a logo, patch, badge, label, name or number on a garment in REFERENCE IMAGE 1 keeps its OUTLINE SHAPE');
+    expect(hero.indexOf('GARMENT LETTERING')).toBeLessThan(hero.indexOf('NO TEXT'));
+    const companion = sheets.buildCompanionSheetPrompt({ companion: { name: 'Farmer Bea', type: 'friendly adult farm guide', human: true, specText: 'blue overalls' }, rules });
+    expect(companion).toContain('GARMENT LETTERING');
   });
   test('a lost creation race adopts the winning object', async () => {
     callGeminiImageParts.mockResolvedValue(imageResponse('local'));
