@@ -339,6 +339,8 @@ const VIDEO_VERSION = 'gv-2';
 const FULL_STORY_VIDEO_VERSION = 'gfs-1';
 /** Video-only prop filtering; keep existing artwork, speech and unaffected clips. */
 const FILM_REFERENCE_VERSION = 'gfr-1';
+/** Direct saved-kit inputs and cached text-removal edits, without illustration QA. */
+const FILM_INPUT_VERSION = 'gfi-1';
 /** Isolated critical-object set repairs during scene recovery. */
 const OBJECT_SET_REPAIR_VERSION = 'ocr-1';
 
@@ -392,6 +394,7 @@ module.exports = {
   VIDEO_VERSION,
   FULL_STORY_VIDEO_VERSION,
   FILM_REFERENCE_VERSION,
+  FILM_INPUT_VERSION,
   OBJECT_SET_REPAIR_VERSION,
   COLORING_VERSION,
   COLORING_QA_VERSION,

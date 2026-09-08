@@ -30,7 +30,13 @@ The elected sheet paths/style version are unchanged, so previously verified char
 
 ## Film preparation
 
-The full film prepares and checks its text-free scenes before recording missing speech or buying motion clips. It retains exact-text narration checks. Blocked scene checks preserve approved audio and clean scenes. A private screenplay-scoped `.resume.json` records frames, references, approved takes and outstanding work; the existing media and verdict caches remain the authoritative resume mechanism. Shot cache keys depend on their audio/frame/direction/references instead of the whole film’s frame set.
+Full-story films now use direct Kling inputs (`FILM_INPUT_VERSION=gfi-1`). They load the completed book's saved `bible.json` and essential character/companion/story-object sheets without rebuilding the kit or invoking illustration QA. The saved cover identity must match; missing assets still fail explicitly. Personalization and noncritical prop sheets are omitted. The seven-reference model limit remains enforced.
+
+Plain source pages are prepared directly. Pages with embedded story text receive a cached, source-content-keyed text-removal edit under `gift-video/inputs/gfi-1`, preserving the book's original artwork. This is an image edit, not a visual approval. Its two durable attempts retain provider refusals and prevent duplicate active purchases. No image-provider or Kling safety settings change.
+
+The film does not invoke scene, text, object-consistency, clip-visual or performance review. Historical illustration QA failures therefore cannot block its input preparation. Output records explicitly report visual/text QA as `not_run`; they never fabricate passing verdicts. The generated film can retain visual imperfections, including lettering if a text-removal edit is incomplete. Existing book and short-trailer review behavior is unchanged.
+
+Exact-text narration, lip-sync generation, media decoding and duration checks remain. New clips use `.media.json` markers describing technical validation, separate from historical `.qa.json` approvals. Film/shot hashes include the direct-input version, while screenplay and narration namespaces stay fixed. A private screenplay-scoped `.resume.json` records frames, references, approved takes and outstanding work. Retry after deploying this worker resumes through the existing app action; the Gemini 2.5 Pro review configuration is not needed for this full-story path.
 
 Previously completed film manifests remain readable. Approved partial clips under the legacy whole-film key are migrated when that exact film hash still matches and the clip bytes match their passing marker. Old unverified or incompatible clips cannot supply approval. Narration and still cache keys are preserved.
 
