@@ -21,7 +21,8 @@ const { generateCandidates } = require('./generate');
 const { syncDialogue, LIPSYNC_VERSION } = require('./filmPerformance');
 const { manuscriptUnits, validateDirection, directScript, hash, filmError } = require('./filmScript');
 const { speechShots, shotCommand, finishCommand } = require('./filmMedia');
-const { selectFilmReferenceSheets } = require('./filmReferences');
+const { selectFilmReferenceSheets, shotReferenceSheets } = require('./filmReferences');
+const { imageBudget } = require('./providers/models');
 const ffmpeg = require('./ffmpeg');
 const { FULL_STORY_VIDEO_VERSION, FILM_REFERENCE_VERSION, FILM_INPUT_VERSION, AUDIO_QA_VERSION } = require('../versions');
 
@@ -159,11 +160,26 @@ async function generateFullStoryFilm(p) {
     if (!bible.sheet?.base64) throw filmError('The film’s character reference sheet is missing.', 'identity_kit_failed');
     const { sheets, omittedProps } = selectFilmReferenceSheets(bible);
     if (omittedProps.length) log('info', `Video references omit ${omittedProps.length} noncritical props: ${omittedProps.join(', ')}`);
-    const references = [];
-    for (const { kind, sheet } of sheets) {
-      const url = await storage.uploadBuffer(Buffer.from(sheet.base64, 'base64'), `${base}/refs/${sheet.hash}.png`, sheet.mimeType || 'image/png');
-      references.push({ kind, urls: [url], hash: sheet.hash });
+    // Kling counts the start frame toward its seven-picture limit, so a shot
+    // attaches at most six sheets: the kit is split BY SCENE — the child and
+    // companion always, then the props that scene stages — never sent whole.
+    const budget = imageBudget(provider.profile, { startFrame: true, endFrame: false });
+    const references = sheets.map(({ kind, sheet }) => ({ kind, hash: sheet.hash }));
+    const referenceUrls = new Map();
+    const referencesBySpread = new Map();
+    const trimmedReferences = [];
+    for (const entry of entries) {
+      const shot = shotReferenceSheets(sheets, { spread: entry.spread, budget: budget.references, storyObjects: bible.storyObjects });
+      const refs = [];
+      for (const { kind, sheet } of shot.sheets) {
+        if (!referenceUrls.has(sheet.hash)) referenceUrls.set(sheet.hash, await storage.uploadBuffer(Buffer.from(sheet.base64, 'base64'), `${base}/refs/${sheet.hash}.png`, sheet.mimeType || 'image/png'));
+        refs.push({ kind, urls: [referenceUrls.get(sheet.hash)], hash: sheet.hash });
+      }
+      referencesBySpread.set(entry.spread, refs);
+      if (shot.omitted.length) trimmedReferences.push({ spread: entry.spread, omitted: shot.omitted });
     }
+    const trimmedNote = trimmedReferences.map(t => `spread ${t.spread} omits ${t.omitted.join(', ')}`).join('; ');
+    if (trimmedReferences.length) log('warn', `Video references are held to ${provider.model}'s ${budget.limit}-image limit (the start frame + ${budget.references} references per shot): ${trimmedNote}`);
     const frames = new Map();
     await checkpoint({ scriptKey, scriptHash: script.hash, stage: 'scene_preparation', recovery: null });
     const stills = [];
@@ -179,7 +195,7 @@ async function generateFullStoryFilm(p) {
     }
     await checkpoint({ scriptKey, scriptHash: script.hash, stills,
       frames: [...frames].map(([spread, frame]) => ({ spread, hash: frame.hash, storageKey: frame.storageKey })),
-      references: references.map(r => ({ kind: r.kind, hash: r.hash })), omittedVideoProps: omittedProps, stage: 'scenes_prepared' });
+      references, omittedVideoProps: omittedProps, shotReferences: trimmedReferences, stage: 'scenes_prepared' });
 
     report(0.14, 'Recording the complete story with the cast…');
     const shots = [];
@@ -206,8 +222,11 @@ async function generateFullStoryFilm(p) {
 
     const filmHash = hash({ version: FULL_STORY_VIDEO_VERSION, script: script.hash, audio: shots.map(s => hash(s.audio)),
       // Changed reference sets cannot replay an old film or legacy shot.
-      // Unchanged kits keep their existing cache keys.
-      ...(omittedProps.length ? { references: { version: FILM_REFERENCE_VERSION, sheets: references.map(r => [r.kind, r.hash]) } } : {}),
+      // Unchanged kits keep their existing cache keys; a kit split by scene
+      // folds every shot's own list (before the split such a kit never
+      // reached the vendor, so nothing existing re-keys).
+      ...(omittedProps.length || trimmedReferences.length ? { references: { version: FILM_REFERENCE_VERSION, sheets: references.map(r => [r.kind, r.hash]),
+        ...(trimmedReferences.length ? { shots: entries.map(e => [e.spread, referencesBySpread.get(e.spread).map(r => r.hash)]) } : {}) } } : {}),
       frames: [...frames.values()].map(f => f.hash), bible: bible.hash, provider: provider.model, aspect, language, music, seed: p.seed,
       modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null, inputs: FILM_INPUT_VERSION, audioQa: AUDIO_QA_VERSION, lipsync: LIPSYNC_VERSION });
     const filmDir = `${base}/${filmHash}`;
@@ -226,10 +245,11 @@ async function generateFullStoryFilm(p) {
         checkAbort();
         const dir = path.join(tmp, `s${shot.index}`); await fs.promises.mkdir(dir);
         const audioFile = path.join(dir, 'voice.wav'); await fs.promises.writeFile(audioFile, shot.audio);
-        const brief = filmBrief(shot, { story, bookDef, profile, script, references });
+        const shotReferences = referencesBySpread.get(shot.spread);
+        const brief = filmBrief(shot, { story, bookDef, profile, script, references: shotReferences });
         const startFrame = sceneFrames.get(shot.spread);
         const shotHash = hash({ version: FULL_STORY_VIDEO_VERSION, shot: shot.index, brief: brief.hash, audio: hash(shot.audio),
-          startFrame: startFrame.hash, references: references.map(r => [r.kind, r.hash]),
+          startFrame: startFrame.hash, references: shotReferences.map(r => [r.kind, r.hash]),
           provider: provider.model, aspect, seed: p.seed, modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null,
           inputs: FILM_INPUT_VERSION, audioQa: AUDIO_QA_VERSION, lipsync: LIPSYNC_VERSION });
         const key = `${base}/shots/${shotHash}.mp4`;
@@ -261,7 +281,7 @@ async function generateFullStoryFilm(p) {
             checkAbort();
             const attemptBrief = pass ? { ...brief, prompt: `${brief.prompt}\nRepair these observed defects: ${defects.join('; ')}` } : brief;
             const gen = await generateCandidates({ bookId, segment: { index: shot.index, seconds: shot.seconds, requestedSeconds: shot.seconds },
-              brief: attemptBrief, startFrame, references, provider, aspect, n: 1, pass,
+              brief: attemptBrief, startFrame, references: shotReferences, provider, aspect, n: 1, pass,
               seed: p.seed, token: p.providerToken, costTracker, ctx: { touch, log, abortSignal: p.abortSignal },
               canonicalKey: `${base}/motion/${shotHash}.mp4`, clipHash: shotHash, forceNew: !!p.forceNew, persistJobs: true });
             const candidate = gen.candidates[0];
@@ -334,6 +354,7 @@ async function generateFullStoryFilm(p) {
     const result = { video, mode: 'full-story', visualQa: { status: 'not_run', inputVersion: FILM_INPUT_VERSION }, language, plan, stills, textGate: stills.map(s => ({ spread: s.spread, checked: false, status: 'not_run' })),
       bookBible: await summarizeBible(bible), provider: provider.provider, model: provider.model, unresolved: [], advisories: [],
       warnings: [...(omittedProps.length ? [`Video reference images omit noncritical props: ${omittedProps.join(', ')}. Source artwork is unchanged.`] : []),
+        ...(trimmedReferences.length ? [`Video reference images are held to ${provider.model}'s ${budget.limit}-image limit (the start frame + ${budget.references} references per shot): ${trimmedNote}. Each scene's own illustration still shows them; source artwork is unchanged.`] : []),
         'Visual review was not run for this film.'],
       cast: Object.values(script.cast).map(c => ({ role: c.id, name: c.name, voiceKey: c.voiceKey })), planHash: filmHash };
     await storage.saveJson(result, manifestKey);

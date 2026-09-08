@@ -170,6 +170,14 @@
  *  - CATALOG_VIDEO_ELEMENTS=0      — (gv-1) stop attaching the identity kit as
  *                                   the video model's reference elements
  *                                   (start frame + prompt only).
+ *  - CATALOG_VIDEO_MAX_IMAGES=N    — (gv-2, 2026-09-08) the pictures ONE clip
+ *                                   request may carry in total — start frame,
+ *                                   end frame and every reference image or
+ *                                   element together (3-32). Unset/0: the
+ *                                   model profile's own limit (Kling: 7, the
+ *                                   vendor's error 1201). References beyond
+ *                                   what the frames leave are omitted loudly,
+ *                                   lowest priority first — never sent.
  *  - CATALOG_VIDEO_SCENES=N        — (gv-2) illustrations the single take
  *                                   travels through (1-4, default 3) — the
  *                                   still-selection gate picks the best N.
@@ -301,6 +309,7 @@ module.exports = {
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
   videoModel: () => String(process.env.CATALOG_VIDEO_MODEL || 'kwaivgi/kling-v3-video').trim(),
   videoElementsEnabled: () => !envOff('CATALOG_VIDEO_ELEMENTS'),
+  videoMaxImages: () => envInt('CATALOG_VIDEO_MAX_IMAGES', 0, 3, 32),
   // gv-2 — one single-take film through the best stills
   videoSceneCount: () => envInt('CATALOG_VIDEO_SCENES', 3, 1, 4),
   videoEndFrameEnabled: () => !envOff('CATALOG_VIDEO_END_FRAME'),

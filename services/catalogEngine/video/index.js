@@ -37,6 +37,8 @@ const { buildJourneyBrief, repairBrief } = require('./brief');
 const { validateRenders, fetchStill, prepareStartFrame, contentHash } = require('./stills');
 const { judgeStill, rankStills } = require('./stillSelect');
 const { resolveProvider } = require('./providers');
+const { imageBudget } = require('./providers/models');
+const { keepWithinBudget } = require('./filmReferences');
 const { generateCandidates, videoBase } = require('./generate');
 const { verifyClip } = require('./verify');
 const ffmpeg = require('./ffmpeg');
@@ -389,13 +391,25 @@ async function generateGiftVideo(p) {
       bathWater: !!beat && isModestBathWaterScene(`${beat.beat} ${spreadText}`),
     };
   });
-  const references = [characterRef];
-  if (companionRef && actContents.some(a => a.companion)) references.push(companionRef);
+  const kit = [characterRef];
+  if (companionRef && actContents.some(a => a.companion)) kit.push(companionRef);
   const propValues = [...new Set(actContents.flatMap(a => a.propValues))];
   const declaredValues = new Set(actContents.flatMap(a => a.declared));
   for (const v of propValues) {
     const r = propRefs.get(normalizePropValue(v));
-    if (r && !references.includes(r)) references.push(r);
+    if (r && !kit.includes(r)) kit.push(r);
+  }
+  // The vendor counts the start and end frames toward its picture limit
+  // (Kling: seven, error 1201), so the kit is held to what the frames
+  // leave — the child, the companion, the acts' declared props, then the
+  // carried ones; an omitted reference rides as an advisory, never a
+  // rejected request (the start frame already shows the prop).
+  const budget = imageBudget(provider.profile, { startFrame: true, endFrame: !!endFrame });
+  const kept = keepWithinBudget(kit, budget.references, r => (r.kind === 'character' ? 0 : r.kind === 'companion' ? 1 : declaredValues.has(r.value) ? 2 : 3));
+  const references = kept.kept;
+  if (kept.omitted.length) {
+    advisories.push({ stage: 'video', note: `${provider.model} accepts at most ${budget.limit} images per request (start frame, end frame and references together): the take attaches ${references.length} of ${kit.length} references — omitted: ${kept.omitted.map(r => r.value || r.kind).join(', ')} (the start frame shows them; CATALOG_VIDEO_MAX_IMAGES adjusts the limit)` });
+    log('warn', `references held to ${provider.model}'s ${budget.limit}-image limit: omitted ${kept.omitted.map(r => r.value || r.kind).join(', ')}`);
   }
   const brief = buildJourneyBrief({ segment, name: profile.name, acts: actContents, references, theme, ageBand, endFrame: !!endFrame });
   const checks = {

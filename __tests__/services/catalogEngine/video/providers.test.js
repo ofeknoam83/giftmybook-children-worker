@@ -12,7 +12,7 @@ jest.mock('../../../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(), getNextApiKey: jest.fn(() => 'k'), downloadPhotoAsBase64: jest.fn(), isModestBathWaterScene: jest.fn(() => false),
 }));
 
-const { modelProfile, clipSecondsFor, KLING_DURATIONS } = require('../../../../services/catalogEngine/video/providers/models');
+const { modelProfile, clipSecondsFor, imageBudget, imageLimitFor, KLING_DURATIONS, KLING_IMAGE_LIMIT } = require('../../../../services/catalogEngine/video/providers/models');
 const { resolveProvider, allowedProviders } = require('../../../../services/catalogEngine/video/providers');
 const replicate = require('../../../../services/catalogEngine/video/providers/replicate');
 const { buildJourneyBrief } = require('../../../../services/catalogEngine/video/brief');
@@ -55,6 +55,52 @@ describe('model profile', () => {
   });
   test('unknown models have no profile', () => {
     expect(modelProfile('someone/else')).toBeNull();
+  });
+});
+
+describe('the image budget (Kling error 1201: start frame + end frame + references ≤ 7)', () => {
+  afterEach(() => { delete process.env.CATALOG_VIDEO_MAX_IMAGES; });
+  const refs = n => Array.from({ length: n }, (_, i) => ({ kind: 'prop', value: `p${i}`, urls: [`https://s/p${i}.png`] }));
+  test('both Kling profiles declare the limit; the budget is what the frames leave', () => {
+    expect(KLING_IMAGE_LIMIT).toBe(7);
+    for (const id of ['kwaivgi/kling-v3-omni-video', 'kwaivgi/kling-v3-video']) {
+      const p = modelProfile(id);
+      expect(p.imageLimit).toBe(7);
+      expect(imageBudget(p)).toEqual({ limit: 7, frames: 1, references: 6 });
+      expect(imageBudget(p, { startFrame: true, endFrame: true })).toEqual({ limit: 7, frames: 2, references: 5 });
+    }
+    expect(imageBudget(null)).toEqual({ limit: Infinity, frames: 1, references: Infinity });
+    expect(imageBudget({ imageLimit: 3 }, { startFrame: true, endFrame: true })).toEqual({ limit: 3, frames: 2, references: 1 });
+  });
+  test('CATALOG_VIDEO_MAX_IMAGES overrides the profile limit (3-32; anything else keeps it)', () => {
+    const p = modelProfile('kwaivgi/kling-v3-omni-video');
+    process.env.CATALOG_VIDEO_MAX_IMAGES = '9';
+    expect(imageLimitFor(p)).toBe(9);
+    expect(imageBudget(p, { endFrame: true }).references).toBe(7);
+    expect(imageBudget(null).limit).toBe(9);
+    process.env.CATALOG_VIDEO_MAX_IMAGES = '2';
+    expect(imageLimitFor(p)).toBe(7);
+    process.env.CATALOG_VIDEO_MAX_IMAGES = 'lots';
+    expect(imageLimitFor(p)).toBe(7);
+  });
+  test('the Omni input counts its frames: one start frame + seven references is the request that failed', () => {
+    const p = modelProfile('kwaivgi/kling-v3-omni-video');
+    const omni = (n, end) => p.input({ brief: { prompt: 'x' }, startFrameUrl: 'https://s/f.jpg', endFrameUrl: end ? 'https://s/e.jpg' : null, referenceUrls: refs(n), seconds: 5, aspect: '16:9' });
+    expect(omni(6, false).reference_images).toHaveLength(6);
+    expect(omni(5, true).reference_images).toHaveLength(5);
+    expect(() => omni(7, false)).toThrow(/at most 7 images per request .*carries 8/);
+    expect(() => omni(6, true)).toThrow(/carries 8/);
+    try { omni(7, false); } catch (err) { expect(err.failureCode).toBe('video_provider_input_rejected'); }
+    process.env.CATALOG_VIDEO_MAX_IMAGES = '10';
+    expect(omni(7, true).reference_images).toHaveLength(7);
+  });
+  test('the Kling 3.0 elements input counts each element beside its frames; elements off sends none', () => {
+    const p = modelProfile('kwaivgi/kling-v3-video');
+    const kling = (n, end, elements = true) => p.input({ ...job, endFrameUrl: end ? job.endFrameUrl : null, referenceUrls: refs(n) }, { elements });
+    expect(kling(5, true).elements).toHaveLength(5);
+    expect(kling(6, false).elements).toHaveLength(6);
+    expect(() => kling(6, true)).toThrow(/reference elements together.*carries 8/);
+    expect(kling(9, true, false).elements).toBeUndefined();
   });
 });
 
