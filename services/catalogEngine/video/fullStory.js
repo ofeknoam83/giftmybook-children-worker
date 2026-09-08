@@ -18,7 +18,7 @@ const { buildMixCommand } = require('../audio/mix');
 const { resolveProvider } = require('./providers');
 const { validateRenders, prepareStartFrame } = require('./stills');
 const { generateCandidates } = require('./generate');
-const { syncDialogue, LIPSYNC_VERSION } = require('./filmPerformance');
+const { syncDialogue, LIPSYNC_VERSION, LEGACY_LIPSYNC_VERSION, validateLipsyncModel } = require('./filmPerformance');
 const { manuscriptUnits, validateDirection, directScript, hash, filmError } = require('./filmScript');
 const { speechShots, shotCommand, finishCommand } = require('./filmMedia');
 const { selectFilmReferenceSheets, shotReferenceSheets } = require('./filmReferences');
@@ -239,6 +239,7 @@ async function generateFullStoryFilm(p) {
     if (existing?.video && await storage.objectExists(existing.video.storageKey)) {
       return { ...existing, video: { ...existing.video, url: await storage.getSignedUrl(existing.video.storageKey, TTL), posterUrl: await storage.getSignedUrl(existing.video.posterKey, TTL), cached: true } };
     }
+    if (shots.some(shot => shot.speaker !== 'narrator')) await validateLipsyncModel(p.providerToken);
     const plan = []; const takes = []; let finished = 0;
     const sceneFrames = new Map(frames);
     // Keep all sibling tasks joined before cleaning the shared temporary directory.
@@ -252,10 +253,14 @@ async function generateFullStoryFilm(p) {
         const shotReferences = referencesBySpread.get(shot.spread);
         const brief = filmBrief(shot, { story, bookDef, profile, script, references: shotReferences });
         const startFrame = sceneFrames.get(shot.spread);
-        const shotHash = hash({ version: FULL_STORY_VIDEO_VERSION, shot: shot.index, brief: brief.hash, audio: hash(shot.audio),
+        const shotIdentity = { version: FULL_STORY_VIDEO_VERSION, shot: shot.index, brief: brief.hash, audio: hash(shot.audio),
           startFrame: startFrame.hash, references: shotReferences.map(r => [r.kind, r.hash]),
           provider: provider.model, aspect, seed: p.seed, modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null,
-          inputs: FILM_INPUT_VERSION, audioQa: AUDIO_QA_VERSION, lipsync: LIPSYNC_VERSION });
+          inputs: FILM_INPUT_VERSION, audioQa: AUDIO_QA_VERSION };
+        // Raw Kling motion is independent of the later lip-sync revision.
+        // Retain its established cache identity and pending predictions.
+        const motionHash = hash({ ...shotIdentity, lipsync: LEGACY_LIPSYNC_VERSION });
+        const shotHash = shot.speaker === 'narrator' ? motionHash : hash({ ...shotIdentity, lipsync: LIPSYNC_VERSION });
         const key = `${base}/shots/${shotHash}.mp4`;
         let marker = !p.forceNew && await storage.loadJson(`${key}.media.json`).catch(() => null);
         let buffer = marker?.validation === 'media' ? await storage.downloadBuffer(key).catch(() => null) : null;
@@ -277,7 +282,7 @@ async function generateFullStoryFilm(p) {
         const score = marker?.score ?? null;
         if (!buffer) {
           let defects = [];
-          const attemptKey = `${key}.attempt.json`;
+          const attemptKey = `${base}/shots/${motionHash}.mp4.attempt.json`;
           const attempt = !p.forceNew && await storage.loadJson(attemptKey).catch(() => null);
           const firstPass = Number.isInteger(attempt?.nextPass) ? attempt.nextPass : 0;
           if (firstPass >= 6) throw filmError(`Spread ${shot.spread}: six animation attempts failed. Review the source illustration or use a fresh regeneration.`, 'film_scene_unresolved');
@@ -287,7 +292,7 @@ async function generateFullStoryFilm(p) {
             const gen = await generateCandidates({ bookId, segment: { index: shot.index, seconds: shot.seconds, requestedSeconds: shot.seconds },
               brief: attemptBrief, startFrame, references: shotReferences, provider, aspect, n: 1, pass,
               seed: p.seed, token: p.providerToken, costTracker, ctx: { touch, log, abortSignal: p.abortSignal },
-              canonicalKey: `${base}/motion/${shotHash}.mp4`, clipHash: shotHash, forceNew: !!p.forceNew, persistJobs: true, waitForPersistedJob: true });
+              canonicalKey: `${base}/motion/${motionHash}.mp4`, clipHash: motionHash, forceNew: !!p.forceNew, persistJobs: true, waitForPersistedJob: true });
             const candidate = gen.candidates[0];
             if (candidate?.status !== 'done' || !candidate.buffer) throw filmError(`Scene ${shot.spread}: ${candidate?.error || 'animation unavailable'}`, 'film_animation_failed');
             let animated = candidate.buffer;

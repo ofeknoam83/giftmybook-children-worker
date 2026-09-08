@@ -121,4 +121,19 @@ async function download(url) {
   }
 }
 
-module.exports = { name: 'replicate', submit, poll, download, tokenFor, FILTER_RE };
+// Read-only preflight before paid animation. Official models have a stable
+// model-name endpoint; their internal versions must not become request pins.
+async function checkOfficialModel(job) {
+  if (!/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(job.model)) {
+    throw Object.assign(new Error('Invalid lip-sync model name'), { failureCode: 'film_lipsync_unavailable' });
+  }
+  const r = await fetchJson(`${API}/models/${job.model}`, {
+    method: 'GET', headers: { Authorization: `Bearer ${tokenFor(job)}` },
+  }, 30000);
+  if (!r.ok || r.data?.is_official !== true || `${r.data.owner}/${r.data.name}` !== job.model) {
+    throw Object.assign(new Error(`Official lip-sync model is unavailable (HTTP ${r.status}); saved media retained`), { failureCode: 'film_lipsync_unavailable' });
+  }
+  return true;
+}
+
+module.exports = { name: 'replicate', checkOfficialModel, submit, poll, download, tokenFor, FILTER_RE };

@@ -4,9 +4,16 @@ const { directorJson, filmError, hash } = require('./filmScript');
 const { downloadBuffer, uploadBuffer, loadJson, saveJson } = require('../../gcsStorage');
 const { FULL_STORY_VIDEO_VERSION } = require('../versions');
 
-// Verified against https://replicate.com/sync/lipsync-2/api/schema, 2026-09-07.
+// Verified against https://replicate.com/sync/lipsync-2/api/schema, 2026-09-08 (authenticated model metadata).
 const LIPSYNC_MODEL = 'sync/lipsync-2';
-const LIPSYNC_VERSION = '7b7e4a336f685549d747284c82cebe20bbcc0df3693284fb440c359b7e8bc34f';
+const LEGACY_LIPSYNC_VERSION = '7b7e4a336f685549d747284c82cebe20bbcc0df3693284fb440c359b7e8bc34f';
+// Cache recipe version, not a Replicate version pin: official models use
+// their stable model-name endpoint. Keep raw motion keys on the legacy tag.
+const LIPSYNC_VERSION = 'sync-lipsync-2-official-v1';
+
+async function validateLipsyncModel(token) {
+  await replicate.checkOfficialModel({ model: LIPSYNC_MODEL, token });
+}
 
 /** Poll a persisted prediction so restarts do not submit it twice. */
 async function syncDialogue({ base, video, audio, seconds, token, signal, touch = () => {}, costTracker, forceNew = false, pollIntervalMs = 10000 }) {
@@ -19,7 +26,7 @@ async function syncDialogue({ base, video, audio, seconds, token, signal, touch 
   const jobKey = `${base}/sync/${identity}-job.json`;
   let ref = !forceNew && await loadJson(jobKey).catch(() => null);
   if (!ref?.jobId) {
-    ref = await replicate.submit({ model: LIPSYNC_MODEL, version: LIPSYNC_VERSION, token,
+    ref = await replicate.submit({ model: LIPSYNC_MODEL, token,
       input: { video: videoUrl, audio: audioUrl, sync_mode: 'silence', active_speaker: true, temperature: 0.35 } });
     await saveJson({ ...ref, submittedAt: new Date().toISOString() }, jobKey);
     if (costTracker) costTracker.addVideoSeconds(LIPSYNC_MODEL, seconds);
@@ -63,4 +70,4 @@ async function checkPerformance({ buffer, speaker, reference, speechStart, speec
   return { pass: fields.every(k => verdict[k]), defects: fields.filter(k => !verdict[k]).map(k => `dialogue performance: ${k.replace(/_/g, ' ')}`) };
 }
 
-module.exports = { LIPSYNC_MODEL, LIPSYNC_VERSION, syncDialogue, checkPerformance };
+module.exports = { LIPSYNC_MODEL, LIPSYNC_VERSION, LEGACY_LIPSYNC_VERSION, validateLipsyncModel, syncDialogue, checkPerformance };
