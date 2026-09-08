@@ -398,7 +398,7 @@ test('repairNoteV2 restates only pinned data for the ce-9 defect classes, keepin
 });
 
 describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'s footprint', () => {
-  const { textSizeRatio, TEXT_TOO_LARGE_RATIO, TEXT_OVERSIZED_RATIO } = require('../../../services/catalogEngine/illustrator/spreadQa');
+  const { textSizeRatio } = require('../../../services/catalogEngine/illustrator/spreadQa');
   const TEXT = 'Aaron checked the ground nearby first. No cracked earth, no steep drop, no thorny patch blocked the way.';
   const block = { widthPercent: 18, heightPercent: 11.2 }; // a 4-row block at the fixed size
   const textOpts = (over = {}) => ({ label: 't', expectedText: TEXT, expectedBlock: block, ...over });
@@ -414,30 +414,27 @@ describe('qa-7 (ce-15): the size ruler holds the judged text bbox to the block\'
     expect(textSizeRatio({ x: 0.07, y: 0.3, w: 0.18, h: 0.224 }, block)).toBe(2); // a bigger face
     expect(textSizeRatio(null, block)).toBeNull();
     expect(textSizeRatio({ x: 0, y: 0, w: 0.2, h: 0.2 }, null)).toBeNull();
-    // qa-12 restored the ce-16 ruler: the 2026-09-05 4×/2× relaxation let a
-    // block at TWICE its footprint (subtitle scale) ship as an advisory.
-    expect(TEXT_TOO_LARGE_RATIO).toBe(1.5);
-    expect(TEXT_OVERSIZED_RATIO).toBe(1.25);
+
   });
 
-  test('1.3× is advisory, modest variation is clean, and a block at twice its footprint BLOCKS (qa-12)', async () => {
+  test('text size remains a ranking metric at 1.3×, 2× and 4× without blocking or advisory defects', async () => {
     // Keep the width away from the fold; vary height to isolate the size rule.
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.18, h: 0.146 })));
     const oversized = await checkSpreadRenderV2(IMG, textOpts());
     expect(oversized.blocking).toEqual([]);
-    expect(oversized.advisory).toEqual([expect.stringContaining('oversized (about 1.3×')]);
+    expect(oversized.defects).toEqual([]);
+    expect(oversized.textSizeRatio).toBe(1.3);
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.2, h: 0.12 })));
     const modest = await checkSpreadRenderV2(IMG, textOpts());
     expect(modest.defects).toEqual([]);
-    // The underwater book's second spread: rows twice as wide and tall as
-    // the drawn template — the "subtitle" block — is blocking, so the
-    // repair loop spends on it and it can never be elected as a reference.
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.56, y: 0.14, w: 0.36, h: 0.224 })));
     const subtitle = await checkSpreadRenderV2(IMG, textOpts());
-    expect(subtitle.blocking).toEqual([expect.stringContaining('too large (about 2×')]);
+    expect(subtitle.defects).toEqual([]);
+    expect(subtitle.textSizeRatio).toBe(2);
     fetchWithTimeout.mockResolvedValueOnce(answer(textVerdict({ x: 0.07, y: 0.3, w: 0.18, h: 0.448 })));
     const extreme = await checkSpreadRenderV2(IMG, textOpts());
-    expect(extreme.blocking).toEqual([expect.stringContaining('too large (about 4×')]);
+    expect(extreme.defects).toEqual([]);
+    expect(extreme.textSizeRatio).toBe(4);
   });
 
   test('no footprint or no bbox ⇒ no size verdict (fail-open); the fold check is untouched', async () => {

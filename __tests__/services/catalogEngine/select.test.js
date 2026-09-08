@@ -86,6 +86,15 @@ describe('ce-16: the measured text size shades selection — the smaller painted
   const { scoreCandidate, pickBest, WEIGHTS } = require('../../../services/catalogEngine/illustrator/select');
   const clean = (k, textSizeRatio) => ({ k, qa: { pass: true, blocking: [], advisory: [], textSizeRatio }, metrics: null });
 
+  test('automatically picks the best available candidate even when every text block exceeds 1.5×', () => {
+    const candidates = [clean(1, 2), clean(2, 1.6), clean(3, 4)];
+    for (const candidate of candidates) candidate.score = scoreCandidate(candidate);
+    const best = pickBest(candidates, { preferTypographyAnchor: true });
+    expect(best.k).toBe(2);
+    expect(isClean(best)).toBe(true);
+    expect(residualBlocking(best)).toEqual([]);
+  });
+
   test('excess over the footprint costs points; at or under the footprint costs nothing', () => {
     const on = { ...clean(1, 1.0), score: 0 };
     on.score = scoreCandidate(on);

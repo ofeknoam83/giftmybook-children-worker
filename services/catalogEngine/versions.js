@@ -323,7 +323,8 @@ const SCENE_INTEGRATION_VERSION = 'si-1';
  * with its own repair note (BODY REPAIR / LIMB REPAIR). qa-13 markers never
  * asked either question — replays re-check.
  */
-const QA_VERSION = 'qa-14';
+/** qa-15: text footprint affects candidate ranking only, never blocks a spread. */
+const QA_VERSION = 'qa-15';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip

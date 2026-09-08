@@ -72,6 +72,8 @@ For books with saved pages, the matching previous bible's unused sheet metadata 
 
 ## Local validation
 
+Illustration QA `qa-15` no longer emits `embedded story text too large` or `embedded story text oversized` findings. The measured footprint remains a candidate-score input, so selection automatically chooses the best available checked image even when every candidate exceeds the target size. Size alone does not buy repair renders or leave a spread unresolved. Missing/garbled text, gutter placement and other quality checks remain active. An oversized winner can be used as a page without being copied as the whole book's typography reference. Older QA markers are rechecked on resume against the new classification while keeping existing image cache paths.
+
 Run the catalog regression suite, cost tracker and worker video route tests with mocked providers:
 
 ```sh
