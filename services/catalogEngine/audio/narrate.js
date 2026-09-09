@@ -20,7 +20,7 @@ const { AUDIO_VERSION, AUDIO_QA_VERSION } = require('../versions');
 const { uploadBuffer, downloadBuffer, loadJson } = require('../../gcsStorage');
 const { fnv1a } = require('../selection');
 const { measureTake } = require('./metrics');
-const { checkTake, repairNote, classifyTakeDefects } = require('./takeQa');
+const { DEFECTS, checkTake, repairNote, classifyTakeDefects } = require('./takeQa');
 const { scoreTake, takeCandidateKey, pickBest, compareCandidates, residualBlocking } = require('./select');
 const { directionWords, paceWords, controlWords, expectedTiming, normalizeSpoken } = require('./script');
 const flags = require('../flags');
@@ -123,6 +123,7 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
 
   // ── Replay ──────────────────────────────────────────────────────────────
   let marker = !forceRetake && await loadJson(`${canonical}.qa.json`).catch(() => null);
+  if (marker) marker = reclassifyPaceMarker(marker, expectedText);
   if (!forceRetake) {
     const speechOnly = marker?.qa && !marker.qa.qaUnavailable && Array.isArray(marker.qa.blocking)
       && marker.qa.blocking.every(d => d.startsWith('narration text mismatch'))
@@ -256,6 +257,29 @@ async function renderChunk({ bookId, segment, chunk, voice, adapter, provider, c
 }
 
 /**
+ * A saved verdict whose ONLY blocking finding is the duration window, on a
+ * take whose transcript carried every word, is the take-judge's old
+ * classification (before 2026-09-09 the window blocked even a verified
+ * read): it is re-read as the pace advisory it is now, so the recording
+ * replays instead of being bought again. Any other blocking finding, or a
+ * transcript that does not match, leaves the marker untouched.
+ * @param {object} marker the `.qa.json` marker
+ * @param {string} expectedText
+ * @returns {object}
+ */
+function reclassifyPaceMarker(marker, expectedText) {
+  const blocking = marker && marker.qa && Array.isArray(marker.qa.blocking) ? marker.qa.blocking : null;
+  if (!blocking || !blocking.length || marker.adminPicked) return marker;
+  if (!blocking.every(d => String(d).startsWith(DEFECTS.DURATION_OFF))) return marker;
+  const heard = normalizeSpoken(marker.transcript);
+  if (!heard || heard !== normalizeSpoken(expectedText)) return marker;
+  const advisory = [...(marker.qa.advisory || []), ...blocking.map(d => String(d).replace(DEFECTS.DURATION_OFF, DEFECTS.PACE_OFF))];
+  const next = { ...marker, qa: { ...marker.qa, blocking: [], advisory }, unresolved: false, reclassified: 'pace' };
+  next.score = scoreTake(next);
+  return next;
+}
+
+/**
  * Render every chunk of a segment (sequentially — the chunks of one spread
  * are few and their order is the read's).
  * @param {object} p renderChunk's params minus `chunk`/`voice`, plus `cast`
@@ -271,4 +295,4 @@ async function renderSegment(p) {
   return { index: segment.index, kind: segment.kind, spread: segment.spread, chunks, unresolved: chunks.some(c => c.unresolved), cached: chunks.every(c => c.cached) };
 }
 
-module.exports = { RUNGS, contentHash, chunkLines, takeHash, takesBase, chunkKey, renderChunk, renderSegment };
+module.exports = { RUNGS, contentHash, chunkLines, takeHash, takesBase, chunkKey, renderChunk, renderSegment, reclassifyPaceMarker };

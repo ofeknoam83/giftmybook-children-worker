@@ -1060,9 +1060,23 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   BS.1770-4 ruler: integrated LUFS, true peak, silence/dead-air profile,
   trim; `metrics.js`) and judged (`takeQa.js`: the transcript vs the
   script's text — `compareTexts` word match with the verbatim names
-  masked — a spoken direction tag, duration vs the expected window, dead
-  air, clipping, artifacts BLOCKING; name not heard, level outlier,
-  monotone, too fast/slow, emotion reads differently ADVISORY; Gemini
+  masked — a spoken direction tag, dead air, clipping, artifacts
+  BLOCKING; name not heard, level outlier, monotone, too fast/slow,
+  emotion reads differently ADVISORY. The duration window (`expectedTiming`
+  — words at the band's WPM, ×0.6 … ×1.6 + 2 s) is an ESTIMATE that stands
+  in for dropped/added words and dead air, each of which has its own
+  check: since 2026-09-09 it is classified AFTER the transcript — with
+  every word heard in order it is the ADVISORY `narration pace off`
+  (shades selection via `durationRatio`, never fails a book); only with
+  no verified transcript (QA disabled, a judge outage, or a transcript
+  that disagrees) does it stay the BLOCKING `narration duration off`. A
+  five-word passage read in 1.66 s, every word verified, had failed a
+  whole film `film_audio_unresolved` against a 1.73 s estimate — and the
+  repair ladder spent takes trying to slow a correct read. A saved marker
+  that blocked on the window alone with a matching transcript is re-read
+  as the advisory on replay (`reclassifyPaceMarker`; no `AUDIO_QA_VERSION`
+  bump — a bump would re-record every take, and the promise on the film's
+  error is that approved passages are kept); Gemini
   audio through `geminiAudio.js` `judgeAudio` + `jsonQaGenerationConfig`),
   scored (`select.js`), promoted, and repaired with a fixed note per
   defect (`CATALOG_AUDIO_MAX_REPAIRS`, one per-segment budget
