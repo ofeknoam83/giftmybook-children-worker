@@ -161,7 +161,8 @@ test('shots are balanced whole seconds: no 3-second stubs after a full shot, eve
 test('the Kling tier rides the Omni input and the cost key; a request may only ask for std or pro', () => {
   const model = modelProfile('kwaivgi/kling-v3-omni-video');
   const job = { brief: { prompt: 'x' }, startFrameUrl: 'https://s/frame.jpg', referenceUrls: [], seconds: 5, aspect: '16:9' };
-  expect(model.input({ ...job, quality: 'std' }).mode).toBe('std');
+  // Kling spells our `std` tier `standard` (its enum is standard|pro|4k).
+  expect(model.input({ ...job, quality: 'std' }).mode).toBe('standard');
   expect(model.input({ ...job, quality: 'pro' }).mode).toBe('pro');
   expect(model.input(job).mode).toBe('pro'); // the trailer never names a tier
   expect(costModelFor('kwaivgi/kling-v3-omni-video', 'std')).toBe('kwaivgi/kling-v3-omni-video:std');

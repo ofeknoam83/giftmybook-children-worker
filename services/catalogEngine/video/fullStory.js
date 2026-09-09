@@ -39,6 +39,7 @@ const { speechShots, shotCommand, finishCommand } = require('./filmMedia');
 const { selectFilmReferenceSheets, shotReferenceSheets } = require('./filmReferences');
 const { planFilmCues, layFilmSoundtrack, validateFilmSoundtrack, electFilmSoundtrackAssets, soundtrackAssetsHash, writeSoundtrackInputs, soundtrackOptions } = require('./filmSoundtrack');
 const { imageBudget, costModelFor } = require('./providers/models');
+const { describeRepairs } = require('./providers/inputRepair');
 const ffmpeg = require('./ffmpeg');
 const { createCheckpointWriter } = require('./filmCheckpoint');
 const { estimateVideoCost } = require('../../costTracker');
@@ -402,6 +403,13 @@ async function generateFullStoryFilm(p) {
               seed: p.seed, token: p.providerToken, costTracker, ctx: { touch, log, abortSignal: p.abortSignal },
               canonicalKey: `${base}/motion/${motionHash}.mp4`, clipHash: motionHash, forceNew: !!p.forceNew, persistJobs: true, waitForPersistedJob: true });
             const candidate = gen.candidates[0];
+            // The vendor corrected our request rather than refusing it (a
+            // renamed field, a tier spelled its own way): report what the
+            // film actually bought, once per field.
+            for (const r of candidate?.inputRepairs || []) {
+              const note = `${provider.model} rejected part of the request — ${describeRepairs([r])} (pin the field with CATALOG_VIDEO_MODEL_INPUT_JSON)`;
+              if (!advisories.some(a => a.note === note)) advisories.push({ stage: 'video', note });
+            }
             if (candidate?.status !== 'done' || !candidate.buffer) throw filmError(`Scene ${shot.spread}: ${candidate?.error || 'animation unavailable'}`, 'film_animation_failed');
             let animated = candidate.buffer;
             if (shot.speaker !== 'narrator') animated = await syncDialogue({ base, video: animated, audio: shot.audio, seconds: shot.seconds, token: p.providerToken, forceNew: !!p.forceNew, ...ctx });

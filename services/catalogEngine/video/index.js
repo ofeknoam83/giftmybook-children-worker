@@ -40,6 +40,7 @@ const { resolveProvider } = require('./providers');
 const { imageBudget } = require('./providers/models');
 const { keepWithinBudget } = require('./filmReferences');
 const { generateCandidates, videoBase } = require('./generate');
+const { describeRepairs } = require('./providers/inputRepair');
 const { verifyClip } = require('./verify');
 const ffmpeg = require('./ffmpeg');
 
@@ -502,6 +503,7 @@ async function generateGiftVideo(p) {
       result = replayed;
     } else {
       let endFrameDropped = false;
+      const inputRepairs = [];
       for (let pass = 0; pass <= maxRepairs; pass++) {
         if (pass > 0) {
           const residual = residualBlocking(best);
@@ -522,6 +524,7 @@ async function generateGiftVideo(p) {
         });
         generatedSeconds += gen.candidates.filter(c => c.status === 'done' && !c.cached).length * gen.seconds;
         if (gen.candidates.some(c => c.endFrameDropped)) endFrameDropped = true;
+        for (const c of gen.candidates) for (const r of c.inputRepairs || []) if (!inputRepairs.some(x => x.field === r.field)) inputRepairs.push(r);
         const scored = [];
         for (const c of gen.candidates) {
           if (c.status !== 'done' || !c.buffer) {
@@ -541,6 +544,7 @@ async function generateGiftVideo(p) {
         if (best && best.qa && !best.qa.qaUnavailable && best.qa.blocking.length === 0) break;
         if (best && best.qa && best.qa.qaUnavailable) break; // an unchecked clip cannot steer a repair
       }
+      if (inputRepairs.length) advisories.push({ stage: 'video', note: `${label}: ${provider.model} rejected part of the request — ${describeRepairs(inputRepairs)} (pin the field with CATALOG_VIDEO_MODEL_INPUT_JSON)` });
       if (endFrameDropped) advisories.push({ stage: 'video', note: `${label}: ${provider.model} rejected the end-frame field — the take was generated from the start frame and the brief alone (set CATALOG_VIDEO_MODEL_INPUT_JSON to rename it, or CATALOG_VIDEO_END_FRAME=0)` });
       if (!best) {
         const filtered = all.filter(c => c.status === 'filtered');

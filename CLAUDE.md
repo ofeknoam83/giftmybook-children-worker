@@ -1305,7 +1305,21 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   mouths on dialogue — with the defect fed back to a bounded repair render;
   an outage ships the shot flagged, never silently), `CATALOG_FILM_SFX=0`
   (no sound cues and no ambience bed on the film; `music: 'none'` on the
-  request drops the score). The film's soundtrack is the audiobook's:
+  request drops the score). The tier vocabulary is OURS (`std` | `pro`) and
+  is mapped onto the vendor's own enum before submission (`klingMode` in
+  `video/providers/models.js` — Kling spells std `standard`; sending `std`
+  raw failed every film `video_provider_input_rejected` on 2026-09-09,
+  after its stills, sheets, screenplay and voice takes had been bought).
+  Generally: a 422 that NAMES an input field is now corrected and
+  resubmitted instead of failing the run — `video/providers/inputRepair.js`
+  reads the vendor's message, maps our value onto the values it lists
+  (exact → case → unique prefix → unique abbreviation) or DROPS the field
+  so the model applies its own default (never `prompt` / `start_image`;
+  the end frame stays the last resort, at most 3 corrections per
+  candidate), every repair rides the run as a stage `video` advisory
+  naming the field, and a repair that touched the tier field bills the
+  shot at the default tier, never `model:std`.
+  The film's soundtrack is the audiobook's:
   the per-theme music suite under its cue grammar with 3 s crossfades on
   the cuts and the refrain motif, the theme's ambience bed, spot cues
   placed 0.15 s after their passage inside the pause the whole-second

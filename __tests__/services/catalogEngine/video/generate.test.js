@@ -127,6 +127,38 @@ describe('generateCandidates', () => {
     await expect(generateCandidates(base(c, { n: 1 }))).rejects.toMatchObject({ failureCode: 'video_provider_input_rejected' });
     expect(c.submit).toHaveBeenCalledTimes(1);
   });
+  test('a 422 naming a field is corrected from the vendor\'s own message and resubmitted, flagged and billed as bought', async () => {
+    const issue = (msg, issues) => Object.assign(new Error(msg), { failureCode: 'video_provider_input_rejected', inputIssues: issues });
+    const tiered = (a) => ({ ...provider(a), model: 'kwaivgi/kling-v3-omni-video', profile: { durations: [3, 4, 5, 6], input: (job) => ({ prompt: 'p', mode: job.quality === 'std' ? 'std' : 'pro', ...(job.endFrameUrl ? { end_image: job.endFrameUrl } : {}) }) } });
+    // The vendor lists its enum: our value is mapped, the clip is bought at the tier we asked for.
+    const a = adapter();
+    a.submit.mockRejectedValueOnce(issue('422', [{ field: 'mode', allowed: ['standard', 'pro', '4k'], unknown: false, detail: 'mode must be one of the following: "standard", "pro", "4k"' }]));
+    a.poll.mockResolvedValue({ status: 'done', videoUrl: 'u' });
+    const tracker = new CostTracker();
+    const r = await generateCandidates(base(a, { n: 1, provider: tiered(a), quality: 'std', costTracker: tracker }));
+    expect(a.submit).toHaveBeenCalledTimes(2);
+    expect(a.submit.mock.calls[0][0].input.mode).toBe('std');
+    expect(a.submit.mock.calls[1][0].input.mode).toBe('standard');
+    expect(r.candidates[0]).toMatchObject({ status: 'done', inputRepairs: [expect.objectContaining({ field: 'mode', from: 'std', to: 'standard' })] });
+    expect(tracker.videoUsage).toEqual({ 'kwaivgi/kling-v3-omni-video:std': 4 });
+
+    // Repairs survive the end-frame fallback: the rebuilt input keeps the mapped tier.
+    const b = adapter();
+    b.submit
+      .mockRejectedValueOnce(issue('422', [{ field: 'mode', allowed: ['standard', 'pro'], unknown: false, detail: '' }]))
+      .mockRejectedValueOnce(issue('422: something about end frames', []));
+    b.poll.mockResolvedValue({ status: 'done', videoUrl: 'u' });
+    const withEnd = await generateCandidates(base(b, { n: 1, provider: tiered(b), quality: 'std', endFrame: { url: 'https://s/e.jpg', hash: 'eh' } }));
+    expect(b.submit).toHaveBeenCalledTimes(3);
+    expect(b.submit.mock.calls[2][0].input).toEqual({ prompt: 'p', mode: 'standard' });
+    expect(withEnd.candidates[0]).toMatchObject({ status: 'done', endFrameDropped: true });
+
+    // A vendor that keeps rejecting is bounded: the run fails after the correction budget, never loops.
+    const c = adapter();
+    c.submit.mockImplementation(async ({ input }) => { throw issue('422', [{ field: 'mode', allowed: [input.mode === 'x' ? 'y' : 'x'], unknown: false, detail: '' }]); });
+    await expect(generateCandidates(base(c, { n: 1, provider: tiered(c), quality: 'std' }))).rejects.toMatchObject({ failureCode: 'video_provider_input_rejected' });
+    expect(c.submit.mock.calls.length).toBeLessThanOrEqual(4);
+  });
   test('poll errors are retried until the deadline', async () => {
     const a = adapter();
     a.poll.mockRejectedValueOnce(new Error('503')).mockResolvedValue({ status: 'done', videoUrl: 'u' });

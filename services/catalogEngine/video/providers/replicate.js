@@ -16,6 +16,8 @@
  * the app injects into the request body (job.token).
  */
 
+const { parseInputIssues } = require('./inputRepair');
+
 const API = 'https://api.replicate.com/v1';
 const FILTER_RE = /moderat|nsfw|safety|sensitive|prohibit|policy|flagged|inappropriate|violat/i;
 
@@ -68,9 +70,14 @@ async function submit(job) {
     const detail = (r.data && (r.data.detail || r.data.error)) || r.text.slice(0, 300);
     const e = new Error(`Replicate refused the prediction (HTTP ${r.status}): ${detail}`);
     // 422 = the input schema rejected our fields — a configuration problem,
-    // not a transient one; the admin fixes it with CATALOG_VIDEO_MODEL_INPUT_JSON.
+    // not a transient one. The body names the offending field (and, for an
+    // enum, the values it takes), so it rides the error as `inputIssues`:
+    // generate.js corrects the request once and resubmits instead of
+    // failing a paid-for run, and the admin can still pin a field with
+    // CATALOG_VIDEO_MODEL_INPUT_JSON.
     e.failureCode = r.status === 422 ? 'video_provider_input_rejected' : (r.status === 401 || r.status === 402 || r.status === 403 ? 'video_provider_unavailable' : 'video_provider_error');
     e.statusCode = r.status;
+    if (r.status === 422) e.inputIssues = parseInputIssues(typeof detail === 'string' ? detail : JSON.stringify(detail));
     throw e;
   }
   return { jobId: r.data.id, pollUrl: (r.data.urls && r.data.urls.get) || `${API}/predictions/${r.data.id}` };
