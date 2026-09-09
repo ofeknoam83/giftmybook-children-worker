@@ -23,7 +23,7 @@ const nodeGlobals = Object.fromEntries([
   // Web-compat globals available in Node >= 18
   'fetch', 'AbortController', 'AbortSignal', 'URL', 'URLSearchParams',
   'TextEncoder', 'TextDecoder', 'structuredClone', 'atob', 'btoa',
-  'Blob', 'FormData', 'Headers', 'Request', 'Response',
+  'Blob', 'FormData', 'Headers', 'Request', 'Response', 'DOMException',
 ].map((name) => [name, 'readonly']));
 
 const jestGlobals = Object.fromEntries([
