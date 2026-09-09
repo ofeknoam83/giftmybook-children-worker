@@ -9,6 +9,10 @@ jest.mock('../../../services/catalogEngine/illustrator/storyObjects', () => ({
  * child's renders; a signed-URL re-sign must NOT bust the cache), seed
  * keying, and the full-book path still failing loudly on a missing buffer.
  */
+// pq-1: this suite pins the pre-print-tier cache keys and render options
+// (no `-is{tier}` fold, no imageSize on caption renders); the print tier's
+// own contract lives in printSize.test.js.
+process.env.CATALOG_PRINT_IMAGE_SIZE = '0';
 
 // ce-9: these suites pin the pre-bible render path (one candidate rendered
 // straight to the shipped key; no character/prop sheets, no emotion plan).

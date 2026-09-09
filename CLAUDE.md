@@ -131,9 +131,102 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   validation errors.
 - `pipeline.js` — full-book run: resolve story (request pair → checkpoint →
   fresh) → illustrate → `assemblePdf` (minPages 32; 12 spreads + front matter)
-  → cover PDF (`coverGenerator`, unchanged) → callback payload. Failure codes:
-  `invalid_story`, `missing_book_definition`; `StoryGenerationError` carries
-  `validationErrors`.
+  → cover PDF (`coverGenerator`, unchanged) → **Lulu preflight** → callback
+  payload. Failure codes: `invalid_story`, `missing_book_definition`,
+  `interior_pdf_failed`, `cover_pdf_failed`; `StoryGenerationError` carries
+  `validationErrors`. **The print spec (`services/luluSpec.js`,
+  2026-09-08)** is the ONE place Lulu's numbers live — 0.125" bleed, the
+  0.5" safety margin + 0.2" gutter, 300 ppi, the two picture-book
+  products by the app's `bindingType` (`0850X0850FCSTDPB080CW444GXX`
+  perfect bound, 32–800 pages, spine = pages / 444 + 0.06";
+  `0850X0850FCSTDCW080CW444GXX` casewrap, 24–800 pages, 0.875" beyond the
+  trim on every outer edge, spine from Lulu's stepped table — 24–84 pages
+  0.25", 85–140 0.5" … — so 8.5×8.5 at 32 pages is Lulu's 19.0×10.25"
+  canvas; 0.75" cover safety on a casewrap, no spine text under 80 pages)
+  — and `layoutEngine` (interior: `SAFE` = bleed + 0.7"), `coverGenerator`
+  (the wrap canvas via `coverGeometry`) and `preflightPictureBook` all read
+  from it, so the file we build and the file we check can never disagree.
+  The preflight runs on BOTH PDFs before upload (page count in the
+  product's range and even, every interior page at trim + bleed, the cover
+  exactly ONE page of the geometry its page count demands, every
+  non-base-14 font embedded) and fails the run `interior_pdf_failed` /
+  `cover_pdf_failed` (the app's existing resume contract; deterministic, so
+  the cover half is never retried with saved artwork, and the failure
+  carries the verdict as `preflight`); the verdict rides
+  the completion callback as `preflight` (product, SKU, measured/expected
+  sizes, `notes` naming the base-14 fonts still in use — Helvetica-Bold on
+  the upsell label, Times on the designed back cover — which Lulu's
+  normalizer substitutes; the bylines/footers embed Liberation Sans).
+  `/rebuild-cover-pdf` runs the cover half against the interior's page
+  count and echoes `preflight` too. The same change moved the interior's
+  upsell spread inside the safety margin (its cards sat 0.25" and its
+  footer 0.06" inside the trim) and onto a VERSO so its two pages face
+  each other (page 1 prints on the right; with 12 spreads it used to open
+  on recto 29), the title-page byline onto the safety line, and the
+  casewrap spine to Lulu's exact 0.25" (a "6 mm" 17pt spine left the
+  canvas 1pt short).
+  **The printed picture (pq-1, 2026-09-09 — `docs/PRINT_QUALITY_PLAN.md`,
+  proofs per `docs/PRINT_PROOF_CHECKLIST.md`)**: what the reader SEES on
+  paper, implemented with NO `STYLE_VERSION` bump — a book rendered
+  before pq-1 replays its own pixels and only fresh renders take the new
+  tiers and prompt lines. (1) RESOLUTION: the text-free layouts get a
+  print tier like the embedded path's 4K — `half` (wide) 4K, `caption`
+  (square) 2K by default (`flags.printImageSize`; the model's 1K default
+  printed at ≈ 59 / 117 dpi effective) with the same resolution guard
+  (`minPrintRenderHeight`), folded into the render key as `-is{tier}`;
+  `renderStorySpreads` hands the replay the UN-folded key as the last
+  legacy fallback (`legacyKeysFor` — `legacyUnanchoredKey` is a list now,
+  in `readReviewedRender` too), so an older book's cached art is replayed,
+  never re-rendered or re-keyed (`forceRerender` upgrades). The front
+  cover requests 2K (`coverImageSize`; it was 1K ≈ 120 dpi on the 8.5"
+  front and it is the identity anchor). `layoutEngine` records every
+  printed art page's source pixels (`opts.pageReport`) and the preflight
+  reports effective PPI per page + the cover (`preflight.pages`, `minPpi`,
+  `coverPpi`): a WARNING below 234 (the 4K spread standard), an ERROR only
+  under `CATALOG_PRINT_PPI_FLOOR` (default 0 — an older book must still
+  rebuild its PDFs). (2) THE PHYSICAL PAGE: every wide render's prompt
+  states the print realities (the top/bottom 7% cut, the outer 2% trim,
+  the FOLD at x = 50% that no face, companion or named object may cross
+  — `opts.printSafety`), and `metrics.bboxRules` holds the child AND the
+  cast boxes QA already returns (`companionBox`, `propBoxes`) to the fold
+  band ([0.46, 0.54], subjects narrower than 60% of the frame) and the
+  print-safe zone — `child_on_fold` / `companion_on_fold` /
+  `prop_on_fold:<name>` / `companion_outside_safe_zone` /
+  `prop_outside_safe_zone:<name>` as stage `composition` advisories that
+  shade selection (`foldFail` −10, `castSafeZoneFail` −5), never fail a
+  book; a caller that passes no cast boxes gets the exact pre-pq-1
+  object. `illustrator/printPreview.js` uploads a PRINT-CROP preview
+  beside every shipped render (`<renderKey>.print.jpg`: the 2:1 page crop
+  the layout engine prints with trim / safety / fold guides; the half
+  layout's text page dimmed) — `printPreviewUrls` + `entries[].
+  printPreviewUrl` on the completion callback, `renders[].printPreviewUrl`
+  on probes; the app persists them and its admin page shows them. (3) THE
+  COVER WRAP: `coverGenerator.extendWithOutpaint` paints the bleed/wrap
+  band as ART — the copy + blur band is the edit base, ONE bounded image
+  edit (`callGeminiImageParts`, 1:1 on a square-padded canvas so nothing
+  distorts, `planOutpaint`) repaints only the band, the ORIGINAL trim
+  pixels are pasted back over the centre, and a flat/blank band or any
+  error falls back to copy + blur with a warning (`coverWrapNotes`);
+  casewraps only by default (`CATALOG_COVER_OUTPAINT`: `casewrap` | `all`
+  | `0`), `preflight.coverWrap` says which method each panel got. (4)
+  COLOUR: every page JPEG and the cover carry an sRGB ICC profile
+  (`withIccProfile('srgb')`); `CATALOG_PRINT_SHADOW_LIFT` (default 0 —
+  a PROOF decision) is a print-only shadow lift in `encodeFullBleedJpeg`
+  (`applyShadowLift`, never on previews); the preflight warns when a
+  page's share of pixels above 0.9 saturation exceeds
+  `GUIDELINES.gamutWarnShare` (0.35) — the press will dull it. (5) The
+  app validates every children's book pair with Lulu's own
+  `validate-interior` / `validate-cover` before every bulk send and the
+  admin book page's direct print action — the two paths that send
+  children's books to Lulu, both on the ONE SKU table
+  (`services/luluPreflight.js` there: an explicit ERROR holds the book
+  back with Lulu's reasons, a partially rejected batch reports the
+  held-back books as `ineligible`, an unavailable or stalled check never
+  blocks — one deadline covers every request — and the verdict rides
+  `generationProgress.luluValidation`). Kill-switches:
+  `CATALOG_PRINT_IMAGE_SIZE=0`, `CATALOG_FOLD_SAFETY=0`,
+  `CATALOG_PRINT_PREVIEWS=0`, `CATALOG_COVER_OUTPAINT=0`,
+  `CATALOG_COVER_IMAGE_SIZE=0`, app `LULU_PREVALIDATE=0`.
 - `illustrator/` — the slim illustrator: the fixed BEAT is the scene
   (`scenes.js`), identity anchors on the parent-approved cover (raw photo only
   as coverless-test fallback; NO anchor at all fails the run with
@@ -1069,6 +1162,20 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_EMBEDDED_IMAGE_SIZE=2K` — (ce-16, OPT-IN) request this output
   size (`1K`|`2K`|`4K`) on embedded renders; the template path requests
   `4K` by default. Cache-keyed (`-is{size}`).
+- `CATALOG_PRINT_IMAGE_SIZE=0` — (pq-1) no print tier for the text-free
+  layouts (the model's default size, the pre-pq-1 render keys).
+  `CATALOG_PRINT_IMAGE_SIZE_WIDE` (`4K`) / `CATALOG_PRINT_IMAGE_SIZE_SQUARE`
+  (`2K`) set the tiers; `CATALOG_MIN_PRINT_RENDER_HEIGHT` pins the guard
+  (0 disables); `CATALOG_COVER_IMAGE_SIZE` (`2K`, `0` = model default) the
+  front cover's; `CATALOG_PRINT_PPI_FLOOR` (0 = report only) fails the
+  preflight below an effective PPI.
+- `CATALOG_FOLD_SAFETY=0` — (pq-1) the pre-pq-1 SAFE ZONE prompt lines and
+  child-only bbox checks (no fold / cast rules).
+- `CATALOG_PRINT_PREVIEWS=0` — (pq-1) no print-crop previews.
+- `CATALOG_COVER_OUTPAINT` — (pq-1) `casewrap` (default) | `all` | `0`: which
+  covers get the painted wrap band; `CATALOG_COVER_OUTPAINT_SIZE` (`2K`).
+- `CATALOG_PRINT_SHADOW_LIFT` — (pq-1, OPT-IN, 0–0.15) the print-only
+  shadow lift; a proof decision.
 - `CATALOG_MIN_EMBEDDED_RENDER_HEIGHT=N` — (2026-09-07) the pixel height an
   embedded render must reach or the attempt fails (the resolution guard).
   Unset: follows the requested tier (4K → 2000, 2K → 1000, 1K → 500;
@@ -1496,7 +1603,9 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 
 ## Kept services (untouched by the cutover)
 
-`coverGenerator.js` (Lulu wrap cover; still the identity/style anchor —
+`luluSpec.js` (the Lulu print spec + picture-book preflight — see
+`pipeline.js` above), `coverGenerator.js` (Lulu wrap cover, its canvas from
+`luluSpec.coverGeometry`; still the identity/style anchor —
 since 2026-09-07 every cover prompt it builds carries `FLAT_COVER_ART_RULE`:
 a cover IS the printed surface, full-bleed to all four edges, NEVER a
 picture of a book — no 3D mockup, pages, spine, shadow, border, mat, card

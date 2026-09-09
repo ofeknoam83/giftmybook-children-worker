@@ -17,6 +17,8 @@ const { validateStoryResponse } = require('./storyValidation');
 const { illustrateStory } = require('./illustrator');
 const { PDFDocument } = require('pdf-lib');
 const { createBackCoverSynopsis } = require('./backCoverSynopsis');
+const { preflightPictureBook } = require('../luluSpec');
+const flags = require('./flags');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const FORMAT = 'PICTURE_BOOK';
@@ -27,7 +29,33 @@ class PipelineError extends Error {
     this.name = 'PipelineError';
     this.failureCode = failureCode || null;
     this.details = details || null;
+    if (details && Object.prototype.hasOwnProperty.call(details, 'preflight')) {
+      this.preflight = details.preflight;
+    }
   }
+}
+
+/**
+ * Count the printed art pages assemblePdf is expected to report in `pageReport`.
+ * A missing row means the layout added the PDF page but failed to embed its art.
+ * @param {Array} entries
+ * @returns {number}
+ */
+function expectedArtPageReportCount(entries) {
+  return (Array.isArray(entries) ? entries : []).reduce((total, entry) => {
+    if (!entry || entry.type !== 'spread') return total;
+    if (entry.textLayout === 'embedded' && entry.captionText !== undefined) {
+      return total + (entry.spreadIllustrationBuffer ? 2 : 0);
+    }
+    if (entry.textLayout === 'half' && entry.captionText !== undefined) {
+      return total + (entry.spreadIllustrationBuffer ? 1 : 0);
+    }
+    if (entry.illustrationAspect === 'square') {
+      return total + (entry.spreadIllustrationBuffer ? 1 : 0);
+    }
+    if (entry.spreadIllustrationBuffer) return total + 2;
+    return total + (entry.leftIllustrationBuffer ? 1 : 0) + (entry.rightIllustrationBuffer ? 1 : 0);
+  }, 0);
 }
 
 /**
@@ -331,6 +359,9 @@ async function runBookPipeline(params) {
   // ── Interior PDF ─────────────────────────────────────────────────────────
   onProgress('assembly', 0.88, 'Assembling interior PDF...');
   const overlayReport = [];
+  // pq-1: every printed art page's source resolution (layoutEngine) — the
+  // preflight turns it into effective PPI per page.
+  const pageReport = [];
   const interiorPdf = await assemblePdf(art.entries, FORMAT, {
     title: bookTitle,
     childName: profile.name,
@@ -340,11 +371,52 @@ async function runBookPipeline(params) {
     bookId,
     minPages: 32,
     overlayReport,
+    pageReport,
     upsellCovers: upsellWithBuffers,
   });
   const pageCount = (await PDFDocument.load(interiorPdf)).getPageCount();
   if (pageCount < 32 || pageCount % 2 !== 0) {
     throw new PipelineError('Interior PDF has an invalid page count', 'interior_pdf_failed');
+  }
+  const expectedArtPages = expectedArtPageReportCount(art.entries);
+  const reportedArtPages = new Set(
+    (Array.isArray(pageReport) ? pageReport : [])
+      .map(r => (Number.isInteger(r?.page) ? r.page : null))
+      .filter(page => page != null),
+  ).size;
+  if (reportedArtPages !== expectedArtPages) {
+    const coverageError = `interior page report covers ${reportedArtPages}/${expectedArtPages} expected art pages`;
+    throw new PipelineError(
+      `Interior PDF failed assembly validation: ${coverageError}`,
+      'interior_pdf_failed',
+      {
+        preflight: {
+          ok: false,
+          errors: [coverageError],
+          warnings: [],
+          notes: [],
+          pageCount,
+          pages: pageReport.map(r => ({
+            page: r.page,
+            spread: r.spread ?? null,
+            role: r.role || null,
+            ppi: Number.isFinite(r.ppi) ? r.ppi : null,
+            saturatedShare: Number.isFinite(r.saturatedShare) ? r.saturatedShare : null,
+          })),
+          minPpi: null,
+          coverPpi: null,
+        },
+      },
+    );
+  }
+  // Lulu preflight of the interior (2026-09-08): the page count against the
+  // product's range, EVERY page at trim + bleed, fonts — the checks Lulu's
+  // own validation runs at order time, run here so a file Lulu would reject
+  // never reaches the app as "ready". Deterministic, so a failure is a bug
+  // in the layout, never something a retry cures.
+  const interiorPreflight = await preflightPictureBook({ interiorPdf, bindingType, pageReport, ppiFloor: flags.printPpiFloor() });
+  if (!interiorPreflight.ok) {
+    throw new PipelineError(`Interior PDF failed the Lulu preflight: ${interiorPreflight.errors.join('; ')}`, 'interior_pdf_failed', { preflight: interiorPreflight });
   }
   for (const r of overlayReport.filter(x => x.belowContrast)) {
     qaAdvisories.push({ stage: 'layout', spread: r.spread, note: `embedded overlay contrast ${r.contrastRatio}:1 below ${OVERLAY.MIN_CONTRAST}:1` });
@@ -360,6 +432,7 @@ async function runBookPipeline(params) {
   let coverPdfUrl = null;
   let coverData = null;
   let coverError = null;
+  let printPreflight = null;
   for (let attempt = 0; attempt < 2 && !coverPdfUrl; attempt++) {
     try {
       if (!coverData) {
@@ -393,11 +466,30 @@ async function runBookPipeline(params) {
           ...(!approvedCoverBuffer && approvedCoverUrl ? { childPhotoUrl: approvedCoverUrl } : {}),
         });
         if (!candidate?.coverPdfBuffer?.length) throw new Error('Full cover PDF buffer was not produced');
-        const coverDocument = await PDFDocument.load(candidate.coverPdfBuffer);
-        const coverPage = coverDocument.getPages()[0];
-        if (coverDocument.getPageCount() !== 1 || coverPage.getWidth() <= 2 * 612 || coverPage.getHeight() < 612) {
-          throw new Error('Full cover PDF was not produced as one wraparound page');
+        // Lulu preflight of the wrap: ONE page of exactly the canvas the
+        // binding + interior page count demand (spine included). Before
+        // 2026-09-08 only "one page, wider than two trims" was checked.
+        // The failure keeps the app's `cover_pdf_failed` contract (its
+        // resume affordance) and carries the verdict as `preflight`.
+        const coverPreflight = await preflightPictureBook({ coverPdf: candidate.coverPdfBuffer, pageCount, bindingType, coverSource: candidate.frontCoverSource || null, ppiFloor: flags.printPpiFloor() });
+        if (!coverPreflight.ok) {
+          throw new PipelineError(`Cover PDF failed the Lulu preflight: ${coverPreflight.errors.join('; ')}. The interior PDF and illustrations are saved for retry.`, 'cover_pdf_failed', { preflight: coverPreflight });
         }
+        printPreflight = {
+          ok: true,
+          product: coverPreflight.product,
+          podPackageId: coverPreflight.podPackageId,
+          pageCount,
+          interior: interiorPreflight.interior,
+          cover: coverPreflight.cover,
+          // pq-1: effective resolution per printed art page and of the cover.
+          pages: interiorPreflight.pages,
+          minPpi: interiorPreflight.minPpi,
+          coverPpi: coverPreflight.coverPpi,
+          coverWrap: candidate.coverWrapMethods || null,
+          warnings: [...interiorPreflight.warnings, ...coverPreflight.warnings],
+          notes: [...interiorPreflight.notes, ...coverPreflight.notes],
+        };
         coverData = candidate;
       }
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
@@ -405,15 +497,25 @@ async function runBookPipeline(params) {
       coverPdfUrl = await getSignedUrl(coverPath, SIGNED_URL_TTL_MS);
       if (!coverPdfUrl) throw new Error('Cover PDF download link was not produced');
       if (attempt > 0) warnings.push('Cover PDF recovered automatically using saved artwork.');
+      // pq-1 Phase 3.1: a wrap band that fell back to copy + blur is the
+      // pre-pq-1 status quo — a warning, never a review flag.
+      for (const n of coverData.coverWrapNotes || []) warnings.push(n);
       if (coverData.coverAnatomyAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverAnatomyAdvisory });
       if (coverData.coverArtworkAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverArtworkAdvisory });
       if (coverData.backCoverDesignAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverDesignAdvisory });
       if (coverData.backCoverRepairNote) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverRepairNote });
     } catch (coverErr) {
+      if (coverErr instanceof PipelineError) {
+        // The preflight is deterministic — a retry with the saved artwork
+        // would build the same canvas. Fail loudly with the saved interior.
+        Object.assign(coverErr, { interiorPdfUrl, pageCount, previewImageUrls: art.previewImageUrls, bookBible: art.bookBible, qaAdvisories, preflight: coverErr.details?.preflight || null });
+        throw coverErr;
+      }
       coverError = coverErr;
       log('warn', `Cover PDF attempt ${attempt + 1} failed: ${coverErr.message}${attempt === 0 ? ' — retrying automatically with saved artwork' : ''}`);
     }
   }
+  for (const w of printPreflight?.warnings || []) warnings.push(`Lulu preflight: ${w}`);
   if (!coverPdfUrl) {
     const err = new PipelineError(`Full cover PDF could not be completed: ${coverError?.message || 'missing cover PDF'}. The interior PDF and illustrations are saved for retry.`, 'cover_pdf_failed');
     Object.assign(err, { interiorPdfUrl, pageCount, previewImageUrls: art.previewImageUrls, bookBible: art.bookBible, qaAdvisories });
@@ -435,6 +537,9 @@ async function runBookPipeline(params) {
       // /finalize-book — art with Gemini-painted text must keep saying so,
       // or a later layout pass would typeset the caption over it again.
       ...(e.textEmbeddedInArt ? { textEmbeddedInArt: true } : {}),
+      // pq-1: the print-crop preview (the 2:1 page crop with trim, safety
+      // and fold guides) — the admin and the flipbook show what prints.
+      ...(e.printPreviewUrl ? { printPreviewUrl: e.printPreviewUrl, printPreviewKey: e.printPreviewKey } : {}),
     })),
     characterDescription: characterDescription || null,
     characterAnchor: characterDescription || null,
@@ -462,6 +567,8 @@ async function runBookPipeline(params) {
     pageCount,
     backCoverImageUrl: coverData?.backCoverImageUrl || null,
     previewImageUrls: art.previewImageUrls,
+    // pq-1: the print-crop previews in spread order.
+    printPreviewUrls: art.printPreviewUrls || [],
     title: bookTitle,
     spreadCount: art.entries.length,
     illustrationTuningUsed: art.illustrationTuningUsed,
@@ -488,6 +595,9 @@ async function runBookPipeline(params) {
     // storyContent.bookBible and the bench shows it.
     contactQa: art.contactQa || null,
     bookBible: art.bookBible || null,
+    // 2026-09-08: the Lulu preflight both PDFs passed — product, page
+    // count, the page/cover sizes measured and expected, the fonts in use.
+    preflight: printPreflight,
     storyContent,
     upsellCovers: upsellWithBuffers.map(({ coverBuffer, ...cover }) => cover),
     // ce-9: blocking-class findings first, then the rest, capped at 80 (a

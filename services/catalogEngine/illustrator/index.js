@@ -52,6 +52,7 @@ const { fnv1a } = require('../selection');
 const flags = require('../flags');
 const { electTypographyAnchor, readPinnedTypographyAnchor, anchorPinPath } = require('./textAnchor');
 const { canUseTypographyGuide, createTypographyGuide, createTypographyTemplate, letteringJudgeImage } = require('./typographyGuide');
+const { attachPrintPreviews } = require('./printPreview');
 const { expectedTextBlock } = require('../../shared/illustration/textBlock');
 const { imageDimensions } = require('../../shared/illustration/renderSize');
 const { resolveBookTextRules, resolveTypographyGuideRules } = require('../../shared/illustration/config');
@@ -109,6 +110,29 @@ function storyFingerprint(story) {
  * @param {string} [tuningTag] `<label>.<hash8>` or 'none'
  * @returns {string}
  */
+/**
+ * pq-1 — the render-key fold for the text-free layouts' print tier
+ * (`-is4k` for a wide `half` render, `-is2k` for a square `caption` render
+ * by default; '' when the tier is off or the layout is `embedded`, whose
+ * own `-is` fold is the explicit env override). Pure — exported for tests.
+ * @param {{textLayout: string, aspect: 'wide'|'square'}} p
+ * @returns {string}
+ */
+function printSizeFoldFor({ textLayout, aspect }) {
+  if (textLayout === 'embedded' || !flags.printImageSizeEnabled()) return '';
+  return `-is${flags.printImageSize(aspect).toLowerCase()}`;
+}
+
+/**
+ * pq-1 Phase 2 — the fold/crop-band prompt block changes the render pixels.
+ * Enabled renders get their own namespace; disabled keeps the pre-pq legacy
+ * key byte-identical because the prompt falls back to the old wording.
+ * @returns {string}
+ */
+function foldSafetyFoldFor() {
+  return flags.foldSafetyEnabled() ? '-fs1' : '';
+}
+
 function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') {
   const styleKey = tuningTag && tuningTag !== 'none' ? `${STYLE_VERSION}+${tuningTag}` : STYLE_VERSION;
   return `children-jobs/${bookId}/ce-renders/${styleKey}/${storyHash}/spread-${spread}.${aspect}.png`;
@@ -191,7 +215,12 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
   const out = { bbox: null, colour: null, identityScore: null, crop: null };
   try {
     if (!qa || !qa.bbox) return out;
-    out.bbox = metrics.bboxRules({ bbox: qa.bbox, shotType, aspect, textLayout, ageBand });
+    out.bbox = metrics.bboxRules({
+      bbox: qa.bbox, shotType, aspect, textLayout, ageBand,
+      // pq-1 Phase 2: the fold + crop-band checks over the companion and
+      // declared-prop boxes the verdict located (advisory-class).
+      ...(flags.foldSafetyEnabled() ? { companionBox: qa.companionBox || null, propBoxes: Array.isArray(qa.propBoxes) ? qa.propBoxes : null } : {}),
+    });
     const crop = await metrics.cropBbox(buffer, qa.bbox);
     out.crop = crop;
     if (crop && bible.outfit && bible.outfit.spec) {
@@ -386,9 +415,16 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // renderer, never a page of blurred text; the shipped size rides the
   // result, the marker, and every callback.
   const embeddedImageSize = embedText && (flags.embeddedImageSize() || typographyAnchor?.kind === 'template') ? (flags.embeddedImageSize() || '4K') : null;
-  const renderFloor = embedText ? flags.minEmbeddedRenderHeight(embeddedImageSize) : 0;
-  const undersizedNote = (size) => (embedText && renderFloor > 0 && size && size.height < renderFloor
-    ? `undersized render ${size.width}×${size.height}px shipped — below the ${renderFloor}px floor for painted text (a render from before the resolution guard); re-render this spread for print-sharp text`
+  // pq-1: the text-free layouts get a PRINT tier too (half: 4K, caption:
+  // 2K by default — flags.printImageSize) with the same resolution guard;
+  // the embedded path above is byte-identical to before.
+  const printImageSize = !embedText && flags.printImageSizeEnabled() ? flags.printImageSize(aspect) : null;
+  const imageSize = embeddedImageSize || printImageSize;
+  const renderFloor = embedText ? flags.minEmbeddedRenderHeight(embeddedImageSize) : (printImageSize ? flags.minPrintRenderHeight(printImageSize) : 0);
+  const undersizedNote = (size) => (renderFloor > 0 && size && size.height < renderFloor
+    ? (embedText
+      ? `undersized render ${size.width}×${size.height}px shipped — below the ${renderFloor}px floor for painted text (a render from before the resolution guard); re-render this spread for print-sharp text`
+      : `undersized render ${size.width}×${size.height}px shipped — below the ${renderFloor}px print floor (a render from before the print tier); re-render this spread for a print-sharp page`)
     : null);
   const renderOpts = {
     aspectRatio: aspect === 'wide' ? '16:9' : '1:1',
@@ -417,10 +453,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // gate all agree on where the words live.
     ...(shotEntry ? { shotType: shotEntry.shotType } : {}),
     ...(shotEntry && shotEntry.textSide ? { textSide: shotEntry.textSide } : {}),
+    // pq-1 Phase 2: the fold + crop-band lines on every spread prompt.
+    printSafety: flags.foldSafetyEnabled(),
     // ce-15: the pack index of the TYPOGRAPHY REFERENCE (the renderer's
     // text rules cite it: "match REFERENCE IMAGE N").
     ...(Number.isInteger(refs.typographyRef) ? { typographyRef: refs.typographyRef } : {}),
-    ...(embeddedImageSize ? { imageSize: embeddedImageSize } : {}),
+    ...(imageSize ? { imageSize } : {}),
     ...(renderFloor > 0 ? { minRenderHeight: renderFloor } : {}),
     bookId,
     costTracker,
@@ -536,12 +574,19 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   if (!forceRerender) {
     try {
       let replayKey = storageKey;
+      const isMissingErr = err => err.code === 404 || /not found|No such object|cache miss|no marker/i.test(err.message);
+      const legacyKeys = [].concat(legacyUnanchoredKey || []).filter(Boolean);
       const cached = await downloadBuffer(storageKey).catch(async err => {
-        if (legacyUnanchoredKey && (err.code === 404 || /not found|No such object|cache miss|no marker/i.test(err.message))) {
-          replayKey = legacyUnanchoredKey;
-          return downloadBuffer(replayKey);
+        if (!legacyKeys.length || !isMissingErr(err)) throw err;
+        // The typography namespace fallback, and (pq-1) the un-folded key a
+        // book rendered before the print tier holds its pixels at — tried in
+        // order; the first hit is replayed under ITS key.
+        let lastErr = err;
+        for (const key of legacyKeys) {
+          try { const buf = await downloadBuffer(key); replayKey = key; return buf; }
+          catch (e) { if (!isMissingErr(e)) throw e; lastErr = e; }
         }
-        throw err;
+        throw lastErr;
       });
       try {
         let marker = JSON.parse((await downloadBuffer(replayKey === storageKey ? qaMarkerKey : `${replayKey}.qa.json`)).toString('utf8'));
@@ -1405,6 +1450,20 @@ async function renderStorySpreads(params) {
   if (textLayout === 'embedded' && flags.embeddedImageSize()) {
     keyHash = `${keyHash}-is${flags.embeddedImageSize().toLowerCase()}`;
   }
+  // pq-1: the fold/crop-band prompt lines change the render itself. Enabled
+  // renders get a dedicated fold; disabled keeps the pre-pq legacy key so
+  // an older book still replays its paid-for pixels instead of re-rendering.
+  const foldSafetyFold = foldSafetyFoldFor();
+  if (foldSafetyFold) keyHash = `${keyHash}${foldSafetyFold}`;
+  // pq-1: the text-free layouts' PRINT tier changes every pixel — folded
+  // whenever it is on, so a 1K render never replays into a book that asked
+  // for 4K. A book rendered BEFORE the tier existed keeps its pixels at the
+  // un-folded key: spreadArgs hands that key to the replay as the last
+  // legacy fallback (never re-rendered, never re-keyed — the customer's
+  // approved art stays exactly what they approved; `forceRerender` is the
+  // one way to upgrade it).
+  const printSizeFold = printSizeFoldFor({ textLayout, aspect });
+  if (printSizeFold) keyHash = `${keyHash}${printSizeFold}`;
   // ce-9: the bible hash folds EVERY pixel input (sheet, outfit spec, prop
   // and companion sheets, world plate, emotion plan) into one identity —
   // any change to any fixed input re-keys every render. It replaces the
@@ -1518,14 +1577,33 @@ async function renderStorySpreads(params) {
   // Every spread renders WITH the reference once one exists — the pinned
   // page too when it is re-rendered (its own earlier text is the best
   // possible type reference for it); only the fold above skips it.
+  // The keys an older render of this spread may live at, tried in order
+  // after the canonical key: the typography-namespace fallback (embedded
+  // reviewed rebuilds / recovery), then — pq-1 — every one of those and the
+  // canonical key WITHOUT the print-tier fold, for a book rendered before
+  // the tier existed. Deduplicated; never the canonical key itself.
+  const legacyKeysFor = (spread) => {
+    const canonical = renderCachePath(bookId, hashFor(spread), spread, cacheAspect, tuningTag);
+    const typographyLegacy = reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
+      ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag)
+      : retryUnresolved && !reviewedOnly ? renderCachePath(bookId, anchorOff ? `${storyHash}-ta0` : typographyAnchor && spread !== anchorSpreadNo ? `${storyHash}-ta${typographyAnchor.hash.slice(0, 8)}` : storyHash, spread, cacheAspect, tuningTag) : null;
+    const keys = [typographyLegacy];
+    if (printSizeFold || foldSafetyFold) {
+      const toLegacyKey = key => key
+        .replace(printSizeFold, '')
+        .replace(foldSafetyFold, '');
+      keys.push(toLegacyKey(canonical));
+      if (typographyLegacy) keys.push(toLegacyKey(typographyLegacy));
+    }
+    const unique = [...new Set(keys.filter(k => k && k !== canonical))];
+    return unique.length === 0 ? null : unique.length === 1 ? unique[0] : unique;
+  };
   const spreadArgs = (spread, extra = {}) => ({
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
     reviewedOnly, automaticTextRecovery, retryUnresolved, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
     reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
-    legacyUnanchoredKey: reviewedOnly && !reviewedManifest && typographyAnchor && spread !== anchorSpreadNo
-      ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag)
-      : retryUnresolved && !reviewedOnly ? renderCachePath(bookId, anchorOff ? `${storyHash}-ta0` : typographyAnchor && spread !== anchorSpreadNo ? `${storyHash}-ta${typographyAnchor.hash.slice(0, 8)}` : storyHash, spread, cacheAspect, tuningTag) : null,
+    legacyUnanchoredKey: legacyKeysFor(spread),
     ...(typographyAnchor ? { typographyAnchor } : {}),
     ...extra,
   });
@@ -1775,6 +1853,13 @@ async function renderStorySpreads(params) {
   if (params.recordRenderManifest && (!reviewedOnly || results.every(r => r.buffer))) {
     await saveManifest(bookId, reviewContext, results, { bookBible, typographyAnchorUsed, tuningTag: usedTuningTag });
   }
+  // pq-1 Phase 2.4: the print-crop preview beside every shipped render —
+  // what the admin, the bench and the flipbook approve is what prints.
+  // Fail-open per spread; never a failed run.
+  if (flags.printPreviewsEnabled()) {
+    try { await attachPrintPreviews(results, { aspect, textLayout, log }); }
+    catch (err) { log('warn', `print previews skipped (${err.message})`); }
+  }
   return {
     results, aspect, storyHash,
     tuningTag: usedTuningTag,
@@ -2006,11 +2091,16 @@ async function illustrateStory(params) {
     // OCR-verified) — the layout engine must embed the art full-bleed and
     // NEVER typeset the caption over it a second time.
     ...(textLayout === 'embedded' ? { textZone: null, heroBox: null, figuresBox: null, textEmbeddedInArt: true } : {}),
+    // pq-1: the print-crop preview of this spread (trim, safety, fold guides).
+    ...(r.printPreviewUrl ? { printPreviewUrl: r.printPreviewUrl, printPreviewKey: r.printPreviewKey } : {}),
   }));
 
   return {
     entries,
     previewImageUrls: results.map(r => r.url).filter(Boolean),
+    // pq-1: the print-crop previews in spread order (may be shorter than
+    // previewImageUrls when a preview could not be built).
+    printPreviewUrls: results.map(r => r.printPreviewUrl).filter(Boolean),
     qaAdvisories,
     warnings,
     illustrationTuningUsed: tuningTag,
@@ -2030,4 +2120,4 @@ async function illustrateStory(params) {
   };
 }
 
-module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, runInkConsistencyGate, renderTextColumnHint, verifyCriticalObjectSet, recoverCriticalObjectSet };
+module.exports = { illustrateStory, renderStorySpreads, renderCachePath, printSizeFoldFor, foldSafetyFoldFor, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, runInkConsistencyGate, renderTextColumnHint, verifyCriticalObjectSet, recoverCriticalObjectSet };

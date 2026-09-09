@@ -37,7 +37,9 @@ async function drawBookBackCover(page, geom, content) {
     StandardFonts.Helvetica, StandardFonts.HelveticaBold, StandardFonts.TimesRoman,
     StandardFonts.TimesRomanBold, StandardFonts.TimesRomanItalic,
   ].map(name => doc.embedFont(name)));
-  const safe = 45;
+  // Inside the trim by the binding's safety margin (coverGenerator passes
+  // 0.625" for a paperback, 0.75" for a casewrap — Lulu's hardcover figure).
+  const safe = geom.safe || 45;
   const x = edgeBleed + safe;
   const width = trimWidth - 2 * safe;
   const textX = x + 28;

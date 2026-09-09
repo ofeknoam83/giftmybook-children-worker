@@ -53,6 +53,12 @@ const flags = require('../flags');
 const BBOX_RULES = Object.freeze({
   OFF_CENTER_BAND: Object.freeze([0.42, 0.58]),
   HALF_LAYOUT_MIN_CENTER_X: 0.5,
+  // pq-1: a wide render's page fold sits at x = 50%; a subject box that
+  // crosses it — and is narrower than MAX_FOLD_SUBJECT_W of the frame, so
+  // a scene-wide landscape element is never "a subject" — prints cut in
+  // two. The band is the fold plus the binding's ~0.2 in gutter each side.
+  FOLD_BAND: Object.freeze([0.46, 0.54]),
+  MAX_FOLD_SUBJECT_W: 0.6,
   SAFE_ZONE: Object.freeze({ x: Object.freeze([0.04, 0.96]), y: Object.freeze([0.075, 0.925]) }),
   SHOT_HEIGHT: Object.freeze({
     wide: Object.freeze({ max: 0.55 }),
@@ -68,6 +74,16 @@ const BBOX_NOTES = Object.freeze({
   NOT_RIGHT_HALF: 'child_not_in_right_half',
   OUTSIDE_SAFE_ZONE: 'child_outside_safe_zone',
   SHOT_SIZE: 'shot_size_mismatch',
+  // pq-1 Phase 2: the physical page. A wide render prints as two facing
+  // pages, so a subject straddling x = 50% is cut by the fold (and the
+  // binding's gutter); the square-page fit + trim removes the top and
+  // bottom ~7% of the frame, which SAFE_ZONE already keeps the child out
+  // of — these extend it to the companion and the declared props.
+  CHILD_ON_FOLD: 'child_on_fold',
+  COMPANION_ON_FOLD: 'companion_on_fold',
+  PROP_ON_FOLD: 'prop_on_fold',
+  COMPANION_OUTSIDE_SAFE_ZONE: 'companion_outside_safe_zone',
+  PROP_OUTSIDE_SAFE_ZONE: 'prop_outside_safe_zone',
 });
 
 /** Crop regions as fractions of the crop's height: [top, bottom). */
@@ -768,9 +784,13 @@ function outfitColourCheck(colours, outfitSpec, { threshold = DEFAULT_DELTA_E_TH
  * @param {{bbox:*, shotType?:string, aspect?:'wide'|'square', textLayout?:string, ageBand?:string}} params
  * @returns {{offCenterOk:boolean|null, safeZoneOk:boolean, shotSizeOk:boolean|null, notes:string[]}}
  */
-function bboxRules({ bbox, shotType, aspect, textLayout } = {}) {
+function bboxRules({ bbox, shotType, aspect, textLayout, companionBox, propBoxes } = {}) {
+  // pq-1: the fold + crop-band rules run only when the caller opts in by
+  // passing the cast boxes (null / [] count) — a caller on the legacy
+  // contract (or the kill-switch) gets the exact pre-pq-1 object back.
+  const castMode = companionBox !== undefined || propBoxes !== undefined;
   const box = normalizeBbox(bbox);
-  if (!box) return { offCenterOk: null, safeZoneOk: false, shotSizeOk: null, notes: [BBOX_NOTES.INVALID] };
+  if (!box) return { offCenterOk: null, safeZoneOk: false, shotSizeOk: null, ...(castMode ? { foldOk: null, castSafeZoneOk: null } : {}), notes: [BBOX_NOTES.INVALID] };
   const notes = [];
   const cx = box.x + box.w / 2;
 
@@ -801,7 +821,32 @@ function bboxRules({ bbox, shotType, aspect, textLayout } = {}) {
     if (!shotSizeOk) notes.push(BBOX_NOTES.SHOT_SIZE);
   }
 
-  return { offCenterOk, safeZoneOk, shotSizeOk, notes };
+  // pq-1: the fold and the crop band, over the child AND the cast the
+  // verdict located (companion, declared props). Wide renders only for the
+  // fold; the safe zone applies to every aspect. Both advisory-class.
+  const companion = castMode ? normalizeBbox(companionBox) : null;
+  const props = Array.isArray(propBoxes)
+    ? propBoxes.map(p => ({ name: p && p.name, box: normalizeBbox(p && p.bbox) })).filter(p => p.box)
+    : [];
+  let foldOk = null;
+  if (castMode && aspect === 'wide') {
+    const [f0, f1] = BBOX_RULES.FOLD_BAND;
+    const onFold = b => b.w < BBOX_RULES.MAX_FOLD_SUBJECT_W && b.x < f1 && b.x + b.w > f0;
+    foldOk = true;
+    if (onFold(box)) { foldOk = false; notes.push(BBOX_NOTES.CHILD_ON_FOLD); }
+    if (companion && onFold(companion)) { foldOk = false; notes.push(BBOX_NOTES.COMPANION_ON_FOLD); }
+    for (const p of props) if (onFold(p.box)) { foldOk = false; notes.push(`${BBOX_NOTES.PROP_ON_FOLD}:${p.name || 'prop'}`); }
+  }
+  let castSafeZoneOk = null;
+  if (companion || props.length) {
+    const { x: [zx0, zx1], y: [zy0, zy1] } = BBOX_RULES.SAFE_ZONE;
+    const inZone = b => b.x >= zx0 - 1e-9 && b.x + b.w <= zx1 + 1e-9 && b.y >= zy0 - 1e-9 && b.y + b.h <= zy1 + 1e-9;
+    castSafeZoneOk = true;
+    if (companion && !inZone(companion)) { castSafeZoneOk = false; notes.push(BBOX_NOTES.COMPANION_OUTSIDE_SAFE_ZONE); }
+    for (const p of props) if (!inZone(p.box)) { castSafeZoneOk = false; notes.push(`${BBOX_NOTES.PROP_OUTSIDE_SAFE_ZONE}:${p.name || 'prop'}`); }
+  }
+
+  return { offCenterOk, safeZoneOk, shotSizeOk, ...(castMode ? { foldOk, castSafeZoneOk } : {}), notes };
 }
 
 // ---------------------------------------------------------------------------

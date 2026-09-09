@@ -13,6 +13,7 @@ jest.mock('../../../services/catalogEngine/writer', () => ({ generateStory: jest
 
 const { PDFDocument } = require('pdf-lib');
 const { runBookPipeline } = require('../../../services/catalogEngine/pipeline');
+const { coverGeometry, PRODUCTS } = require('../../../services/luluSpec');
 const { assemblePdf } = require('../../../services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('../../../services/coverGenerator');
 const { illustrateStory } = require('../../../services/catalogEngine/illustrator');
@@ -26,15 +27,35 @@ async function pdf(pages, size = [630, 630]) {
   for (let i = 0; i < pages; i++) doc.addPage(size);
   return Buffer.from(await doc.save());
 }
+// The wrap the Lulu preflight expects for a 36-page paperback: bleed +
+// back + spine (36 / 444 + 0.06 in) + front + bleed.
+const wrap = coverGeometry(PRODUCTS.CHILDREN_PICTURE_BOOK, 36);
 beforeEach(async () => {
   jest.clearAllMocks();
-  interior = await pdf(36); cover = await pdf(1, [1260, 630]);
-  assemblePdf.mockResolvedValue(interior);
+  interior = await pdf(36); cover = await pdf(1, [wrap.widthPt, wrap.heightPt]);
+  assemblePdf.mockImplementation(async (entries, _format, opts = {}) => {
+    let page = 4;
+    for (const entry of entries || []) {
+      if (entry?.type !== 'spread') continue;
+      opts.pageReport?.push({ page, spread: entry.spread, role: 'spread-left', ppi: 234 });
+      opts.pageReport?.push({ page: page + 1, spread: entry.spread, role: 'spread-right', ppi: 234 });
+      page += 2;
+    }
+    return interior;
+  });
   generateCover.mockReset().mockResolvedValue({ coverPdfBuffer: cover });
   uploadBuffer.mockReset().mockResolvedValue(undefined);
   generateUpsellCovers.mockReset().mockResolvedValue([]);
   illustrateStory.mockResolvedValue({
-    entries: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, type: 'spread', captionText: 'Story.', spreadIllustrationStorageKey: `saved/spread-${i + 1}.png` })),
+    entries: Array.from({ length: 12 }, (_, i) => ({
+      spread: i + 1,
+      type: 'spread',
+      captionText: 'Story.',
+      textLayout: 'embedded',
+      illustrationAspect: 'wide',
+      spreadIllustrationBuffer: Buffer.from(`img-${i + 1}`),
+      spreadIllustrationStorageKey: `saved/spread-${i + 1}.png`,
+    })),
     qaAdvisories: [{ stage: 'spreadQa', spread: 7, note: 'Outfit warning retained' }], warnings: [],
     previewImageUrls: ['https://storage.example/art.png'], illustrationTuningUsed: 'none', bible: null, bookBible: { bibleHash: 'saved' },
   });
@@ -51,6 +72,9 @@ test('finishes both PDFs with QA warnings and uses the actual interior page coun
   const result = await runBookPipeline(input);
   expect(illustrateStory).toHaveBeenCalledWith(expect.objectContaining({ automaticTextRecovery: true }));
   expect(result).toMatchObject({ pageCount: 36, interiorPdfUrl: expect.stringContaining('/interior.pdf'), coverPdfUrl: expect.stringContaining('/cover.pdf') });
+  // The Lulu preflight both PDFs passed rides the completion payload.
+  expect(result.preflight).toMatchObject({ ok: true, product: 'CHILDREN_PICTURE_BOOK', podPackageId: '0850X0850FCSTDPB080CW444GXX', pageCount: 36 });
+  expect(result.preflight.cover.expectedPt[0]).toBeCloseTo(wrap.widthPt, 6);
   expect(result.qaAdvisories).toContainEqual(expect.objectContaining({ spread: 7 }));
   expect(generateCover.mock.calls[0][4]).toMatchObject({ pageCount: 36, requireCompleteCover: true, preGeneratedCoverBuffer: Buffer.from('approved-front') });
   expect(result.storyContent.synopsis).toContain('Ziv noticed a funny shadow');
@@ -76,10 +100,37 @@ test('a cover upload retry reuses the built PDF and never re-renders the cover',
   expect(generateCover).toHaveBeenCalledTimes(1);
 });
 
-test.each(['missing', 'invalid', 'front-only'])('does not complete with a %s cover PDF and preserves the interior', async kind => {
-  generateCover.mockResolvedValue({ coverPdfBuffer: kind === 'missing' ? null : kind === 'invalid' ? Buffer.from('not a PDF') : await pdf(1) });
+test.each(['missing', 'invalid', 'front-only', 'wrong-spine'])('does not complete with a %s cover PDF and preserves the interior', async kind => {
+  generateCover.mockResolvedValue({ coverPdfBuffer: kind === 'missing' ? null : kind === 'invalid' ? Buffer.from('not a PDF') : kind === 'front-only' ? await pdf(1) : await pdf(1, [1260, 630]) });
   await expect(runBookPipeline(input)).rejects.toMatchObject({ failureCode: 'cover_pdf_failed', interiorPdfUrl: expect.stringContaining('/interior.pdf'), pageCount: 36, previewImageUrls: ['https://storage.example/art.png'] });
   expect(input.saveCheckpoint).toHaveBeenLastCalledWith(expect.objectContaining({ completedStage: 'illustration', renderKeys: expect.any(Array) }));
+});
+
+test.each([['front-only', [630, 630]], ['wrong-spine', [1260, 630]]])('a %s cover fails the Lulu preflight once, with the verdict, and is never retried with saved artwork', async (_kind, size) => {
+  generateCover.mockResolvedValue({ coverPdfBuffer: await pdf(1, size) });
+  await expect(runBookPipeline(input)).rejects.toMatchObject({
+    failureCode: 'cover_pdf_failed',
+    message: expect.stringContaining('failed the Lulu preflight'),
+    preflight: expect.objectContaining({ ok: false, errors: [expect.stringMatching(/expected 1252\.2×630\.0 \(perfect, 36 pages/)] }),
+  });
+  expect(generateCover).toHaveBeenCalledTimes(1);
+  expect(uploadBuffer).not.toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/cover\.pdf$/), expect.anything());
+});
+
+test('a missing page-report row fails the interior before upload and keeps the preflight-shaped verdict', async () => {
+  assemblePdf.mockImplementation(async (_entries, _format, opts) => {
+    opts.pageReport.push({ page: 4, spread: 1, role: 'spread-left', ppi: 234 });
+    return interior;
+  });
+  await expect(runBookPipeline(input)).rejects.toMatchObject({
+    failureCode: 'interior_pdf_failed',
+    preflight: expect.objectContaining({
+      ok: false,
+      errors: [expect.stringContaining('interior page report covers 1/24 expected art pages')],
+      pageCount: 36,
+    }),
+  });
+  expect(uploadBuffer).not.toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/interior\.pdf$/), expect.anything());
 });
 
 test('a PDF-stage retry requests the exact saved artwork', async () => {

@@ -904,8 +904,17 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('IMPORTANT: Do NOT treat this as two separate images side by side. There must be ZERO visual indication that this image will be split into two pages. Paint it as one unified wide scene.');
     parts.push('ANTI-DIPTYCH: No vertical seam, no "stitched" halves, no bench or torso chopped at the exact center as if another image continues — one continuous environment, one light source, one ground plane across the full width.');
     parts.push('CHARACTER POSITION (CRITICAL): The main character MUST be positioned off-center horizontally — clearly in the left third or right third of the image. Do NOT place the main character at the horizontal midpoint (50%) of the image. The exact center of the image is reserved for background scenery, open space, or environmental elements. A character standing at dead-center will be rejected.');
-    parts.push('SAFE ZONE (printing will crop edges):');
-    parts.push('- Keep important content (faces, hands, key objects) within the middle 85% of the height. Top/bottom 7.5% may be cropped.');
+    if (opts.printSafety) {
+      // pq-1 Phase 2 (docs/PRINT_QUALITY_PLAN.md): the print realities the
+      // deterministic checks (metrics.bboxRules) hold the render to.
+      parts.push('SAFE ZONE (the printed page cuts this frame):');
+      parts.push('- The top 7% and the bottom 7% of this image are CUT OFF by the square page and the trim. Every character\'s head and feet, every face, hand and named object stays inside the middle 85% of the height.');
+      parts.push('- The outer 2% of the left and right edges is trimmed too — nothing important touches the sides.');
+      parts.push('- THE FOLD: the vertical centreline (x = 50%) is the physical fold between two pages, and the binding swallows about 4% of the width around it. No face, no companion creature or person, and no named object may sit across the centreline — each stays fully on ONE side of it. Only continuous background (sky, ground, water, foliage) may cross the fold.');
+    } else {
+      parts.push('SAFE ZONE (printing will crop edges):');
+      parts.push('- Keep important content (faces, hands, key objects) within the middle 85% of the height. Top/bottom 7.5% may be cropped.');
+    }
   } else {
     parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
   }
@@ -1446,6 +1455,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     theme: opts.theme || null,
     parentOutfit: opts.parentOutfit || null,
     shotType: opts.shotType || null,
+    // pq-1: the print-page safety lines (fold + crop band) on spread prompts.
+    printSafety: opts.printSafety === true,
     // ce-15: the shot plan's assigned text side and the typography
     // reference index — since ce-13 `textSide` was read by the builder but
     // never forwarded here, so every production render got the "pick a
@@ -1547,7 +1558,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       if (costTracker) {
         costTracker.addImageGeneration(photoBase64 && opts.imageSize === '4K'
-          ? 'gemini-3.1-flash-image:4K' : 'gemini-3.1-flash-image', 1);
+          ? 'gemini-3.1-flash-image:4K' : photoBase64 && opts.imageSize === '2K'
+            ? 'gemini-3.1-flash-image:2K' : 'gemini-3.1-flash-image', 1);
       }
 
       // Resolution guard (2026-09-07): `opts.minRenderHeight` is the pixel

@@ -43,10 +43,20 @@ async function readReviewedRender(spread, storageKey, legacyUnanchoredKey, log, 
   let buffer;
   try { buffer = await downloadBuffer(storageKey); }
   catch (err) {
-    if (!legacyUnanchoredKey || !isMissing(err)) throw err;
-    buffer = await downloadBuffer(legacyUnanchoredKey);
-    storageKey = legacyUnanchoredKey;
-    log('info', `Spread ${spread}: recovered original reviewed artwork before typography was pinned`);
+    // One legacy key (the typography namespace) or, since pq-1, a list —
+    // the un-folded print-tier key too — tried in order.
+    const legacyKeys = [].concat(legacyUnanchoredKey || []).filter(Boolean);
+    if (!legacyKeys.length || !isMissing(err)) throw err;
+    let lastErr = err;
+    for (const key of legacyKeys) {
+      try {
+        buffer = await downloadBuffer(key);
+        storageKey = key;
+        log('info', `Spread ${spread}: recovered original reviewed artwork at its earlier key`);
+        break;
+      } catch (e) { if (!isMissing(e)) throw e; lastErr = e; }
+    }
+    if (!buffer) throw lastErr;
   }
   let marker;
   try { marker = JSON.parse((await downloadBuffer(`${storageKey}.qa.json`)).toString('utf8')); }

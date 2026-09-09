@@ -35,15 +35,19 @@ const sharp   = require('sharp');
 // are now rendered as full-page AI-generated images with text baked in.
 
 
-// ── Geometry constants ───────────────────────────────────────────────────────
-const BLEED       = 9;    // 0.125" in pts
-const SAFE        = BLEED + 50; // safe text inset from page edge
-const TARGET_DPI  = 300;
-const PTS_PER_INCH= 72;
+// ── Geometry constants (Lulu spec — services/luluSpec.js is the source) ─────
+const LULU = require('./luluSpec');
+const PTS_PER_INCH= LULU.PT_PER_IN;
+const BLEED       = LULU.GUIDELINES.bleedIn * PTS_PER_INCH; // 9pt — 0.125"
+// Every typeset element stays inside Lulu's 0.5" safety margin PLUS the 0.2"
+// inner-edge gutter. Blocks are centred, so both edges get the sum: 0.7"
+// inside the trim, 60pt from the page edge (2026-09-08; was 59pt).
+const SAFE        = BLEED + Math.ceil((LULU.GUIDELINES.safetyIn + LULU.GUIDELINES.gutterIn) * PTS_PER_INCH);
+const TARGET_DPI  = LULU.GUIDELINES.targetPpi;
 
 const FORMATS = {
-  PICTURE_BOOK: { width: 612, height: 612 },
-  EARLY_READER: { width: 612, height: 612 },
+  PICTURE_BOOK: { width: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimWidthIn * PTS_PER_INCH, height: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimHeightIn * PTS_PER_INCH },
+  EARLY_READER: { width: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimWidthIn * PTS_PER_INCH, height: LULU.PRODUCTS.CHILDREN_PICTURE_BOOK.trimHeightIn * PTS_PER_INCH },
 };
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -68,6 +72,11 @@ const FONT_PATHS = {
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
   kalam:          path.join(FONT_DIR, 'Kalam-Regular.ttf'),
   comicNeue:      path.join(FONT_DIR, 'ComicNeue-Bold.ttf'),
+  // Metric-compatible Helvetica/Arial clone — EMBEDDED, so the bylines and
+  // footers no longer ride the unembedded base-14 Helvetica (Lulu: "embed
+  // all fonts"; the base-14 names are the one exception its normalizer
+  // substitutes, and the picture-book preflight reports them).
+  liberation:     path.join(FONT_DIR, 'LiberationSans-Regular.ttf'),
 };
 
 // ── Text helpers ──────────────────────────────────────────────────────────────
@@ -223,21 +232,117 @@ const TEXT_PAGE_JPEG = Object.freeze({ quality: 95, chromaSubsampling: '4:4:4' }
  * @returns {Promise<Buffer>} JPEG bytes
  */
 async function encodeFullBleedJpeg(buf, wp, hp, { text = false } = {}) {
-  return sharp(buf)
+  let pipeline = sharp(buf)
     .resize(wp, hp, { fit: 'cover', kernel: 'lanczos3' })
-    .toColorspace('srgb')
+    .toColorspace('srgb');
+  // pq-1 Phase 4.2 (proof-driven, OFF by default): a print-only shadow
+  // lift for coated stock's dot gain — `CATALOG_PRINT_SHADOW_LIFT` is the
+  // lift at black as a fraction (0–0.15), fading to nothing by mid-grey.
+  // Never applied to previews: this is the one encode the printer sees.
+  const lift = printShadowLift();
+  if (lift > 0) {
+    const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
+    pipeline = sharp(applyShadowLift(data, lift, info.channels), { raw: { width: info.width, height: info.height, channels: info.channels } });
+  }
+  // pq-1 Phase 4.1: every page carries an sRGB profile, so Lulu's CMYK
+  // conversion starts from a declared source instead of an assumption.
+  return pipeline
+    .withIccProfile('srgb')
     .jpeg({ ...(text ? TEXT_PAGE_JPEG : PAGE_JPEG) })
     .toBuffer();
 }
 
+/**
+ * The print shadow lift knob (pq-1 Phase 4.2): 0 (default) leaves pixels
+ * untouched; up to 0.15 lifts the darkest tones for coated-stock dot gain.
+ * A proof decision — set only after a printed comparison.
+ * @returns {number}
+ */
+function printShadowLift() {
+  const n = Number(process.env.CATALOG_PRINT_SHADOW_LIFT);
+  return Number.isFinite(n) && n > 0 ? Math.min(0.15, n) : 0;
+}
+
+/**
+ * Lift the shadows of an interleaved 8-bit buffer in place: a tone curve
+ * that adds `lift × 255` at black and fades linearly to no change at
+ * mid-grey (128), leaving highlights untouched. Pure — exported for tests.
+ * @param {Buffer} data raw interleaved channels
+ * @param {number} lift 0–1 fraction of full scale added at black
+ * @param {number} [channels=3] raw channel count; the alpha channel is preserved
+ * @returns {Buffer} the same buffer
+ */
+function applyShadowLift(data, lift, channels = 3) {
+  const lut = new Uint8Array(256);
+  for (let v = 0; v < 256; v += 1) {
+    const t = v < 128 ? (128 - v) / 128 : 0;
+    lut[v] = Math.min(255, Math.round(v + lift * 255 * t));
+  }
+  const step = Number.isInteger(channels) && channels > 0 ? channels : 3;
+  const alphaIndex = step === 4 ? 3 : -1;
+  for (let i = 0; i < data.length; i += 1) {
+    if (alphaIndex >= 0 && i % step === alphaIndex) continue;
+    data[i] = lut[data[i]];
+  }
+  return data;
+}
+
+/**
+ * pq-1 Phase 4.3: the share of a page's pixels that are very saturated
+ * (HSV saturation > 0.9 with value > 0.35) — the colours a CMYK press
+ * dulls most. Measured on a small downscale; null on an unreadable image.
+ * @param {Buffer} buf
+ * @returns {Promise<number|null>}
+ */
+async function saturatedShare(buf) {
+  try {
+    const { data, info } = await sharp(buf).resize(96, 96, { fit: 'inside' }).removeAlpha().toColorspace('srgb').raw().toBuffer({ resolveWithObject: true });
+    const px = info.width * info.height;
+    if (!px || info.channels < 3) return null;
+    let hot = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+      const max = Math.max(r, g, b); const min = Math.min(r, g, b);
+      if (max > 0 && (max - min) / max > 0.9 && max / 255 > 0.35) hot += 1;
+    }
+    return Math.round((hot / px) * 1000) / 1000;
+  } catch { return null; }
+}
+
+/**
+ * Resize + encode one full-bleed page image and draw it. Returns the SOURCE
+ * pixel size (pq-1: the print preflight reports each page's effective PPI
+ * from it — the canvas is always 300 dpi, the pixels behind it are not).
+ * @returns {Promise<{width: number, height: number}|null>}
+ */
 async function embedFullBleed(pdfDoc, page, buf, opts = {}) {
   const pw = page.getWidth(); const ph = page.getHeight();
   const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
+  let source = null;
+  try {
+    const meta = await sharp(buf).metadata();
+    if (meta && meta.width && meta.height) source = { width: meta.width, height: meta.height };
+  } catch { /* the encode below reports an unreadable buffer */ }
   // fit: 'cover' fills the page edge-to-edge (full-bleed design intent)
   const r = await encodeFullBleedJpeg(buf, wp, hp, opts);
   const img = await pdfDoc.embedJpg(r);
   page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
+  return source;
+}
+
+/**
+ * pq-1 — record one printed page's source resolution on the caller's page
+ * report: `ppi` is the source pixels per printed inch across the width the
+ * source spans (the whole 17.5 in spread for a wide render, the 8.75 in
+ * page for a square one) — the number Lulu's 300 ppi guideline is about.
+ * @param {Array|null} report opts.pageReport
+ * @param {{page: number, spread: number|null, source: {width: number, height: number}|null, spanIn: number, role: string}} entry
+ */
+function notePageSource(report, { page, spread, source, spanIn, role, saturatedShare: hot = null }) {
+  if (!Array.isArray(report)) return;
+  const ppi = source && source.width > 0 && spanIn > 0 ? Math.round(source.width / spanIn) : null;
+  report.push({ page, spread: spread ?? null, role, source: source || null, spanIn: Math.round(spanIn * 1000) / 1000, ppi, saturatedShare: hot });
 }
 
 async function splitSpreadImage(buf, pw, ph) {
@@ -270,7 +375,7 @@ async function splitSpreadImage(buf, pw, ph) {
   const leftBuf = await half(0);
   const rightBuf = await half(wp);
 
-  return { leftBuf, rightBuf };
+  return { leftBuf, rightBuf, source: { width: srcW, height: srcH }, saturatedShare: await saturatedShare(buf) };
 }
 
 // ── Font loader (lazy, cached per pdfDoc) ────────────────────────────────────
@@ -282,15 +387,18 @@ async function loadFonts(pdfDoc) {
   // disagree. Ligatures add nothing at caption sizes; disable them for all
   // embedded fonts.
   const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p), { features: { liga: false } }) : null;
-  const [bubblegum, playfair, playfairItalic, dancing, kalam, helv, helvB] = await Promise.all([
+  const [bubblegum, playfair, playfairItalic, dancing, kalam, liberation, helvB] = await Promise.all([
     load(FONT_PATHS.bubblegum),
     load(FONT_PATHS.playfair),
     load(FONT_PATHS.playfairItalic),
     load(FONT_PATHS.dancing),
     load(FONT_PATHS.kalam),
-    pdfDoc.embedFont(StandardFonts.Helvetica),
+    load(FONT_PATHS.liberation),
     pdfDoc.embedFont(StandardFonts.HelveticaBold),
   ]);
+  // The `helv` slot is the embedded Liberation Sans (same metrics as
+  // Helvetica); the base-14 Helvetica only if the TTF is missing.
+  const helv = liberation || await pdfDoc.embedFont(StandardFonts.Helvetica);
   // P5 (2026-07-23 audit): the caption halo used to be layered pdf-lib text
   // (the same line drawn 8× around the fill + a drop shadow). pdftotext saw
   // every copy, so each caption word was extracted TWICE in the shipped PDF.
@@ -915,19 +1023,23 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'li
  *   ({ spread, zone, tone, haloStrength, busy, luminance, maxStdev,
  *      contrastRatio, belowContrast }).
  */
-async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = null }) {
+async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = null, pageReport = null }) {
   const leftPage = pdfDoc.addPage([pw, ph]);
   const rightPage = pdfDoc.addPage([pw, ph]);
   let leftBuf = null;
   let rightBuf = null;
   if (entry.spreadIllustrationBuffer) {
     try {
-      ({ leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
+      let source; let hot;
+      ({ leftBuf, rightBuf, source, saturatedShare: hot } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
       // Story text painted into the art ⇒ the text-bearing encode (full
       // chroma, quality 95); the overlay path's text is PDF type.
       const pageOpts = { text: !!entry.textEmbeddedInArt };
       await embedFullBleed(pdfDoc, leftPage, leftBuf, pageOpts);
       await embedFullBleed(pdfDoc, rightPage, rightBuf, pageOpts);
+      const pageNo = pdfDoc.getPageCount();
+      notePageSource(pageReport, { page: pageNo - 1, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-left', saturatedShare: hot });
+      notePageSource(pageReport, { page: pageNo, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-right', saturatedShare: hot });
     } catch (e) {
       console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
     }
@@ -1021,7 +1133,9 @@ function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
   // Byline
   const by = 'Created by GiftMyBook';
   const byW = helv.widthOfTextAtSize(by, 10);
-  p.drawText(by, { x: (pw - byW) / 2, y: BLEED + 22, size: 10, font: helv, color: C.grayLight });
+  // Baseline on the safety line (0.7" inside the trim) — it used to sit
+  // 0.3" inside, within Lulu's 0.5" trim-variance zone.
+  p.drawText(by, { x: (pw - byW) / 2, y: SAFE, size: 10, font: helv, color: C.grayLight });
 }
 
 function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
@@ -1114,6 +1228,36 @@ function buildClosingPage(pdfDoc, pw, ph, fonts) {
   p.drawText('GiftMyBook.com', { x: (pw - bw) / 2, y: ph / 2 - 34, size: 10, font: helv, color: C.grayLight });
 }
 
+/**
+ * Upsell-spread card geometry — pure, exported for tests. Every card (with
+ * its QR code and labels) and the footer stay inside SAFE, Lulu's 0.5"
+ * safety margin plus the 0.2" gutter. Before 2026-09-08 the cards sat
+ * 0.25" inside the trim and the footer 0.06" — inside the zone Lulu's own
+ * guidelines say the trim can cut through — and the QR codes with them.
+ *
+ * @param {{pw: number, ph: number, cardsTopY: number}} p - page size and the
+ *   y below which the cards may start (the header's bottom, or the safety line)
+ * @returns {{cardW: number, coverH: number, labelH: number, gap: number, offsetY: number, coverY: number,
+ *   footerY: number, cardX: (i: number) => number, fits: boolean}}
+ */
+function computeUpsellCardLayout({ pw, ph, cardsTopY }) {
+  const GAP = 14;
+  const LABEL_H = 52;
+  const FOOTER_H = 14; // the footer's baseline sits ON the safety line; cards start above it
+  const cardW = (pw - SAFE * 2 - GAP) / 2;
+  const coverH = Math.round(cardW * (2400 / 1792)); // 3:4 portrait ratio
+  const cardH = coverH + LABEL_H;
+  const top = Math.min(cardsTopY, ph - SAFE);
+  const availH = top - (SAFE + FOOTER_H);
+  const offsetY = SAFE + FOOTER_H + Math.max(0, (availH - cardH) / 2);
+  return {
+    cardW, coverH, labelH: LABEL_H, gap: GAP,
+    offsetY, coverY: offsetY + LABEL_H, footerY: SAFE,
+    cardX: (i) => SAFE + i * (cardW + GAP),
+    fits: availH >= cardH,
+  };
+}
+
 async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
   const { playfair, playfairItalic, helv, helvB } = fonts;
   const { upsellCovers, childName, bookId } = opts;
@@ -1122,40 +1266,32 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
   let qrcode;
   try { qrcode = require('qrcode'); } catch (_) {}
 
-  const MARGIN = 27;
-  const GAP    = 14;
-  const CARD_W = (pw - MARGIN * 2 - GAP) / 2;
-  const COVER_H= Math.round(CARD_W * (2400 / 1792)); // 3:4 portrait ratio
-  const LABEL_H= 52;
-
   for (let pageIdx = 0; pageIdx < 2; pageIdx++) {
     const p = pdfDoc.addPage([pw, ph]);
     const pagePair = upsellCovers.slice(pageIdx * 2, pageIdx * 2 + 2);
     if (pagePair.length === 0) continue;
 
-    // Header (left page only)
+    // Header (left page only) — its first line's glyphs sit below the
+    // safety line (baseline one em down).
     let cardsTopY;
     if (pageIdx === 0) {
       const tag    = `What will ${childName || 'your child'}\u2019s next story be?`;
       const tagSz  = 18;
-      const tagLines = wrapText(tag, playfair || helv, tagSz, pw - MARGIN * 2);
+      const tagLines = wrapText(tag, playfair || helv, tagSz, pw - SAFE * 2);
       const tagLH  = tagSz * 1.35;
-      let ty = ph - MARGIN - 4;
+      let ty = ph - SAFE - tagSz;
       for (const line of tagLines) { drawCentered(p, line, playfair || helv, tagSz, ty, C.black); ty -= tagLH; }
       drawCentered(p, 'Choose the next adventure...', playfairItalic || helv, 11, ty - 2, C.brownMid);
       cardsTopY = ty - 16;
     } else {
-      cardsTopY = ph - MARGIN - 4;
+      cardsTopY = ph - SAFE;
     }
 
-    const availH  = cardsTopY - MARGIN;
-    const cardH   = COVER_H + LABEL_H;
-    const offsetY = MARGIN + Math.max(0, (availH - cardH) / 2);
-    const coverY  = offsetY + LABEL_H;
+    const { cardW: CARD_W, coverH: COVER_H, labelH: LABEL_H, offsetY, coverY, footerY, cardX: cardXAt } = computeUpsellCardLayout({ pw, ph, cardsTopY });
 
     for (let ci = 0; ci < pagePair.length; ci++) {
       const uc   = pagePair[ci];
-      const cardX = MARGIN + ci * (CARD_W + GAP);
+      const cardX = cardXAt(ci);
       const buf   = uc.coverBuffer;
 
       if (buf) {
@@ -1210,10 +1346,10 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
       }
     }
 
-    // Footer
+    // Footer — on the safety line, never in the trim zone.
     const ft = `GiftMyBook.com  \u00B7  A personalized book made just for ${childName || 'your child'}`;
     const ftW = helv.widthOfTextAtSize(ft, 7);
-    p.drawText(ft, { x: (pw - ftW) / 2, y: BLEED + 4, size: 7, font: helv, color: C.grayLight });
+    p.drawText(ft, { x: (pw - ftW) / 2, y: footerY, size: 7, font: helv, color: C.grayLight });
   }
 }
 
@@ -1304,6 +1440,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
   const fonts  = await loadFonts(pdfDoc);
 
   const { title, childName, dedication, bookFrom, year, upsellCovers, bookId } = opts;
+  // pq-1: every printed art page's source resolution, for the print preflight.
+  const pageReport = Array.isArray(opts.pageReport) ? opts.pageReport : null;
 
   // ── Front matter ──────────────────────────────────────────────────────────
   buildBlankPage(pdfDoc, pw, ph);
@@ -1331,7 +1469,7 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       // the art director's quiet zone — integrated (no panel), in a tone and
       // halo strength decided from the band's segment statistics. The words
       // are PDF type, never pixels — D5 stays intact.
-      await layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report: opts.overlayReport || null });
+      await layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report: opts.overlayReport || null, pageReport });
       continue;
     }
 
@@ -1352,8 +1490,10 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       }
       if (entry.spreadIllustrationBuffer) {
         try {
-          const { rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+          const { rightBuf, source, saturatedShare: hot } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
           await embedFullBleed(pdfDoc, imagePage, rightBuf);
+          // The recto shows the art's RIGHT half: the source spans two pages.
+          notePageSource(pageReport, { page: pdfDoc.getPageCount(), spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'half-right', saturatedShare: hot });
         } catch (e) {
           console.warn(`[LayoutEngine] half-layout art embed failed: ${e.message}`);
         }
@@ -1373,7 +1513,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       }
       if (entry.spreadIllustrationBuffer) {
         try {
-          await embedFullBleed(pdfDoc, imagePage, entry.spreadIllustrationBuffer);
+          const source = await embedFullBleed(pdfDoc, imagePage, entry.spreadIllustrationBuffer);
+          notePageSource(pageReport, { page: pdfDoc.getPageCount(), spread: entry.spread ?? null, source, spanIn: pw / PTS_PER_INCH, role: 'square', saturatedShare: pageReport ? await saturatedShare(entry.spreadIllustrationBuffer) : null });
         } catch (e) {
           console.warn(`[LayoutEngine] square spread embed failed: ${e.message}`);
         }
@@ -1386,9 +1527,12 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
     const rightPage = pdfDoc.addPage([pw, ph]);
     if (entry.spreadIllustrationBuffer) {
       try {
-        const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+        const { leftBuf, rightBuf, source, saturatedShare: hot } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
         await embedFullBleed(pdfDoc, leftPage,  leftBuf);
         await embedFullBleed(pdfDoc, rightPage, rightBuf);
+        const pageNo = pdfDoc.getPageCount();
+        notePageSource(pageReport, { page: pageNo - 1, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-left', saturatedShare: hot });
+        notePageSource(pageReport, { page: pageNo, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-right', saturatedShare: hot });
       } catch (e) {
         console.warn(`[LayoutEngine] spread split failed: ${e.message}`);
       }
@@ -1403,11 +1547,18 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
 
   // ── Upsell spread ─────────────────────────────────────────────────────────
   if (upsellCovers && upsellCovers.length > 0) {
+    // A spread's two pages must FACE each other: Lulu prints page 1 on the
+    // right, so odd pages are rectos and the spread's first (header) page
+    // must be a verso — an even page number. With 12 story spreads the
+    // closing page is page 28, so the upsell used to open on recto 29 and
+    // finish on verso 30, split by a page turn (2026-09-08).
+    if (pdfDoc.getPageCount() % 2 === 0) buildBlankPage(pdfDoc, pw, ph);
     await buildUpsellSpread(pdfDoc, pw, ph, fonts, { upsellCovers, childName, bookId });
   }
 
-  // Enforce Lulu minimum page count and ensure even page count for binding
-  const MIN_PAGES = opts.minPages || 32;
+  // Enforce Lulu's minimum page count (perfect bound: 32) and an even count
+  // — every leaf prints two pages.
+  const MIN_PAGES = opts.minPages || LULU.INTERIOR_MIN_PAGES;
   while (pdfDoc.getPageCount() < MIN_PAGES || pdfDoc.getPageCount() % 2 !== 0) {
     pdfDoc.addPage([pw, ph]);
   }
@@ -2483,4 +2634,15 @@ module.exports = {
   drawCaptionOverlay,
   loadFonts,
   OVERLAY,
+  // 2026-09-08: the upsell-spread card geometry (inside the Lulu safety
+  // margin + gutter) and the safety inset itself, for the sharp-free suite.
+  computeUpsellCardLayout,
+  SAFE,
+  BLEED,
+  // pq-1: the page-report helper (pure) for the sharp-free suite, the
+  // shadow-lift curve (pure) and the gamut measure.
+  notePageSource,
+  applyShadowLift,
+  printShadowLift,
+  saturatedShare,
 };
