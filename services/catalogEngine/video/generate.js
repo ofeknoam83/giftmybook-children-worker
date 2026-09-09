@@ -28,7 +28,8 @@
  * reports what it actually bought, never silently.
  */
 
-const { downloadBuffer, uploadBuffer, loadJson, saveJson } = require('../../gcsStorage');
+const { downloadBuffer, uploadBuffer, saveJson } = require('../../gcsStorage');
+const { loadPrediction, checkPredictionAbort } = require('./predictionState');
 const { fnv1a } = require('../selection');
 const { VIDEO_VERSION } = require('../versions');
 const { clipSecondsFor, costModelFor, QUALITY_FIELD } = require('./providers/models');
@@ -157,6 +158,7 @@ async function generateCandidates(p) {
   const abortSignal = p.ctx && p.ctx.abortSignal;
 
   const one = async (k) => {
+    checkPredictionAbort(abortSignal);
     const storageKey = candidateClipKey(canonicalKey, k, pass);
     if (!p.forceNew) {
       const cached = await downloadBuffer(storageKey).catch(() => null);
@@ -177,11 +179,11 @@ async function generateCandidates(p) {
     // resubmitting an in-flight clip would bill the same shot twice.
     const jobKey = `${storageKey}.job.json`;
     if (p.persistJobs && !p.forceNew) {
-      const saved = await loadJson(jobKey).catch(() => null);
+      const saved = await loadPrediction(jobKey);
       if (saved?.jobId) ref = saved;
     }
-    let endFrameDropped = false;
-    const inputRepairs = [];
+    let endFrameDropped = ref?.endFrameDropped === true;
+    const inputRepairs = Array.isArray(ref?.inputRepairs) ? [...ref.inputRepairs] : [];
     let hasEndFrame = !!endFrame;
     try {
       // A rejected input is corrected against the vendor's own complaint and
@@ -190,8 +192,9 @@ async function generateCandidates(p) {
       // end frame — the one field the vendor names last and we can lose.
       for (let attempt = 0; !ref; attempt++) {
         try {
+          checkPredictionAbort(abortSignal);
           ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
-          if (p.persistJobs) await saveJson(ref, jobKey);
+          if (p.persistJobs) await saveJson({ ...ref, inputRepairs, endFrameDropped }, jobKey);
         } catch (err) {
           if (err.failureCode !== 'video_provider_input_rejected' || attempt >= MAX_INPUT_REPAIRS) throw err;
           const fixed = repairInput(input, err.inputIssues || []);
@@ -214,7 +217,7 @@ async function generateCandidates(p) {
     } catch (err) {
       // A rejected input or a dead account is a configuration failure, not a
       // bad candidate — surface it as the run's failure so the admin sees it.
-      if (err.failureCode === 'video_provider_input_rejected' || err.failureCode === 'video_provider_unavailable') throw err;
+      if (err.failureCode === 'cancelled' || err.failureCode === 'video_provider_input_rejected' || err.failureCode === 'video_provider_unavailable') throw err;
       log('warn', `segment ${p.segment.index}: candidate ${k} submit failed (${err.message})`);
       return { k, pass, storageKey, buffer: null, status: 'failed', error: err.message, providerJobId: null, cached: false, seconds };
     }
@@ -229,6 +232,7 @@ async function generateCandidates(p) {
       }
       if (abortSignal && abortSignal.aborted) return { k, pass, storageKey, buffer: null, status: 'failed', error: 'aborted', providerJobId: ref.jobId, cached: false, seconds, endFrameDropped, inputRepairs };
       await sleep(pollIntervalMs);
+      checkPredictionAbort(abortSignal);
       touch();
       let r;
       try {
