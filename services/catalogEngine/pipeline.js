@@ -18,6 +18,7 @@ const { illustrateStory } = require('./illustrator');
 const { PDFDocument } = require('pdf-lib');
 const { createBackCoverSynopsis } = require('./backCoverSynopsis');
 const { preflightPictureBook } = require('../luluSpec');
+const flags = require('./flags');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const FORMAT = 'PICTURE_BOOK';
@@ -332,6 +333,9 @@ async function runBookPipeline(params) {
   // ── Interior PDF ─────────────────────────────────────────────────────────
   onProgress('assembly', 0.88, 'Assembling interior PDF...');
   const overlayReport = [];
+  // pq-1: every printed art page's source resolution (layoutEngine) — the
+  // preflight turns it into effective PPI per page.
+  const pageReport = [];
   const interiorPdf = await assemblePdf(art.entries, FORMAT, {
     title: bookTitle,
     childName: profile.name,
@@ -341,6 +345,7 @@ async function runBookPipeline(params) {
     bookId,
     minPages: 32,
     overlayReport,
+    pageReport,
     upsellCovers: upsellWithBuffers,
   });
   const pageCount = (await PDFDocument.load(interiorPdf)).getPageCount();
@@ -352,7 +357,7 @@ async function runBookPipeline(params) {
   // own validation runs at order time, run here so a file Lulu would reject
   // never reaches the app as "ready". Deterministic, so a failure is a bug
   // in the layout, never something a retry cures.
-  const interiorPreflight = await preflightPictureBook({ interiorPdf, bindingType });
+  const interiorPreflight = await preflightPictureBook({ interiorPdf, bindingType, pageReport, ppiFloor: flags.printPpiFloor() });
   if (!interiorPreflight.ok) {
     throw new PipelineError(`Interior PDF failed the Lulu preflight: ${interiorPreflight.errors.join('; ')}`, 'interior_pdf_failed', { preflight: interiorPreflight });
   }
@@ -409,7 +414,7 @@ async function runBookPipeline(params) {
         // 2026-09-08 only "one page, wider than two trims" was checked.
         // The failure keeps the app's `cover_pdf_failed` contract (its
         // resume affordance) and carries the verdict as `preflight`.
-        const coverPreflight = await preflightPictureBook({ coverPdf: candidate.coverPdfBuffer, pageCount, bindingType });
+        const coverPreflight = await preflightPictureBook({ coverPdf: candidate.coverPdfBuffer, pageCount, bindingType, coverSource: candidate.frontCoverSource || null, ppiFloor: flags.printPpiFloor() });
         if (!coverPreflight.ok) {
           throw new PipelineError(`Cover PDF failed the Lulu preflight: ${coverPreflight.errors.join('; ')}. The interior PDF and illustrations are saved for retry.`, 'cover_pdf_failed', { preflight: coverPreflight });
         }
@@ -420,6 +425,11 @@ async function runBookPipeline(params) {
           pageCount,
           interior: interiorPreflight.interior,
           cover: coverPreflight.cover,
+          // pq-1: effective resolution per printed art page and of the cover.
+          pages: interiorPreflight.pages,
+          minPpi: interiorPreflight.minPpi,
+          coverPpi: coverPreflight.coverPpi,
+          coverWrap: candidate.coverWrapMethods || null,
           warnings: [...interiorPreflight.warnings, ...coverPreflight.warnings],
           notes: [...interiorPreflight.notes, ...coverPreflight.notes],
         };
@@ -430,6 +440,9 @@ async function runBookPipeline(params) {
       coverPdfUrl = await getSignedUrl(coverPath, SIGNED_URL_TTL_MS);
       if (!coverPdfUrl) throw new Error('Cover PDF download link was not produced');
       if (attempt > 0) warnings.push('Cover PDF recovered automatically using saved artwork.');
+      // pq-1 Phase 3.1: a wrap band that fell back to copy + blur is the
+      // pre-pq-1 status quo — a warning, never a review flag.
+      for (const n of coverData.coverWrapNotes || []) warnings.push(n);
       if (coverData.coverAnatomyAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverAnatomyAdvisory });
       if (coverData.coverArtworkAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'cover', note: coverData.coverArtworkAdvisory });
       if (coverData.backCoverDesignAdvisory) qaAdvisories.push({ stage: 'cover', spread: 'back_cover', note: coverData.backCoverDesignAdvisory });
@@ -467,6 +480,9 @@ async function runBookPipeline(params) {
       // /finalize-book — art with Gemini-painted text must keep saying so,
       // or a later layout pass would typeset the caption over it again.
       ...(e.textEmbeddedInArt ? { textEmbeddedInArt: true } : {}),
+      // pq-1: the print-crop preview (the 2:1 page crop with trim, safety
+      // and fold guides) — the admin and the flipbook show what prints.
+      ...(e.printPreviewUrl ? { printPreviewUrl: e.printPreviewUrl, printPreviewKey: e.printPreviewKey } : {}),
     })),
     characterDescription: characterDescription || null,
     characterAnchor: characterDescription || null,
@@ -494,6 +510,8 @@ async function runBookPipeline(params) {
     pageCount,
     backCoverImageUrl: coverData?.backCoverImageUrl || null,
     previewImageUrls: art.previewImageUrls,
+    // pq-1: the print-crop previews in spread order.
+    printPreviewUrls: art.printPreviewUrls || [],
     title: bookTitle,
     spreadCount: art.entries.length,
     illustrationTuningUsed: art.illustrationTuningUsed,

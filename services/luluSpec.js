@@ -53,6 +53,17 @@ const GUIDELINES = Object.freeze({
   /** Lulu recommends no spine text below this page count. */
   spineTextMinPages: 80,
   targetPpi: 300,
+  /**
+   * pq-1: the effective PPI a page must reach to count as print-sharp here
+   * — a 4K render across the 17.5 in spread (4096 / 17.5). Below it the
+   * preflight WARNS; below `ppiFloor` (a caller knob, 0 = never) it errors.
+   */
+  sharpPpi: 234,
+  /**
+   * pq-1 Phase 4.3: the share of a page's pixels above 0.9 HSV saturation
+   * past which the preflight warns that the press will dull it.
+   */
+  gamutWarnShare: 0.35,
 });
 
 /**
@@ -242,11 +253,20 @@ function unembeddedFonts(pdfDoc) {
  * Pass `interiorPdf` alone, `coverPdf` + `pageCount` alone (a cover-only
  * rebuild), or both (the page count then comes from the interior).
  *
- * @param {{interiorPdf?: Buffer, coverPdf?: Buffer, bindingType?: string|null, pageCount?: number}} p
+ * pq-1: `pageReport` (the layout engine's per-page source resolutions —
+ * `assemblePdf({ pageReport })`) and `coverSource` (the front cover's
+ * source pixel size) add an effective-PPI check per printed art page and
+ * for the cover: below `GUIDELINES.sharpPpi` a WARNING, below `ppiFloor`
+ * (0 = never) an ERROR. Reported as `pages` / `minPpi` / `coverPpi`.
+ *
+ * @param {{interiorPdf?: Buffer, coverPdf?: Buffer, bindingType?: string|null, pageCount?: number,
+ *   pageReport?: Array<{page: number, spread: number|null, ppi: number|null, role?: string}>,
+ *   coverSource?: {width: number, height: number}|null, ppiFloor?: number}} p
  * @returns {Promise<{ok: boolean, errors: string[], warnings: string[], notes: string[], product: string,
- *   podPackageId: string, pageCount: number|null, interior: object|null, cover: object|null}>}
+ *   podPackageId: string, pageCount: number|null, interior: object|null, cover: object|null,
+ *   pages: Array|null, minPpi: number|null, coverPpi: number|null}>}
  */
-async function preflightPictureBook({ interiorPdf, coverPdf, bindingType, pageCount } = {}) {
+async function preflightPictureBook({ interiorPdf, coverPdf, bindingType, pageCount, pageReport, coverSource, ppiFloor = 0 } = {}) {
   const { PDFDocument } = require('pdf-lib');
   const product = pictureBookProduct(bindingType);
   const errors = [];
@@ -301,6 +321,34 @@ async function preflightPictureBook({ interiorPdf, coverPdf, bindingType, pageCo
     };
   }
 
+  // pq-1: effective resolution — the pixels behind each printed art page.
+  let pagesReport = null;
+  let minPpi = null;
+  if (Array.isArray(pageReport) && pageReport.length) {
+    pagesReport = pageReport.map(r => ({ page: r.page, spread: r.spread ?? null, role: r.role || null, ppi: Number.isFinite(r.ppi) ? r.ppi : null, saturatedShare: Number.isFinite(r.saturatedShare) ? r.saturatedShare : null }));
+    const hot = pagesReport.filter(r => r.saturatedShare != null && r.saturatedShare > GUIDELINES.gamutWarnShare);
+    if (hot.length) {
+      warnings.push(`${hot.length} art page${hot.length > 1 ? 's' : ''} very saturated (${Math.round(Math.max(...hot.map(r => r.saturatedShare)) * 100)}% of pixels above 0.9 saturation on page ${hot.sort((a, b) => b.saturatedShare - a.saturatedShare)[0].page}) — expect the press to print it duller than the screen`);
+    }
+    const measured = pagesReport.filter(r => r.ppi != null);
+    if (measured.length) {
+      minPpi = Math.min(...measured.map(r => r.ppi));
+      const soft = measured.filter(r => r.ppi < GUIDELINES.sharpPpi);
+      const failing = ppiFloor > 0 ? measured.filter(r => r.ppi < ppiFloor) : [];
+      if (failing.length) {
+        errors.push(`${failing.length} art page${failing.length > 1 ? 's' : ''} below the ${ppiFloor} ppi floor (lowest ${minPpi} ppi on page ${failing.sort((a, b) => a.ppi - b.ppi)[0].page})`);
+      } else if (soft.length) {
+        warnings.push(`${soft.length} art page${soft.length > 1 ? 's' : ''} below ${GUIDELINES.sharpPpi} ppi effective (lowest ${minPpi} ppi on page ${soft.sort((a, b) => a.ppi - b.ppi)[0].page}; Lulu recommends ${GUIDELINES.targetPpi}) — the source render is smaller than the print needs`);
+      }
+    }
+  }
+  let coverPpi = null;
+  if (coverSource && coverSource.width > 0) {
+    coverPpi = Math.round(coverSource.width / product.trimWidthIn);
+    if (ppiFloor > 0 && coverPpi < ppiFloor) errors.push(`front cover is ${coverPpi} ppi effective, below the ${ppiFloor} ppi floor`);
+    else if (coverPpi < GUIDELINES.sharpPpi) warnings.push(`front cover is ${coverPpi} ppi effective (${coverSource.width}px across ${product.trimWidthIn} in; Lulu recommends ${GUIDELINES.targetPpi})`);
+  }
+
   if (!interiorPdf && !coverPdf) errors.push('nothing to preflight');
 
   return {
@@ -313,6 +361,9 @@ async function preflightPictureBook({ interiorPdf, coverPdf, bindingType, pageCo
     pageCount: pages,
     interior,
     cover,
+    pages: pagesReport,
+    minPpi,
+    coverPpi,
   };
 }
 

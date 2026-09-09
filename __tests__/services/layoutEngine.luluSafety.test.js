@@ -1,7 +1,7 @@
 'use strict';
 
 const { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } = require('pdf-lib');
-const { assemblePdf, computeUpsellCardLayout, SAFE, BLEED } = require('../../services/layoutEngine');
+const { assemblePdf, computeUpsellCardLayout, SAFE, BLEED, notePageSource } = require('../../services/layoutEngine');
 const LULU = require('../../services/luluSpec');
 
 // Lulu's interior guidelines (2026-09-08): 0.125" bleed, a 0.5" safety
@@ -148,6 +148,39 @@ describe('assemblePdf against the Lulu interior guidelines', () => {
     // The byline / footer face is the embedded Liberation Sans now; only
     // the upsell style label still rides the base-14 Helvetica-Bold.
     expect(r.interior.fonts.base14).toEqual(['Helvetica-Bold']);
+  });
+});
+
+describe('pq-1 page report', () => {
+  test('notePageSource turns a source width and the printed span into effective PPI', () => {
+    const report = [];
+    notePageSource(report, { page: 4, spread: 1, source: { width: 4096, height: 2304 }, spanIn: 17.5, role: 'spread-left' });
+    notePageSource(report, { page: 6, spread: 2, source: { width: 1024, height: 576 }, spanIn: 17.5, role: 'half-right' });
+    notePageSource(report, { page: 8, spread: 3, source: { width: 2048, height: 2048 }, spanIn: 8.75, role: 'square' });
+    notePageSource(report, { page: 9, spread: 4, source: null, spanIn: 8.75, role: 'square' });
+    expect(report.map(r => r.ppi)).toEqual([234, 59, 234, null]);
+    expect(report[0]).toMatchObject({ page: 4, spread: 1, role: 'spread-left', spanIn: 17.5 });
+    // A missing report array is a no-op, never a throw.
+    expect(() => notePageSource(null, { page: 1, spread: 1, source: { width: 10, height: 10 }, spanIn: 1, role: 'square' })).not.toThrow();
+  });
+
+  test('assemblePdf fills opts.pageReport for every printed art page when the art is real', async () => {
+    let sharp;
+    try { sharp = require('sharp'); await sharp({ create: { width: 4, height: 4, channels: 3, background: '#fff' } }).png().toBuffer(); }
+    catch { return; } // the sharp binary is not usable in this sandbox — the pure helper above covers the math
+    const wide = await sharp({ create: { width: 1024, height: 576, channels: 3, background: '#8ab' } }).png().toBuffer();
+    const square = await sharp({ create: { width: 2048, height: 2048, channels: 3, background: '#a8b' } }).png().toBuffer();
+    const pageReport = [];
+    await assemblePdf([
+      { type: 'spread', spread: 1, textLayout: 'half', captionText: 'One.', spreadIllustrationBuffer: wide },
+      { type: 'spread', spread: 2, illustrationAspect: 'square', captionText: 'Two.', spreadIllustrationBuffer: square },
+      { type: 'spread', spread: 3, captionText: 'Three.', spreadIllustrationBuffer: wide },
+    ], 'picture_book', { title: 'T', childName: 'A', minPages: 8, pageReport });
+    expect(pageReport.map(r => [r.role, r.ppi])).toEqual([
+      ['half-right', 59], ['square', 234], ['spread-left', 59], ['spread-right', 59],
+    ]);
+    // Front matter is 3 pages: half → panel 4 + art 5; caption → text 6 + art 7; wide → 8 + 9.
+    expect(pageReport.map(r => r.page)).toEqual([5, 7, 8, 9]);
   });
 });
 

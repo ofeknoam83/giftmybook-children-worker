@@ -42,6 +42,9 @@ test('metrics move the score: identity similarity up, colour/bbox misses down', 
   expect(scoreCandidate(good)).toBeGreaterThan(scoreCandidate(base));
   expect(scoreCandidate(bad)).toBeLessThan(scoreCandidate(base));
   expect(scoreCandidate(bad)).toBe(WEIGHTS.base + WEIGHTS.identity * (0.2 - 0.5) + WEIGHTS.colourSlotFail + WEIGHTS.safeZoneFail + WEIGHTS.offCenterFail);
+  // pq-1: a subject on the fold and a companion/prop outside the safe zone shade the score too.
+  const folded = { ...bad, metrics: { ...bad.metrics, bbox: { ...bad.metrics.bbox, foldOk: false, castSafeZoneOk: false } } };
+  expect(scoreCandidate(folded)).toBe(scoreCandidate(bad) + WEIGHTS.foldFail + WEIGHTS.castSafeZoneFail);
 });
 
 test('pickBest takes the highest score within a tier and breaks ties on the lower index', () => {

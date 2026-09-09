@@ -155,6 +155,42 @@ describe('preflightPictureBook', () => {
     expect(bad.errors).toEqual(expect.arrayContaining([expect.stringMatching(/no embedded program: Comic-Sans/)]));
   });
 
+  test('pq-1: the page report becomes effective PPI — a warning below 234, an error only under an explicit floor', async () => {
+    const interiorPdf = await makeInterior(32);
+    const pageReport = [
+      { page: 4, spread: 1, role: 'spread-left', ppi: 234 },
+      { page: 5, spread: 1, role: 'spread-right', ppi: 234 },
+      { page: 7, spread: 2, role: 'spread-right', ppi: 59 },
+      { page: 9, spread: 3, role: 'square', ppi: null },
+    ];
+    const soft = await preflightPictureBook({ interiorPdf, bindingType: '', pageReport });
+    expect(soft.ok).toBe(true);
+    expect(soft.minPpi).toBe(59);
+    expect(soft.pages).toHaveLength(4);
+    expect(soft.warnings).toEqual([expect.stringMatching(/1 art page below 234 ppi effective \(lowest 59 ppi on page 7/)]);
+    const hard = await preflightPictureBook({ interiorPdf, bindingType: '', pageReport, ppiFloor: 150 });
+    expect(hard.ok).toBe(false);
+    expect(hard.errors).toEqual([expect.stringMatching(/1 art page below the 150 ppi floor \(lowest 59 ppi on page 7\)/)]);
+    const sharp = await preflightPictureBook({ interiorPdf, bindingType: '', pageReport: pageReport.slice(0, 2), ppiFloor: 150 });
+    expect(sharp.ok).toBe(true);
+    expect(sharp.warnings).toEqual([]);
+    expect(sharp.minPpi).toBe(234);
+  });
+
+  test('pq-1: the cover source size becomes its effective PPI across the 8.5 in trim', async () => {
+    const coverPdf = await makeCover(PB, 32);
+    const oneK = await preflightPictureBook({ coverPdf, pageCount: 32, bindingType: '', coverSource: { width: 1024, height: 1024 } });
+    expect(oneK.coverPpi).toBe(120);
+    expect(oneK.ok).toBe(true);
+    expect(oneK.warnings).toEqual([expect.stringMatching(/front cover is 120 ppi effective \(1024px across 8.5 in/)]);
+    const twoK = await preflightPictureBook({ coverPdf, pageCount: 32, bindingType: '', coverSource: { width: 2048, height: 2048 } });
+    expect(twoK.coverPpi).toBe(241);
+    expect(twoK.warnings).toEqual([]);
+    const floored = await preflightPictureBook({ coverPdf, pageCount: 32, bindingType: '', coverSource: { width: 1024, height: 1024 }, ppiFloor: 150 });
+    expect(floored.ok).toBe(false);
+    expect(floored.errors).toEqual([expect.stringMatching(/front cover is 120 ppi effective, below the 150 ppi floor/)]);
+  });
+
   test('nothing to check is an error, never a silent pass', async () => {
     const r = await preflightPictureBook({ bindingType: '' });
     expect(r.ok).toBe(false);

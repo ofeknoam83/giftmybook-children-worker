@@ -14,6 +14,8 @@ process.env.CATALOG_CHARACTER_SHEET = '0';
 process.env.CATALOG_PROP_SHEETS = '0';
 process.env.CATALOG_EMOTION_PLAN = '0';
 process.env.CATALOG_RENDER_CANDIDATES = '1';
+// pq-1: the key-composition pins below predate the print tier fold.
+process.env.CATALOG_PRINT_IMAGE_SIZE = '0';
 
 
 const { getWorldCard, renderWorldCardBlock, WORLD_CARD_MAX_BYTES } = require('../../../services/catalogEngine/worldCards');

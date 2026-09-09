@@ -20,6 +20,11 @@ const WEIGHTS = {
   safeZoneFail: -10,
   offCenterFail: -10,
   shotSizeFail: -5,
+  // pq-1 Phase 2: a subject (child, companion, declared prop) across the
+  // page fold, or the cast outside the print-safe zone — between two
+  // otherwise-equal candidates the one that survives the physical page wins.
+  foldFail: -10,
+  castSafeZoneFail: -5,
   // ce-16: × max(0, textSizeRatio − 1) — a painted block 1.25× its footprint
   // loses 10 points to an on-footprint one, so between two otherwise-equal
   // candidates the SMALLER text always wins (and, on the anchor page, the
@@ -102,6 +107,8 @@ function scoreCandidate(c) {
   if (m.bbox) {
     if (m.bbox.safeZoneOk === false) score += WEIGHTS.safeZoneFail;
     if (m.bbox.offCenterOk === false) score += WEIGHTS.offCenterFail;
+    if (m.bbox.foldOk === false) score += WEIGHTS.foldFail;
+    if (m.bbox.castSafeZoneOk === false) score += WEIGHTS.castSafeZoneFail;
     if (m.bbox.shotSizeOk === false) score += WEIGHTS.shotSizeFail;
   }
   return Math.round(score * 100) / 100;

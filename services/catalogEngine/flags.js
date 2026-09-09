@@ -309,6 +309,68 @@ module.exports = {
     const v = String(process.env.CATALOG_EMBEDDED_IMAGE_SIZE || '').trim().toUpperCase();
     return v === '1K' || v === '2K' || v === '4K' ? v : null;
   },
+  // pq-1 (2026-09-09, docs/PRINT_QUALITY_PLAN.md Phase 1) — the print
+  // output tier for the TEXT-FREE layouts. Until now only painted-text
+  // renders asked for a size; `half` and `caption` took the model's 1K
+  // default, which prints at ≈ 59 dpi across a 17.5 in spread and ≈ 117 dpi
+  // on the 8.75 in caption page. Wide (half) renders default to 4K — the
+  // right half alone is a printed page — and square (caption) renders to 2K
+  // (2048 px on 8.75 in ≈ 234 dpi, the embedded standard). Folded into the
+  // render key; a book rendered before the tier existed replays its
+  // un-folded pixels (legacy namespace continuity in renderStorySpreads).
+  // `CATALOG_PRINT_IMAGE_SIZE=0` is the kill-switch (no size requested, the
+  // pre-pq-1 keys) — the embedded path is untouched by all of this.
+  printImageSizeEnabled: () => !envOff('CATALOG_PRINT_IMAGE_SIZE'),
+  printImageSize: (aspect) => {
+    const pick = (name, def) => {
+      const v = String(process.env[name] || '').trim().toUpperCase();
+      return v === '1K' || v === '2K' || v === '4K' ? v : def;
+    };
+    return aspect === 'wide' ? pick('CATALOG_PRINT_IMAGE_SIZE_WIDE', '4K') : pick('CATALOG_PRINT_IMAGE_SIZE_SQUARE', '2K');
+  },
+  // The resolution guard for text-free renders — the same tier floors as
+  // the embedded guard (4K → 2000, 2K → 1000, 1K → 500 px of height);
+  // `CATALOG_MIN_PRINT_RENDER_HEIGHT` pins it, 0 disables.
+  minPrintRenderHeight: (imageSize) => {
+    const explicit = envInt('CATALOG_MIN_PRINT_RENDER_HEIGHT', -1, 0, 8000);
+    return explicit >= 0 ? explicit : renderTierFloor(imageSize);
+  },
+  // The front cover prints at 8.5 in: a 1K render is ≈ 120 dpi there. 2K
+  // (≈ 241 dpi) by default; `CATALOG_COVER_IMAGE_SIZE=0` restores the
+  // model default, `4K` for ≈ 480 dpi at four times the pixels.
+  coverImageSize: () => {
+    const v = String(process.env.CATALOG_COVER_IMAGE_SIZE || '2K').trim().toUpperCase();
+    return v === '1K' || v === '2K' || v === '4K' ? v : null;
+  },
+  // The effective-PPI floor the preflight FAILS a page below (Phase 1.3).
+  // 0 (default) reports only — a book rendered before pq-1 replays its 1K
+  // pixels and must still rebuild its PDFs; raise it once the fleet has
+  // moved (150 is where print visibly softens).
+  printPpiFloor: () => envInt('CATALOG_PRINT_PPI_FLOOR', 0, 0, 600),
+  // pq-1 Phase 2 — compose for the physical page: the FOLD and CROP-BAND
+  // lines on every wide render's prompt, and the deterministic checks over
+  // the companion and prop boxes QA already returns (advisory-class; they
+  // shade candidate selection, never fail a book). `CATALOG_FOLD_SAFETY=0`
+  // restores the pre-pq-1 prompt lines and child-only checks.
+  foldSafetyEnabled: () => !envOff('CATALOG_FOLD_SAFETY'),
+  // pq-1 Phase 2.4 — the print-crop previews (the 2:1 page crop with trim,
+  // fold and safety guides) uploaded beside every shipped render.
+  printPreviewsEnabled: () => !envOff('CATALOG_PRINT_PREVIEWS'),
+  // pq-1 Phase 3.1 — the cover wrap band painted as ART by one bounded
+  // image edit instead of copy + blur. `casewrap` (default): hardcovers
+  // only, where the 0.875 in band wraps the visible board edge; `all`
+  // includes the paperback's 0.125 in bleed; `0` keeps copy + blur. The
+  // edit fails open to copy + blur, and the trim area is always the
+  // approved pixels. `CATALOG_COVER_OUTPAINT_SIZE` is the edit's tier.
+  coverOutpaint: () => {
+    const v = String(process.env.CATALOG_COVER_OUTPAINT || 'casewrap').trim().toLowerCase();
+    if (v === '0' || v === 'off' || v === 'false' || v === 'none') return 'off';
+    return v === 'all' || v === '1' || v === 'true' ? 'all' : 'casewrap';
+  },
+  coverOutpaintSize: () => {
+    const v = String(process.env.CATALOG_COVER_OUTPAINT_SIZE || '2K').trim().toUpperCase();
+    return v === '1K' || v === '2K' || v === '4K' ? v : '2K';
+  },
   // gv-1 — the gift video (docs/GIFT_VIDEO_PLAN.md §5.3)
   giftVideoEnabled: () => !envOff('CATALOG_GIFT_VIDEO'),
   videoProviders: () => String(process.env.CATALOG_VIDEO_PROVIDERS || 'replicate')

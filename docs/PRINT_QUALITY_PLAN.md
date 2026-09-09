@@ -1,7 +1,29 @@
 # Print Quality — the printed picture book (plan, pq-1)
 
-> **Status:** PLAN (2026-09-09). Nothing below is implemented except Phase G (the
-> Lulu geometry spec + build-time preflight), which landed on this branch —
+> **Status:** IMPLEMENTED on this branch (2026-09-09) — the code phases below
+> are in, every one behind a kill-switch and fail-open, with NO
+> `STYLE_VERSION` bump: a book rendered before pq-1 replays its own pixels
+> (Phase 1's legacy-key fallback) and only fresh renders take the new
+> tiers and prompt lines. Worker: `flags.js` (`printImageSize*`,
+> `minPrintRenderHeight`, `coverImageSize`, `printPpiFloor`,
+> `foldSafetyEnabled`, `printPreviewsEnabled`, `coverOutpaint*`),
+> `illustrator/index.js` (per-layout tier + `-is{tier}` fold + legacy-key
+> replay list), `illustrator/printPreview.js`, `illustrator/metrics.js`
+> (fold + cast safe-zone rules), `illustrationGenerator.js` (the print
+> safety lines; 2K cost label), `coverGenerator.js` (cover tier,
+> `extendWithOutpaint`, sRGB), `layoutEngine.js` (`pageReport`, sRGB, the
+> shadow-lift knob, the gamut measure), `luluSpec.js` (PPI + gamut in the
+> preflight), `pipeline.js` (all of it on the callback as `preflight` /
+> `printPreviewUrls`). App: `services/luluPreflight.js` (Lulu's own
+> validation before every bulk send — the one path that sends children's
+> books to Lulu; auto-send and the chat-book resend never carry them),
+> `routes/children.js`
+> (persists `preflight`, `renderSizes`, `printPreviewUrls`), the
+> print-readiness card on the admin book page. NOT done, by design: the
+> proofs (Phase 0.2, `docs/PRINT_PROOF_CHECKLIST.md`), the tone curve VALUE
+> (the knob ships OFF), Premium colour / matte (SKU decisions), the barcode
+> decision, half-at-1:1 (2.3) and the cover bbox check (2.5).
+> Earlier: Phase G (the Lulu geometry spec + build-time preflight) —
 > `giftmybook-children-worker#355` / `giftmybook-standalone#515`.
 > **Scope:** `giftmybook-children-worker` (rendering, layout, cover, preflight) +
 > `giftmybook-standalone` (SKUs, order-time validation, admin preview).
@@ -149,8 +171,9 @@ Order matters: Phase 0's numbers set Phase 1's size tier and Phase 4's tone curv
 
 ### Phase 5 — Verify with Lulu, every time (S)
 
-- **5.1 Order-time validation (app).** Before any print job — auto-send, admin resend,
-  bulk — call Lulu's `validate-interior` + `validate-cover` (at minimum
+- **5.1 Order-time validation (app).** Before any children's print job (today the
+  admin bulk sends are the one path; auto-send and the chat-book resend never carry
+  children's books) call Lulu's `validate-interior` + `validate-cover` (at minimum
   `print-job-cover-dimensions`) and persist the verdict on the book; block the send on
   `ERROR` with Lulu's message. The worker's preflight is the build-time guard; Lulu's is
   the order-time truth.

@@ -232,21 +232,111 @@ const TEXT_PAGE_JPEG = Object.freeze({ quality: 95, chromaSubsampling: '4:4:4' }
  * @returns {Promise<Buffer>} JPEG bytes
  */
 async function encodeFullBleedJpeg(buf, wp, hp, { text = false } = {}) {
-  return sharp(buf)
+  let pipeline = sharp(buf)
     .resize(wp, hp, { fit: 'cover', kernel: 'lanczos3' })
-    .toColorspace('srgb')
+    .toColorspace('srgb');
+  // pq-1 Phase 4.2 (proof-driven, OFF by default): a print-only shadow
+  // lift for coated stock's dot gain — `CATALOG_PRINT_SHADOW_LIFT` is the
+  // lift at black as a fraction (0–0.15), fading to nothing by mid-grey.
+  // Never applied to previews: this is the one encode the printer sees.
+  const lift = printShadowLift();
+  if (lift > 0) {
+    const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
+    pipeline = sharp(applyShadowLift(data, lift), { raw: { width: info.width, height: info.height, channels: info.channels } });
+  }
+  // pq-1 Phase 4.1: every page carries an sRGB profile, so Lulu's CMYK
+  // conversion starts from a declared source instead of an assumption.
+  return pipeline
+    .withIccProfile('srgb')
     .jpeg({ ...(text ? TEXT_PAGE_JPEG : PAGE_JPEG) })
     .toBuffer();
 }
 
+/**
+ * The print shadow lift knob (pq-1 Phase 4.2): 0 (default) leaves pixels
+ * untouched; up to 0.15 lifts the darkest tones for coated-stock dot gain.
+ * A proof decision — set only after a printed comparison.
+ * @returns {number}
+ */
+function printShadowLift() {
+  const n = Number(process.env.CATALOG_PRINT_SHADOW_LIFT);
+  return Number.isFinite(n) && n > 0 ? Math.min(0.15, n) : 0;
+}
+
+/**
+ * Lift the shadows of an interleaved 8-bit buffer in place: a tone curve
+ * that adds `lift × 255` at black and fades linearly to no change at
+ * mid-grey (128), leaving highlights untouched. Pure — exported for tests.
+ * @param {Buffer} data raw interleaved channels
+ * @param {number} lift 0–1 fraction of full scale added at black
+ * @returns {Buffer} the same buffer
+ */
+function applyShadowLift(data, lift) {
+  const lut = new Uint8Array(256);
+  for (let v = 0; v < 256; v += 1) {
+    const t = v < 128 ? (128 - v) / 128 : 0;
+    lut[v] = Math.min(255, Math.round(v + lift * 255 * t));
+  }
+  for (let i = 0; i < data.length; i += 1) data[i] = lut[data[i]];
+  return data;
+}
+
+/**
+ * pq-1 Phase 4.3: the share of a page's pixels that are very saturated
+ * (HSV saturation > 0.9 with value > 0.35) — the colours a CMYK press
+ * dulls most. Measured on a small downscale; null on an unreadable image.
+ * @param {Buffer} buf
+ * @returns {Promise<number|null>}
+ */
+async function saturatedShare(buf) {
+  try {
+    const { data, info } = await sharp(buf).resize(96, 96, { fit: 'inside' }).removeAlpha().toColorspace('srgb').raw().toBuffer({ resolveWithObject: true });
+    const px = info.width * info.height;
+    if (!px || info.channels < 3) return null;
+    let hot = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+      const max = Math.max(r, g, b); const min = Math.min(r, g, b);
+      if (max > 0 && (max - min) / max > 0.9 && max / 255 > 0.35) hot += 1;
+    }
+    return Math.round((hot / px) * 1000) / 1000;
+  } catch { return null; }
+}
+
+/**
+ * Resize + encode one full-bleed page image and draw it. Returns the SOURCE
+ * pixel size (pq-1: the print preflight reports each page's effective PPI
+ * from it — the canvas is always 300 dpi, the pixels behind it are not).
+ * @returns {Promise<{width: number, height: number}|null>}
+ */
 async function embedFullBleed(pdfDoc, page, buf, opts = {}) {
   const pw = page.getWidth(); const ph = page.getHeight();
   const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
+  let source = null;
+  try {
+    const meta = await sharp(buf).metadata();
+    if (meta && meta.width && meta.height) source = { width: meta.width, height: meta.height };
+  } catch { /* the encode below reports an unreadable buffer */ }
   // fit: 'cover' fills the page edge-to-edge (full-bleed design intent)
   const r = await encodeFullBleedJpeg(buf, wp, hp, opts);
   const img = await pdfDoc.embedJpg(r);
   page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
+  return source;
+}
+
+/**
+ * pq-1 — record one printed page's source resolution on the caller's page
+ * report: `ppi` is the source pixels per printed inch across the width the
+ * source spans (the whole 17.5 in spread for a wide render, the 8.75 in
+ * page for a square one) — the number Lulu's 300 ppi guideline is about.
+ * @param {Array|null} report opts.pageReport
+ * @param {{page: number, spread: number|null, source: {width: number, height: number}|null, spanIn: number, role: string}} entry
+ */
+function notePageSource(report, { page, spread, source, spanIn, role, saturatedShare: hot = null }) {
+  if (!Array.isArray(report)) return;
+  const ppi = source && source.width > 0 && spanIn > 0 ? Math.round(source.width / spanIn) : null;
+  report.push({ page, spread: spread ?? null, role, source: source || null, spanIn: Math.round(spanIn * 1000) / 1000, ppi, saturatedShare: hot });
 }
 
 async function splitSpreadImage(buf, pw, ph) {
@@ -279,7 +369,7 @@ async function splitSpreadImage(buf, pw, ph) {
   const leftBuf = await half(0);
   const rightBuf = await half(wp);
 
-  return { leftBuf, rightBuf };
+  return { leftBuf, rightBuf, source: { width: srcW, height: srcH }, saturatedShare: await saturatedShare(buf) };
 }
 
 // ── Font loader (lazy, cached per pdfDoc) ────────────────────────────────────
@@ -927,19 +1017,23 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'li
  *   ({ spread, zone, tone, haloStrength, busy, luminance, maxStdev,
  *      contrastRatio, belowContrast }).
  */
-async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = null }) {
+async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = null, pageReport = null }) {
   const leftPage = pdfDoc.addPage([pw, ph]);
   const rightPage = pdfDoc.addPage([pw, ph]);
   let leftBuf = null;
   let rightBuf = null;
   if (entry.spreadIllustrationBuffer) {
     try {
-      ({ leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
+      let source; let hot;
+      ({ leftBuf, rightBuf, source, saturatedShare: hot } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
       // Story text painted into the art ⇒ the text-bearing encode (full
       // chroma, quality 95); the overlay path's text is PDF type.
       const pageOpts = { text: !!entry.textEmbeddedInArt };
       await embedFullBleed(pdfDoc, leftPage, leftBuf, pageOpts);
       await embedFullBleed(pdfDoc, rightPage, rightBuf, pageOpts);
+      const pageNo = pdfDoc.getPageCount();
+      notePageSource(pageReport, { page: pageNo - 1, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-left', saturatedShare: hot });
+      notePageSource(pageReport, { page: pageNo, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-right', saturatedShare: hot });
     } catch (e) {
       console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
     }
@@ -1340,6 +1434,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
   const fonts  = await loadFonts(pdfDoc);
 
   const { title, childName, dedication, bookFrom, year, upsellCovers, bookId } = opts;
+  // pq-1: every printed art page's source resolution, for the print preflight.
+  const pageReport = Array.isArray(opts.pageReport) ? opts.pageReport : null;
 
   // ── Front matter ──────────────────────────────────────────────────────────
   buildBlankPage(pdfDoc, pw, ph);
@@ -1367,7 +1463,7 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       // the art director's quiet zone — integrated (no panel), in a tone and
       // halo strength decided from the band's segment statistics. The words
       // are PDF type, never pixels — D5 stays intact.
-      await layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report: opts.overlayReport || null });
+      await layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report: opts.overlayReport || null, pageReport });
       continue;
     }
 
@@ -1388,8 +1484,10 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       }
       if (entry.spreadIllustrationBuffer) {
         try {
-          const { rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+          const { rightBuf, source, saturatedShare: hot } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
           await embedFullBleed(pdfDoc, imagePage, rightBuf);
+          // The recto shows the art's RIGHT half: the source spans two pages.
+          notePageSource(pageReport, { page: pdfDoc.getPageCount(), spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'half-right', saturatedShare: hot });
         } catch (e) {
           console.warn(`[LayoutEngine] half-layout art embed failed: ${e.message}`);
         }
@@ -1409,7 +1507,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       }
       if (entry.spreadIllustrationBuffer) {
         try {
-          await embedFullBleed(pdfDoc, imagePage, entry.spreadIllustrationBuffer);
+          const source = await embedFullBleed(pdfDoc, imagePage, entry.spreadIllustrationBuffer);
+          notePageSource(pageReport, { page: pdfDoc.getPageCount(), spread: entry.spread ?? null, source, spanIn: pw / PTS_PER_INCH, role: 'square', saturatedShare: pageReport ? await saturatedShare(entry.spreadIllustrationBuffer) : null });
         } catch (e) {
           console.warn(`[LayoutEngine] square spread embed failed: ${e.message}`);
         }
@@ -1422,9 +1521,12 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
     const rightPage = pdfDoc.addPage([pw, ph]);
     if (entry.spreadIllustrationBuffer) {
       try {
-        const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+        const { leftBuf, rightBuf, source, saturatedShare: hot } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
         await embedFullBleed(pdfDoc, leftPage,  leftBuf);
         await embedFullBleed(pdfDoc, rightPage, rightBuf);
+        const pageNo = pdfDoc.getPageCount();
+        notePageSource(pageReport, { page: pageNo - 1, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-left', saturatedShare: hot });
+        notePageSource(pageReport, { page: pageNo, spread: entry.spread ?? null, source, spanIn: 2 * pw / PTS_PER_INCH, role: 'spread-right', saturatedShare: hot });
       } catch (e) {
         console.warn(`[LayoutEngine] spread split failed: ${e.message}`);
       }
@@ -2531,4 +2633,10 @@ module.exports = {
   computeUpsellCardLayout,
   SAFE,
   BLEED,
+  // pq-1: the page-report helper (pure) for the sharp-free suite, the
+  // shadow-lift curve (pure) and the gamut measure.
+  notePageSource,
+  applyShadowLift,
+  printShadowLift,
+  saturatedShare,
 };

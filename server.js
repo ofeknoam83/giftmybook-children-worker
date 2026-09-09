@@ -733,6 +733,9 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         // 2026-09-07: the shipped pixel size (null when unreadable) — the
         // bench must be able to SEE a render that came back below 4K.
         size: r.size || null,
+        // pq-1: the print-crop preview (trim / safety / fold guides) — the
+        // bench judges what prints, not the raw 16:9 frame.
+        printPreviewUrl: r.printPreviewUrl || null,
         qa: {
           pass: r.advisories.filter(a => a.stage === 'spreadQa').length === 0,
           advisories: r.advisories,

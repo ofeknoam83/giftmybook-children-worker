@@ -20,6 +20,8 @@ const {
   renderStyleBlock,
   ART_STYLE_CONFIG,
   canonicalBookArtStyle,
+  // pq-1 Phase 3.1: the bounded image edit that paints the cover's wrap band.
+  callGeminiImageParts,
 } = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
 const { TEXT_RULES } = require('./shared/illustration/config');
@@ -138,6 +140,107 @@ async function extendWithSoftWrap(trimFitBuffer, bands) {
   if (bands.left) await band({ left: 0, top: 0, width: bands.left, height: meta.height }, 0, 0);
   if (bands.right) await band({ left: meta.width - bands.right, top: 0, width: bands.right, height: meta.height }, meta.width - bands.right, 0);
   return sharp(extended).composite(overlays).toBuffer();
+}
+
+/**
+ * pq-1 Phase 3.1 — the geometry of one outpaint edit: the wrap canvas
+ * (trim + bands) padded to a SQUARE so the image model receives and
+ * returns a 1:1 frame with no distortion; the canvas is extracted back out
+ * of the square by these offsets and the ORIGINAL trim pixels are pasted
+ * over their area. Pure — exported for tests.
+ * @param {{width: number, height: number}} trim the trim-fit image
+ * @param {{top?: number, bottom?: number, left?: number, right?: number}} bands px added on each side
+ * @returns {{canvas: {width: number, height: number}, square: number, pad: {left: number, top: number}, trimOffset: {left: number, top: number}}}
+ */
+function planOutpaint(trim, bands) {
+  const canvas = { width: trim.width + (bands.left || 0) + (bands.right || 0), height: trim.height + (bands.top || 0) + (bands.bottom || 0) };
+  const square = Math.max(canvas.width, canvas.height);
+  return {
+    canvas,
+    square,
+    pad: { left: Math.floor((square - canvas.width) / 2), top: Math.floor((square - canvas.height) / 2) },
+    trimOffset: { left: bands.left || 0, top: bands.top || 0 },
+  };
+}
+
+/**
+ * pq-1 Phase 3.1 — extend the trim-fit cover into its bleed/wrap band as
+ * continuous ARTWORK: today's copy + blur band is the edit base, ONE
+ * bounded image edit repaints only that band, and the approved trim pixels
+ * are pasted back over the centre so the customer's cover never changes.
+ * Deterministic guards (size, a band that is neither blank nor flat) and
+ * a fail-open fallback to the copy + blur base on any error. Off for
+ * paperbacks by default (flags.coverOutpaint); kill-switch
+ * `CATALOG_COVER_OUTPAINT=0`.
+ * @param {Buffer} trimFitBuffer the cover fitted to the trim
+ * @param {{top?: number, bottom?: number, left?: number, right?: number}} bands
+ * @param {{label?: string, costTracker?: object, binding?: 'casewrap'|'perfect', sides?: string}} [opts]
+ * @returns {Promise<{buffer: Buffer, method: 'outpaint'|'blur', note: string|null}>}
+ */
+async function extendWithOutpaint(trimFitBuffer, bands, opts = {}) {
+  const base = await extendWithSoftWrap(trimFitBuffer, bands);
+  const mode = require('./catalogEngine/flags').coverOutpaint();
+  // `enabled: false` is the saved-art fallback (reuseApprovedArtworkOnly):
+  // that path exists to finish a cover WITHOUT another model call.
+  const wantsEdit = opts.enabled !== false && (mode === 'all' || (mode === 'casewrap' && opts.binding === 'casewrap'));
+  if (!wantsEdit) return { buffer: base, method: 'blur', note: null };
+  const anyBand = bands.top || bands.bottom || bands.left || bands.right;
+  if (!anyBand) return { buffer: base, method: 'blur', note: null };
+  try {
+    const trimMeta = await sharp(trimFitBuffer).metadata();
+    const plan = planOutpaint({ width: trimMeta.width, height: trimMeta.height }, bands);
+    const squareBase = await sharp(base)
+      .extend({ left: plan.pad.left, right: plan.square - plan.canvas.width - plan.pad.left, top: plan.pad.top, bottom: plan.square - plan.canvas.height - plan.pad.top, extendWith: 'copy' })
+      .png().toBuffer();
+    const pct = (px, of) => Math.max(1, Math.round((px / of) * 100));
+    const sides = [
+      bands.top ? `the top ${pct(bands.top + plan.pad.top, plan.square)}%` : null,
+      bands.bottom ? `the bottom ${pct(bands.bottom + (plan.square - plan.canvas.height - plan.pad.top), plan.square)}%` : null,
+      bands.left ? `the left ${pct(bands.left + plan.pad.left, plan.square)}%` : null,
+      bands.right ? `the right ${pct(bands.right + (plan.square - plan.canvas.width - plan.pad.left), plan.square)}%` : null,
+    ].filter(Boolean).join(', ');
+    const prompt = [
+      'EDIT TASK — BOOK COVER BLEED EXTENSION. The attached image is a finished children\'s picture-book cover whose outer border has been stretched and blurred to make room for the printer\'s wrap.',
+      `REPAINT ONLY THE BLURRED BORDER BAND (${sides} of the frame): continue the scene naturally into it — the same sky, ground, foliage, walls or water, the same colours, lighting, brush and 3D render style, the same perspective — so the picture reads as one larger painting that extends past its old edges.`,
+      'KEEP THE CENTRE EXACTLY AS IT IS: every pixel inside the sharp central picture stays identical — the child, the face, the title lettering, every object, every colour. Do not move, resize, recolour, sharpen, or restyle anything inside it.',
+      'NEVER add to the band: no text, no letters, no logos, no new characters, people or animals, no new objects, no borders, frames, vignettes or gradients — only continuous background.',
+      `${FLAT_COVER_ART_RULE}`,
+      'OUTPUT: the whole frame at the same size and proportions as the input, the band now painted, the centre untouched.',
+    ].join('\n');
+    const size = require('./catalogEngine/flags').coverOutpaintSize();
+    const parts = [
+      { text: prompt },
+      { text: 'REFERENCE IMAGE 1 — the edit base: the cover with its blurred border band.' },
+      { inline_data: { mimeType: 'image/png', data: squareBase.toString('base64') } },
+    ];
+    const out = await callGeminiImageParts(parts, { aspectRatio: '1:1', imageSize: size, label: `cover-outpaint:${opts.label || 'cover'}`, timeoutMs: 180000 });
+    opts.costTracker?.addImageGeneration?.(size === '4K' ? 'gemini-3.1-flash-image:4K' : size === '2K' ? 'gemini-3.1-flash-image:2K' : 'gemini-3.1-flash-image', 1);
+    const outMeta = await sharp(out).metadata();
+    if (!outMeta.width || !outMeta.height || Math.abs(outMeta.width / outMeta.height - 1) > 0.03) throw new Error(`edit returned ${outMeta.width}×${outMeta.height}, not a square frame`);
+    // Back to the canvas: scale the square to the edit base's size, cut the
+    // canvas out of it, paste the ORIGINAL trim pixels over their area.
+    const canvasOut = await sharp(out)
+      .resize(plan.square, plan.square, { fit: 'fill', kernel: 'lanczos3' })
+      .extract({ left: plan.pad.left, top: plan.pad.top, width: plan.canvas.width, height: plan.canvas.height })
+      .composite([{ input: trimFitBuffer, left: plan.trimOffset.left, top: plan.trimOffset.top }])
+      .png().toBuffer();
+    // Guards: the painted band must be neither blank nor flat (a white or
+    // single-colour band is the failure mode that reads worse than blur).
+    const bandRegion = bands.right
+      ? { left: plan.canvas.width - bands.right, top: 0, width: bands.right, height: plan.canvas.height }
+      : bands.left
+        ? { left: 0, top: 0, width: bands.left, height: plan.canvas.height }
+        : { left: 0, top: 0, width: plan.canvas.width, height: bands.top || bands.bottom };
+    const stats = await sharp(canvasOut).extract(bandRegion).stats();
+    const stdev = Math.max(...stats.channels.map(c => c.stdev));
+    const mean = stats.channels.reduce((a, c) => a + c.mean, 0) / stats.channels.length;
+    if (stdev < 3 || mean > 250 || mean < 5) throw new Error(`painted band is flat or blank (stdev ${stdev.toFixed(1)}, mean ${mean.toFixed(0)})`);
+    console.log(`[CoverGenerator] ${opts.label || 'cover'} wrap band outpainted (${size})`);
+    return { buffer: canvasOut, method: 'outpaint', note: null };
+  } catch (err) {
+    console.warn(`[CoverGenerator] ${opts.label || 'cover'} wrap outpaint failed — using copy + blur band: ${err.message}`);
+    return { buffer: base, method: 'blur', note: `${opts.label || 'cover'} wrap band is copy + blur (outpaint failed: ${err.message.slice(0, 120)})` };
+  }
 }
 
 /**
@@ -954,8 +1057,14 @@ async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {})
   // Every render of this cover — the first pass and each hardened QA retry —
   // goes through the same call with the same identity inputs; only the scene
   // text differs.
+  // pq-1: the front cover prints at 8.5 in — request the print tier
+  // (flags.coverImageSize, 2K by default ≈ 241 dpi; the model's 1K default
+  // was ≈ 120 dpi on the first thing a parent sees). The cover is the
+  // identity anchor too, so a sharper cover is a sharper character sheet.
+  const coverImageSize = require('./catalogEngine/flags').coverImageSize();
   const renderCover = (scene) => generateIllustration(
     scene, characterRefUrl, artStyle, {
+      ...(coverImageSize ? { imageSize: coverImageSize } : {}),
       costTracker: opts.costTracker,
       bookId: opts.bookId,
       childAppearance: childDetails.appearance || childDetails.childAppearance,
@@ -1141,6 +1250,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // hardcover back cover used the paperback inset), 0.625" on a paperback
   // (the house margin, above Lulu's 0.5").
   const coverSafe = Math.max(45, Math.round(geometry.safetyPt));
+  // pq-1 Phase 3.1: how each panel's wrap band was made ('outpaint' | 'blur')
+  // and the notes a fallback leaves — echoed on the result for the pipeline.
+  const coverWrapMethods = { front: null, back: null };
+  const coverWrapNotes = [];
 
   console.log(`[CoverGenerator] Cover canvas: ${(totalWidth/72).toFixed(3)}"x${(totalHeight/72).toFixed(3)}", spine=${(spineWidth/72).toFixed(3)}", edge=${(edgeBleed/72).toFixed(3)}", safety=${(coverSafe/72).toFixed(3)}" (${pageCount}pp, ${isHardcover ? 'hardcover' : 'paperback'})`);
 
@@ -1318,13 +1431,17 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const trimFit = await sharp(backCoverBuffer)
         .resize(trimWpx, trimHpx, { fit: 'cover', position: 'center' })
         .toBuffer();
-      const resized = await sharp(await extendWithSoftWrap(trimFit, {
+      const backWrap = await extendWithOutpaint(trimFit, {
         top: bleedPx,
         bottom: bleedPx,
         left: bleedPx,
         right: 0,
-      }))
+      }, { label: 'back cover', costTracker: opts.costTracker, binding: isHardcover ? 'casewrap' : 'perfect', enabled: !opts.reuseApprovedArtworkOnly });
+      if (backWrap.note) coverWrapNotes.push(backWrap.note);
+      coverWrapMethods.back = backWrap.method;
+      const resized = await sharp(backWrap.buffer)
         .toColorspace('srgb')
+        .withIccProfile('srgb')
         .png()
         .toBuffer();
       const img = await pdfDoc.embedPng(resized);
@@ -1419,7 +1536,14 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   //
   // Front cover bleed layout: spine-side (left) flush, outer (right), top,
   // bottom all need bleed/wrap.
+  // pq-1: the source pixel size behind the printed 8.5 in front — the
+  // preflight reports its effective PPI (a 1K cover is ≈ 120 dpi).
+  let frontCoverSource = null;
   if (frontCoverBuffer) {
+    try {
+      const srcMeta = await sharp(frontCoverBuffer).metadata();
+      if (srcMeta && srcMeta.width && srcMeta.height) frontCoverSource = { width: srcMeta.width, height: srcMeta.height };
+    } catch { /* unreadable metadata: the embed below reports its own error */ }
     try {
       const trimWpx = Math.round(trimWidth / 72 * 300);
       const trimHpx = Math.round(trimHeight / 72 * 300);
@@ -1429,13 +1553,18 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
           ...(opts.preserveApprovedCoverBounds ? { background: { r: Math.round(coverColor.r * 255), g: Math.round(coverColor.g * 255), b: Math.round(coverColor.b * 255) } } : {}),
         })
         .toBuffer();
-      const resized = await sharp(await extendWithSoftWrap(trimFit, {
+      const frontWrap = await extendWithOutpaint(trimFit, {
         top: bleedPx,
         bottom: bleedPx,
         left: 0,
         right: bleedPx,
-      }))
+      }, { label: 'front cover', costTracker: opts.costTracker, binding: isHardcover ? 'casewrap' : 'perfect', enabled: !opts.reuseApprovedArtworkOnly });
+      if (frontWrap.note) coverWrapNotes.push(frontWrap.note);
+      coverWrapMethods.front = frontWrap.method;
+      // pq-1 Phase 4.1: the cover carries an sRGB profile like every page.
+      const resized = await sharp(frontWrap.buffer)
         .toColorspace('srgb')
+        .withIccProfile('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
       const img = await pdfDoc.embedJpg(resized);
@@ -1477,6 +1606,9 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   return {
     coverPdfBuffer: Buffer.from(pdfBytes),
     frontCoverImageUrl,
+    frontCoverSource,
+    coverWrapMethods,
+    coverWrapNotes,
     backCoverImageUrl,
     backCoverDiagnostics,
     backCoverRepairNote: backCoverDiagnostics.find(event => event.status === 'repaired')?.message || null,
@@ -1809,4 +1941,7 @@ module.exports = {
   FLAT_COVER_ART_RULE,
   flatCoverArtRepairNote,
   extendWithSoftWrap,
+  // pq-1 Phase 3.1: the outpainted wrap band and its pure geometry.
+  extendWithOutpaint,
+  planOutpaint,
 };
