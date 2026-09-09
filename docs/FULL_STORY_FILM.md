@@ -228,8 +228,21 @@ customer delivery, especially stylized animal lip sync and supporting actors.
 
 - [Kling Omni input schema](https://replicate.com/kwaivgi/kling-v3-omni-video/api/schema),
   checked 2026-09-07: `reference_images`, `<<<image_N>>>` mentions,
-  `start_image`, `duration` (3–15), `mode: std | pro` (gfs-2 sends `std` by
-  default), `generate_audio: false`. Whether the Omni schema accepts
+  `start_image`, `duration` (3–15), `mode` and `generate_audio: false`.
+  `mode` is `standard | pro | 4k` — corrected 2026-09-09 from the vendor's
+  own 422 (`input.mode: mode must be one of the following: "standard",
+  "pro", "4k"`), which had failed every full-story film after its stills,
+  sheets, screenplay and voice takes were already paid for: our internal
+  tier vocabulary is `std | pro`, and `klingMode` in
+  `video/providers/models.js` maps it (`std` → `standard`) so an internal
+  label never reaches the vendor unmapped. gfs-2 buys `standard` by
+  default. Any 422 that still names a field is now CORRECTED and
+  resubmitted rather than failing the run (`video/providers/inputRepair.js`:
+  the value is mapped onto the vendor's listed values, else the field is
+  dropped so the model applies its own default — never `prompt` or
+  `start_image`, and the end frame stays the last resort); each correction
+  rides the run as a stage `video` advisory, and a repair that touched the
+  tier field bills the shot at the default tier instead of `:std`. Whether the Omni schema accepts
   `negative_prompt` was not verified (the host was unreachable on 2026-09-09),
   so the film's negative prompt is NOT sent to Omni; add it through
   `CATALOG_VIDEO_MODEL_INPUT_JSON` once verified.

@@ -44,6 +44,26 @@ const KLING_DURATIONS = Array.from({ length: 13 }, (_, i) => i + 3);
 const KLING_IMAGE_LIMIT = 7;
 
 /**
+ * Our tier vocabulary → Kling's own `mode` enum, verified 2026-09-09 from
+ * the vendor's 422: `standard` | `pro` | `4k`. Sending our internal `std`
+ * failed every full-story film with `video_provider_input_rejected` after
+ * the whole identity kit had been paid for — an internal label must never
+ * reach a vendor unmapped. Kling's field name is `mode` on both profiles.
+ */
+const KLING_MODES = { std: 'standard', standard: 'standard', pro: 'pro', '4k': '4k' };
+
+/**
+ * The tier field one Kling request carries, or nothing when the job names
+ * no tier (the model's own default) or an unknown one.
+ * @param {string|null|undefined} quality
+ * @returns {{mode?: string}}
+ */
+function klingMode(quality) {
+  const mode = quality ? KLING_MODES[String(quality).toLowerCase()] : null;
+  return mode ? { mode } : {};
+}
+
+/**
  * The pictures one request may carry in total: `CATALOG_VIDEO_MAX_IMAGES`
  * overrides the profile's own limit (a verify-at-deploy fact); a profile
  * that declares none is unbounded.
@@ -96,8 +116,9 @@ const MODELS = {
     /**
      * Official Replicate Omni schema, verified 2026-09-07. One sheet per
      * reference. `mode` is the Kling tier — `pro` (1080p) unless the job
-     * names `quality: 'std'` (720p, about half the per-second price; the
-     * full-story film's default since gfs-2).
+     * names `quality: 'std'`, which Kling spells `standard` (720p, about
+     * half the per-second price; the full-story film's default since
+     * gfs-2).
      */
     input(job) {
       const images = job.referenceUrls.map(r => (r.urls || [r.url])[0]);
@@ -105,7 +126,8 @@ const MODELS = {
       const prompt = renderPromptForModel(job.brief, this.referenceMention);
       if (prompt.length > 2500) throw new Error('Kling Omni prompt exceeds 2500 characters');
       return { prompt, start_image: job.startFrameUrl, ...(job.endFrameUrl ? { end_image: job.endFrameUrl } : {}),
-        reference_images: images, duration: job.seconds, aspect_ratio: job.aspect, mode: job.quality === 'std' ? 'std' : 'pro', generate_audio: false };
+        reference_images: images, duration: job.seconds, aspect_ratio: job.aspect,
+        ...klingMode(job.quality || 'pro'), generate_audio: false };
     },
   },
   'kwaivgi/kling-v3-video': {
@@ -134,6 +156,10 @@ const MODELS = {
         duration: job.seconds,
         aspect_ratio: job.aspect,
         cfg_scale: job.brief.params.cfgScale,
+        // Only a CHEAPER tier is named: the default (pro) path stays the
+        // byte-identical input the short trailer has always submitted, and
+        // the cost key can never bill `:std` for a shot bought at pro.
+        ...(job.quality && job.quality !== 'pro' ? klingMode(job.quality) : {}),
         generate_audio: false,
       };
       if (elements) {
@@ -195,4 +221,4 @@ function modelProfile(modelId) {
   };
 }
 
-module.exports = { MODELS, modelProfile, clipSecondsFor, costModelFor, imageBudget, imageLimitFor, KLING_DURATIONS, KLING_IMAGE_LIMIT };
+module.exports = { MODELS, modelProfile, clipSecondsFor, costModelFor, imageBudget, imageLimitFor, klingMode, QUALITY_FIELD: 'mode', KLING_MODES, KLING_DURATIONS, KLING_IMAGE_LIMIT };

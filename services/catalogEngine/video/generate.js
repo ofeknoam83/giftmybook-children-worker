@@ -13,17 +13,43 @@
  * scored. A vendor moderation refusal is `filtered` — recorded with the
  * vendor's reason, never retried as a transient error. gv-2: the single
  * take may carry an END frame (the last picked still) beside the start
- * frame; a model input the vendor rejects (422) while an end frame rides
- * it is resubmitted ONCE without the end frame (the field name is a
- * verify-at-deploy fact — see providers/models.js), flagged
- * `endFrameDropped` so the run reports it, never silently.
+ * frame.
+ *
+ * A model input the vendor REJECTS (422) is corrected and resubmitted
+ * rather than failing the run: a hosted model's schema is a
+ * verify-at-deploy fact (see providers/models.js), and a whole film — its
+ * stills, sheets, screenplay and voice takes already paid for — used to
+ * die on one wrong field value (2026-09-09: Kling's `mode` enum is
+ * `standard`, not our internal `std`). The vendor's own 422 names the
+ * field and its allowed values, so `repairInput` maps our value onto the
+ * vendor's vocabulary or drops the field (never the prompt or the start
+ * frame), and the end frame is dropped as the last resort. Every
+ * correction is flagged (`inputRepairs`, `endFrameDropped`) so the run
+ * reports what it actually bought, never silently.
  */
 
 const { downloadBuffer, uploadBuffer, loadJson, saveJson } = require('../../gcsStorage');
 const { fnv1a } = require('../selection');
 const { VIDEO_VERSION } = require('../versions');
-const { clipSecondsFor, costModelFor } = require('./providers/models');
+const { clipSecondsFor, costModelFor, QUALITY_FIELD } = require('./providers/models');
+const { repairInput, describeRepairs } = require('./providers/inputRepair');
 const flags = require('../flags');
+
+/** Submits one candidate may spend correcting a vendor-rejected input. */
+const MAX_INPUT_REPAIRS = 3;
+
+/**
+ * The tier a purchase is billed at: the requested one, unless an input
+ * repair touched the model's tier field — then the vendor applied its own
+ * default and the cost key must say so.
+ * @param {string|null|undefined} quality
+ * @param {Array<{field: string}>} repairs
+ * @returns {string|null}
+ */
+function qualityBought(quality, repairs) {
+  if (!quality) return null;
+  return (repairs || []).some(r => r.field === QUALITY_FIELD) ? null : quality;
+}
 
 /** Root of one book's gift-video namespace. */
 function videoBase(bookId) {
@@ -154,21 +180,33 @@ async function generateCandidates(p) {
       if (saved?.jobId) ref = saved;
     }
     let endFrameDropped = false;
+    const inputRepairs = [];
+    let hasEndFrame = !!endFrame;
     try {
-      try {
-        if (!ref) {
+      // A rejected input is corrected against the vendor's own complaint and
+      // resubmitted, bounded: the named fields first (an enum value mapped
+      // onto the vendor's vocabulary, an unknown field dropped), then the
+      // end frame — the one field the vendor names last and we can lose.
+      for (let attempt = 0; !ref; attempt++) {
+        try {
           ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
           if (p.persistJobs) await saveJson(ref, jobKey);
-        }
-      } catch (err) {
-        // The end-frame field name is a verify-at-deploy fact: a 422 while
-        // an end frame rides the input is retried ONCE without it, flagged.
-        if (err.failureCode === 'video_provider_input_rejected' && endFrame) {
-          log('warn', `segment ${p.segment.index}: candidate ${k} input rejected with an end frame (${err.message}) — resubmitting without it`);
-          input = provider.profile.input({ ...job, endFrameUrl: null }, opts);
-          endFrameDropped = true;
-          ref = await provider.adapter.submit({ model: provider.model, input, token: p.token || null });
-        } else {
+        } catch (err) {
+          if (err.failureCode !== 'video_provider_input_rejected' || attempt >= MAX_INPUT_REPAIRS) throw err;
+          const fixed = repairInput(input, err.inputIssues || []);
+          if (fixed) {
+            input = fixed.input;
+            inputRepairs.push(...fixed.repairs);
+            log('warn', `segment ${p.segment.index}: candidate ${k} input rejected (${err.message}) — ${describeRepairs(fixed.repairs)}; resubmitting`);
+            continue;
+          }
+          if (hasEndFrame) {
+            log('warn', `segment ${p.segment.index}: candidate ${k} input rejected with an end frame (${err.message}) — resubmitting without it`);
+            input = provider.profile.input({ ...job, endFrameUrl: null }, opts);
+            hasEndFrame = false;
+            endFrameDropped = true;
+            continue;
+          }
           throw err;
         }
       }
@@ -188,7 +226,7 @@ async function generateCandidates(p) {
         log('info', `segment ${p.segment.index}: vendor job ${ref.jobId} is still pending; continuing the saved prediction`);
         nextNotice = Date.now() + deadlineMs;
       }
-      if (abortSignal && abortSignal.aborted) return { k, pass, storageKey, buffer: null, status: 'failed', error: 'aborted', providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
+      if (abortSignal && abortSignal.aborted) return { k, pass, storageKey, buffer: null, status: 'failed', error: 'aborted', providerJobId: ref.jobId, cached: false, seconds, endFrameDropped, inputRepairs };
       await sleep(pollIntervalMs);
       touch();
       let r;
@@ -203,23 +241,25 @@ async function generateCandidates(p) {
         try {
           buffer = await provider.adapter.download(r.videoUrl);
         } catch (err) {
-          return { k, pass, storageKey, buffer: null, status: 'failed', error: `download failed: ${err.message}`, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
+          return { k, pass, storageKey, buffer: null, status: 'failed', error: `download failed: ${err.message}`, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped, inputRepairs };
         }
-        if (p.costTracker) p.costTracker.addVideoSeconds(costModelFor(provider.model, p.quality), seconds);
+        // Bill the tier the vendor actually accepted: a repair that dropped
+        // or changed the tier field bought the model's default, not `:std`.
+        if (p.costTracker) p.costTracker.addVideoSeconds(costModelFor(provider.model, qualityBought(p.quality, inputRepairs)), seconds);
         try {
           await uploadBuffer(buffer, storageKey, 'video/mp4');
         } catch (err) {
           log('warn', `segment ${p.segment.index}: candidate ${k} upload failed (${err.message}) — bytes kept in memory only`);
         }
-        return { k, pass, storageKey, buffer, status: 'done', error: null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
+        return { k, pass, storageKey, buffer, status: 'done', error: null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped, inputRepairs };
       }
       if (r.status === 'filtered' || r.status === 'failed') {
         if (p.persistJobs) await saveJson({ failedJobId: ref.jobId, status: r.status }, jobKey);
         log('warn', `segment ${p.segment.index}: candidate ${k} ${r.status} at the vendor (${r.error})`);
-        return { k, pass, storageKey, buffer: null, status: r.status, error: r.error || null, reasons: r.reasons || null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
+        return { k, pass, storageKey, buffer: null, status: r.status, error: r.error || null, reasons: r.reasons || null, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped, inputRepairs };
       }
     }
-    return { k, pass, storageKey, buffer: null, status: 'failed', error: `vendor did not finish within ${Math.round(deadlineMs / 1000)}s`, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
+    return { k, pass, storageKey, buffer: null, status: 'failed', error: `vendor did not finish within ${Math.round(deadlineMs / 1000)}s`, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped, inputRepairs };
   };
 
   const candidates = await Promise.all(Array.from({ length: n }, (_, i) => run(() => one(i + 1))));
