@@ -39,7 +39,11 @@ describe('checkTake', () => {
   test('measurements alone: too long, dead air, clipped, empty', async () => {
     judgeAudio.mockResolvedValue(verdict());
     const long = take(9);
-    expect((await qa.checkTake({ ...base(), wav: long, measure: measureTake(long) })).blocking.join(' ')).toMatch(/duration off/);
+    // Every word heard: the window is a PACE advisory, never a failure.
+    const paced = await qa.checkTake({ ...base(), wav: long, measure: measureTake(long) });
+    expect(paced.blocking).toEqual([]);
+    expect(paced.advisory.join(' ')).toMatch(/pace off: 9s for an expected 1.5–6s/);
+    expect(paced.wordsVerified).toBe(true);
     const parts = [wav.sine({ hz: 440, seconds: 1, amp: 0.2, sampleRate: FS }), new Float32Array(FS * 3), wav.sine({ hz: 440, seconds: 1, amp: 0.2, sampleRate: FS })];
     const all = new Float32Array(parts.reduce((a, p) => a + p.length, 0)); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
     const gap = wav.encodeWav(all, FS);
@@ -50,6 +54,29 @@ describe('checkTake', () => {
     const e = await qa.checkTake({ ...base(), wav: empty, measure: measureTake(empty) });
     expect(e.blocking).toContain(qa.DEFECTS.EMPTY);
     expect(judgeAudio).toHaveBeenCalledTimes(3); // never for the empty take
+  });
+  test('the duration window blocks only when it is the only evidence: no transcript, or a transcript that disagrees', async () => {
+    const long = take(9);
+    process.env.CATALOG_AUDIO_TRANSCRIPT_QA = '0';
+    const unchecked = await qa.checkTake({ ...base(), wav: long, measure: measureTake(long) });
+    expect(unchecked.blocking.join(' ')).toMatch(/duration off/);
+    expect(unchecked.wordsVerified).toBe(false);
+    delete process.env.CATALOG_AUDIO_TRANSCRIPT_QA;
+    judgeAudio.mockResolvedValueOnce(verdict({ transcript: 'Emma looked. The cow.' }));
+    const mismatched = await qa.checkTake({ ...base(), wav: long, measure: measureTake(long) });
+    expect(mismatched.blocking.join(' ')).toMatch(/text mismatch/);
+    expect(mismatched.blocking.join(' ')).toMatch(/duration off/);
+    judgeAudio.mockRejectedValueOnce(new Error('judge down'));
+    const outage = await qa.checkTake({ ...base(), wav: long, measure: measureTake(long) });
+    expect(outage.qaUnavailable).toMatch(/judge down/);
+    expect(outage.blocking.join(' ')).toMatch(/duration off/);
+    // The film's own case: a short verified read, a hair under the estimate.
+    judgeAudio.mockResolvedValueOnce(verdict());
+    const brisk = take(1.66);
+    const r = await qa.checkTake({ ...base(), expectedSeconds: { min: 1.73, max: 6.6 }, wav: brisk, measure: measureTake(brisk) });
+    expect(r.blocking).toEqual([]);
+    expect(r.advisory.join(' ')).toMatch(/pace off/);
+    expect(qa.repairNote([`${qa.DEFECTS.PACE_OFF}: x`], { directionWords: 'warm' }).note).toMatch(/storytelling pace/);
   });
   test('the transcript gate: mismatch, spoken tag, artifact are blocking; name / pace / monotone / emotion are advisory', async () => {
     const w = take(3);

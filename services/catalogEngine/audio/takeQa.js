@@ -22,6 +22,7 @@ const DEFECTS = Object.freeze({
   TEXT_MISMATCH: 'narration text mismatch',
   TAG_SPOKEN: 'direction tag spoken aloud',
   DURATION_OFF: 'narration duration off',
+  PACE_OFF: 'narration pace off',
   DEAD_AIR: 'dead air inside the take',
   CLIPPED: 'clipped audio',
   ARTIFACT: 'synthesis artifact',
@@ -144,14 +145,18 @@ function classifyTakeDefects(defects) {
  * @param {object} [p.costTracker]
  * @param {AbortSignal} [p.signal]
  * @param {(level: string, msg: string) => void} [p.log]
- * @returns {Promise<{defects: string[], blocking: string[], advisory: string[], transcript: string|null, compare: object|null, judged: object|null, qaUnavailable: string|null, durationRatio: number}>}
+ * @returns {Promise<{defects: string[], blocking: string[], advisory: string[], transcript: string|null, compare: object|null, judged: object|null, qaUnavailable: string|null, durationRatio: number, wordsVerified: boolean}>}
  */
 async function checkTake({ wav, measure, expectedText, expectedSeconds, directionWords, name = null, alias = null, controlWords = [], expectedEmotion, costTracker, signal, log = () => {} }) {
   const defects = [];
   const mid = (expectedSeconds.min + expectedSeconds.max) / 2;
   const durationRatio = mid > 0 ? Math.round((measure.trimmedSeconds / mid) * 100) / 100 : 1;
-  if (measure.trimmedSeconds < 0.2 || !Number.isFinite(measure.lufs)) defects.push(DEFECTS.EMPTY);
-  else if (measure.trimmedSeconds < expectedSeconds.min || measure.trimmedSeconds > expectedSeconds.max) defects.push(`${DEFECTS.DURATION_OFF}: ${measure.trimmedSeconds}s for an expected ${expectedSeconds.min}–${expectedSeconds.max}s`);
+  const empty = measure.trimmedSeconds < 0.2 || !Number.isFinite(measure.lufs);
+  if (empty) defects.push(DEFECTS.EMPTY);
+  // The duration window is an ESTIMATE (words at the band's pace); it is
+  // classified below, once the transcript has said what was actually heard.
+  const durationMiss = !empty && (measure.trimmedSeconds < expectedSeconds.min || measure.trimmedSeconds > expectedSeconds.max)
+    ? `${measure.trimmedSeconds}s for an expected ${expectedSeconds.min}–${expectedSeconds.max}s` : null;
   if (measure.longestSilenceSeconds >= 2) defects.push(`${DEFECTS.DEAD_AIR}: ${measure.longestSilenceSeconds}s of silence`);
   if (measure.clipped) defects.push(DEFECTS.CLIPPED);
 
@@ -159,9 +164,10 @@ async function checkTake({ wav, measure, expectedText, expectedSeconds, directio
   let compare = null;
   let judged = null;
   let qaUnavailable = null;
+  let wordsVerified = false;
   if (!flags.audioTranscriptQaEnabled()) {
     qaUnavailable = 'transcript QA disabled (CATALOG_AUDIO_TRANSCRIPT_QA=0)';
-  } else if (!defects.includes(DEFECTS.EMPTY)) {
+  } else if (!empty) {
     try {
       const r = await transcribeTake({ wav, expectedText, directionWords, name, costTracker, signal });
       transcript = r.transcript;
@@ -175,6 +181,7 @@ async function checkTake({ wav, measure, expectedText, expectedSeconds, directio
       if (compare.doubledWords.length) textIssues.push(`doubled: ${compare.doubledWords.slice(0, 3).join(', ')}`);
       if (compare.extraRatio > THRESHOLDS.extraRatio) textIssues.push(`${Math.round(compare.extraRatio * 100)}% extra words`);
       if (textIssues.length) defects.push(`${DEFECTS.TEXT_MISMATCH}: ${textIssues.join('; ')}`);
+      wordsVerified = textIssues.length === 0;
       if (compare.controlSpoken.length || judged.spokenControlWords) defects.push(`${DEFECTS.TAG_SPOKEN}${compare.controlSpoken.length ? `: ${compare.controlSpoken.slice(0, 3).join(', ')}` : ''}`);
       if (judged.glitch || judged.robotic) defects.push(`${DEFECTS.ARTIFACT}: ${judged.glitch ? 'glitch' : 'robotic'}`);
       if (compare.nameHeard === false) defects.push(DEFECTS.NAME_NOT_HEARD);
@@ -188,8 +195,16 @@ async function checkTake({ wav, measure, expectedText, expectedSeconds, directio
       log('warn', qaUnavailable);
     }
   }
+  // A heuristic never overrides direct evidence: the window stands in for
+  // dropped/added words and dead air, and each has its own check. With every
+  // word heard in order, a take outside the window is a PACE finding — it
+  // shades selection, never fails a book (2026-09-09: a 1.66 s read of a
+  // five-word passage, all words verified, failed a whole film against a
+  // 1.73 s estimate). Without a verified transcript the window keeps its
+  // blocking role: it is the only evidence left.
+  if (durationMiss) defects.push(`${wordsVerified ? DEFECTS.PACE_OFF : DEFECTS.DURATION_OFF}: ${durationMiss}`);
   const { blocking, advisory } = classifyTakeDefects(defects);
-  return { defects, blocking, advisory, transcript, compare, judged, qaUnavailable, durationRatio };
+  return { defects, blocking, advisory, transcript, compare, judged, qaUnavailable, durationRatio, wordsVerified };
 }
 
 /**
@@ -204,7 +219,7 @@ function repairNote(blocking, ctx) {
   let rung = 'restate';
   if (bases.includes(DEFECTS.TAG_SPOKEN)) { parts.push('perform the direction, never speak it'); rung = 'plain'; }
   if (bases.includes(DEFECTS.TEXT_MISMATCH)) parts.push('read every word exactly as written, nothing added, nothing dropped, nothing repeated');
-  if (bases.includes(DEFECTS.DURATION_OFF)) parts.push('read at an easy storytelling pace, no long pauses, no rushing');
+  if (bases.includes(DEFECTS.DURATION_OFF) || bases.includes(DEFECTS.PACE_OFF)) parts.push('read at an easy storytelling pace, no long pauses, no rushing');
   if (bases.includes(DEFECTS.DEAD_AIR)) parts.push('no long silences inside the take');
   if (bases.includes(DEFECTS.ARTIFACT)) parts.push('a clean, natural take');
   if (bases.includes(DEFECTS.CLIPPED)) parts.push('a clean take without distortion');
