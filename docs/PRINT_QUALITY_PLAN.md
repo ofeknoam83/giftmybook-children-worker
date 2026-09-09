@@ -15,8 +15,9 @@
 > shadow-lift knob, the gamut measure), `luluSpec.js` (PPI + gamut in the
 > preflight), `pipeline.js` (all of it on the callback as `preflight` /
 > `printPreviewUrls`). App: `services/luluPreflight.js` (Lulu's own
-> validation before every bulk send — the one path that sends children's
-> books to Lulu; auto-send and the chat-book resend never carry them),
+> validation before every bulk send and the admin book page's direct
+> print action — the two paths that send children's books to Lulu;
+> auto-send and the chat-book resend never carry them),
 > `routes/children.js`
 > (persists `preflight`, `renderSizes`, `printPreviewUrls`), the
 > print-readiness card on the admin book page. NOT done, by design: the
@@ -171,9 +172,9 @@ Order matters: Phase 0's numbers set Phase 1's size tier and Phase 4's tone curv
 
 ### Phase 5 — Verify with Lulu, every time (S)
 
-- **5.1 Order-time validation (app).** Before any children's print job (today the
-  admin bulk sends are the one path; auto-send and the chat-book resend never carry
-  children's books) call Lulu's `validate-interior` + `validate-cover` (at minimum
+- **5.1 Order-time validation (app).** Before any children's print job (the admin
+  bulk sends and the book page's direct print action; auto-send and the chat-book
+  resend never carry children's books) call Lulu's `validate-interior` + `validate-cover` (at minimum
   `print-job-cover-dimensions`) and persist the verdict on the book; block the send on
   `ERROR` with Lulu's message. The worker's preflight is the build-time guard; Lulu's is
   the order-time truth.

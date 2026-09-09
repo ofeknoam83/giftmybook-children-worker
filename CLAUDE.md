@@ -216,10 +216,13 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   page's share of pixels above 0.9 saturation exceeds
   `GUIDELINES.gamutWarnShare` (0.35) — the press will dull it. (5) The
   app validates every children's book pair with Lulu's own
-  `validate-interior` / `validate-cover` before every bulk send — the
-  one path that sends children's books to Lulu (`services/luluPreflight.js`
-  there: an explicit ERROR holds the book back with Lulu's reasons, an
-  unavailable check never does, the verdict rides
+  `validate-interior` / `validate-cover` before every bulk send and the
+  admin book page's direct print action — the two paths that send
+  children's books to Lulu, both on the ONE SKU table
+  (`services/luluPreflight.js` there: an explicit ERROR holds the book
+  back with Lulu's reasons, a partially rejected batch reports the
+  held-back books as `ineligible`, an unavailable or stalled check never
+  blocks — one deadline covers every request — and the verdict rides
   `generationProgress.luluValidation`). Kill-switches:
   `CATALOG_PRINT_IMAGE_SIZE=0`, `CATALOG_FOLD_SAFETY=0`,
   `CATALOG_PRINT_PREVIEWS=0`, `CATALOG_COVER_OUTPAINT=0`,
