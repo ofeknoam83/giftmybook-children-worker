@@ -1,7 +1,8 @@
 /** Exact recorded dialogue drives lip sync; the shot judges confirm the right actor speaks — and that nobody speaks under narration. */
 const replicate = require('./providers/replicate');
 const { directorJson, filmError, hash } = require('./filmScript');
-const { downloadBuffer, uploadBuffer, loadJson, saveJson } = require('../../gcsStorage');
+const { downloadBuffer, uploadBuffer, saveJson } = require('../../gcsStorage');
+const { loadPrediction, checkPredictionAbort } = require('./predictionState');
 const { FULL_STORY_VIDEO_VERSION } = require('../versions');
 
 // Verified against https://replicate.com/sync/lipsync-2/api/schema, 2026-09-08 (authenticated model metadata).
@@ -17,15 +18,17 @@ async function validateLipsyncModel(token) {
 
 /** Poll a persisted prediction so restarts do not submit it twice. */
 async function syncDialogue({ base, video, audio, seconds, token, signal, touch = () => {}, costTracker, forceNew = false, pollIntervalMs = 10000 }) {
+  checkPredictionAbort(signal);
   const identity = hash({ v: FULL_STORY_VIDEO_VERSION, model: LIPSYNC_VERSION, video: hash(video), audio: hash(audio) });
   const key = `${base}/sync/${identity}.mp4`;
   const cached = !forceNew && await downloadBuffer(key).catch(() => null);
   if (cached) return cached;
-  const videoUrl = await uploadBuffer(video, `${base}/sync/${identity}-input.mp4`, 'video/mp4');
-  const audioUrl = await uploadBuffer(audio, `${base}/sync/${identity}.wav`, 'audio/wav');
   const jobKey = `${base}/sync/${identity}-job.json`;
-  let ref = !forceNew && await loadJson(jobKey).catch(() => null);
+  let ref = !forceNew && await loadPrediction(jobKey);
   if (!ref?.jobId) {
+    const videoUrl = await uploadBuffer(video, `${base}/sync/${identity}-input.mp4`, 'video/mp4');
+    const audioUrl = await uploadBuffer(audio, `${base}/sync/${identity}.wav`, 'audio/wav');
+    checkPredictionAbort(signal);
     ref = await replicate.submit({ model: LIPSYNC_MODEL, token,
       input: { video: videoUrl, audio: audioUrl, sync_mode: 'silence', active_speaker: true, temperature: 0.35 } });
     await saveJson({ ...ref, submittedAt: new Date().toISOString() }, jobKey);
