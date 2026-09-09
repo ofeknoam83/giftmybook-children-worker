@@ -1189,6 +1189,30 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   film `film_script_ambiguous`), `FFMPEG_PATH`. Bump `VIDEO_VERSION` (versions.js, `gv-2`) on
   any change to the film plan, the still-selection scoring, the brief
   template or the stitch graph.
+  **The full-story film (`docs/FULL_STORY_FILM.md`, `gfs-2` since
+  2026-09-09)**: `CATALOG_FILM_VIDEO_QUALITY` (`std` default | `pro` — the
+  Kling tier every shot is bought at, about half the per-second price at
+  std; a request's `quality` overrides; folded into every shot key),
+  `CATALOG_FILM_VISUAL_QA=0` (stop judging every animated shot before
+  acceptance — talking mouths under narration, the wrong speaker / other
+  mouths on dialogue — with the defect fed back to a bounded repair render;
+  an outage ships the shot flagged, never silently), `CATALOG_FILM_SFX=0`
+  (no sound cues and no ambience bed on the film; `music: 'none'` on the
+  request drops the score). The film's soundtrack is the audiobook's:
+  the per-theme music suite under its cue grammar with 3 s crossfades on
+  the cuts and the refrain motif, the theme's ambience bed, spot cues
+  placed 0.15 s after their passage inside the pause the whole-second
+  shot paid for, sidechain-ducked, the master measured to
+  `CATALOG_AUDIO_TARGET_LUFS` (`video/filmSoundtrack.js`; the audiobook's
+  `CATALOG_AUDIO_MUSIC` / `_SFX` / `_AMBIENCE` switches govern the shared
+  assets). Shots are balanced whole seconds of 3–15 s (no 3 s stubs; no
+  discarded billed fraction), the shot brief carries the scene with every
+  quotation masked and only its own passage verbatim, and the callback
+  carries `quality`, `spend` (the estimate before the first purchase),
+  `soundtrack` and `visualQa`. Bump `FULL_STORY_VIDEO_VERSION` on any
+  change to the brief, the shot packing, the judge or the soundtrack
+  rules; `FILM_CAST_VERSION` pins the voice takes so a film bump never
+  re-records speech.
 - Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 1, clamped 1-3),
   `CATALOG_DRIFT_MAX_REPAIRS` (default 0, clamped 0-4),
   `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3, clamped 1-12 — every

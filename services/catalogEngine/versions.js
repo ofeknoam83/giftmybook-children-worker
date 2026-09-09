@@ -350,8 +350,25 @@ const QA_VERSION = 'qa-16';
  * stills (the still-selection gate) instead of four crossfaded clips.
  */
 const VIDEO_VERSION = 'gv-2';
-/** Full manuscript, pinned cast, measured speech, animated shots and lip sync. */
-const FULL_STORY_VIDEO_VERSION = 'gfs-1';
+/**
+ * Full manuscript, pinned cast, measured speech, animated shots and lip sync.
+ * gfs-2 (2026-09-09): silent characters under narration (the brief masks
+ * quoted speech and states silent acting; a video judge gates every shot),
+ * the Kling quality tier folded into every shot key (`std` by default),
+ * balanced whole-second shots, and the themed soundtrack (music suite +
+ * sound cues + ambience on the film clock). gfs-1 motion carried talking
+ * mouths, so it must never replay as gfs-2; speech takes are pinned by
+ * FILM_CAST_VERSION and survive the bump.
+ */
+const FULL_STORY_VIDEO_VERSION = 'gfs-2';
+/**
+ * The film cast's voice-pin identity — part of every take hash. Bump ONLY
+ * when a voice pin must re-record (a cast.json voice change re-keys by its
+ * own file hash already); a FULL_STORY_VIDEO_VERSION bump keeps verified
+ * speech on purpose — recordings are the film's most expensive verified
+ * asset after motion.
+ */
+const FILM_CAST_VERSION = 'gfs-1';
 /** Video-only prop filtering; keep existing artwork, speech and unaffected clips. */
 const FILM_REFERENCE_VERSION = 'gfr-1';
 /** Direct saved-kit inputs and cached text-removal edits, without illustration QA. */
@@ -408,6 +425,7 @@ module.exports = {
   QA_VERSION,
   VIDEO_VERSION,
   FULL_STORY_VIDEO_VERSION,
+  FILM_CAST_VERSION,
   FILM_REFERENCE_VERSION,
   FILM_INPUT_VERSION,
   OBJECT_SET_REPAIR_VERSION,

@@ -34,6 +34,17 @@ const RATES = {
   // Third-party price summaries as of 2026-09; verify against the hosts'
   // pricing pages before invoicing (docs/GIFT_VIDEO_PLAN.md §8).
   'kwaivgi/kling-v3-video': { perSecond: 0.168 },
+  // Kling 3.0 Omni (the full-story film's model): the bare id is the `pro`
+  // 1080p tier the trailer always bought; `:std` is the 720p tier the film
+  // buys by default since gfs-2 (CATALOG_FILM_VIDEO_QUALITY) — Kling has
+  // priced std at roughly half of pro on every generation; verify the exact
+  // per-second rate on the host's pricing page before invoicing.
+  'kwaivgi/kling-v3-omni-video': { perSecond: 0.168 },
+  'kwaivgi/kling-v3-omni-video:std': { perSecond: 0.084 },
+  'kwaivgi/kling-v3-video:std': { perSecond: 0.084 },
+  // Sync Lipsync 2 (dialogue shots only): per second of input video, as
+  // summarized 2026-09 — verify against the host's pricing page.
+  'sync/lipsync-2': { perSecond: 0.0685 },
   'veo-3.1-fast-generate-preview': { perSecond: 0.15 },
   'veo-3.1-generate-preview': { perSecond: 0.40 },
   // Audiobook (ab-1, docs/AUDIOBOOK_V2_PLAN.md §7) — narration per 1,000
@@ -63,6 +74,19 @@ function rateFor(model, fallback, kind) {
     console.warn(`[costTracker] no RATES entry for ${kind} model '${model}' — billing at the default (${JSON.stringify(fallback)}); add it to RATES for accurate cost reporting`);
   }
   return fallback;
+}
+
+/**
+ * A vendor estimate BEFORE a purchase (the film reports what a run will buy
+ * before buying it) — the same table getSummary() bills from.
+ * @param {string} model a RATES key (`model` or `model:tier`)
+ * @param {number} seconds generated seconds
+ * @returns {number} USD, rounded to cents
+ */
+function estimateVideoCost(model, seconds) {
+  const rate = rateFor(model, { perSecond: 0.20 }, 'video');
+  const s = Number(seconds);
+  return Math.round((Number.isFinite(s) && s > 0 ? s : 0) * rate.perSecond * 100) / 100;
 }
 
 class CostTracker {
@@ -217,4 +241,4 @@ class CostTracker {
   }
 }
 
-module.exports = { CostTracker };
+module.exports = { CostTracker, estimateVideoCost, RATES };

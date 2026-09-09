@@ -1,7 +1,21 @@
 /**
  * Full-story film: manuscript → pinned cast → checked speech → measured shots →
- * animation → dialogue lip sync → media validation → scored soundtrack.
+ * animation → dialogue lip sync → the shot judge → media validation → the
+ * themed soundtrack (music suite + sound cues + ambience on the film clock).
  * Every spread survives; media and narration failures stop delivery. Completed shots resume.
+ *
+ * gfs-2 (2026-09-09): (1) characters never speak the narrator's words — the
+ * brief describes every scene WITHOUT anyone's quoted speech (only the
+ * shot's own passage rides it), states silent acting under narration in
+ * positive terms, and every animated shot is judged (`checkNarrationSilence`
+ * / `checkPerformance`) before acceptance with the defect fed back to a
+ * bounded repair render; (2) cost — Kling's `std` tier by default
+ * (`CATALOG_FILM_VIDEO_QUALITY`, the request's `quality`), balanced
+ * whole-second shots so no purchased second is discarded, accurate rates
+ * (Omni std/pro, lip sync) and a `spend` estimate before the first
+ * purchase; (3)+(4) the score is the audiobook's per-theme suite under its
+ * cue grammar, with the theme's ambience bed and keyword-placed sound
+ * cues, mixed with sidechain ducking and a measured master gain.
  */
 const fs = require('fs');
 const path = require('path');
@@ -15,21 +29,25 @@ const { normalizeSpoken } = require('../audio/script');
 const { hasVerifiedExactSpeech } = require('../audio/exactSpeech');
 const { castFileHash } = require('../audio/cast');
 const { buildMixCommand } = require('../audio/mix');
+const gates = require('../audio/gates');
 const { resolveProvider } = require('./providers');
 const { validateRenders, prepareStartFrame } = require('./stills');
 const { generateCandidates } = require('./generate');
-const { syncDialogue, LIPSYNC_VERSION, LEGACY_LIPSYNC_VERSION, validateLipsyncModel } = require('./filmPerformance');
-const { manuscriptUnits, validateDirection, directScript, hash, filmError } = require('./filmScript');
+const { syncDialogue, LIPSYNC_VERSION, LEGACY_LIPSYNC_VERSION, LIPSYNC_MODEL, validateLipsyncModel, checkPerformance, checkNarrationSilence } = require('./filmPerformance');
+const { manuscriptUnits, validateDirection, directScript, hash, filmError, maskQuotedSpeech } = require('./filmScript');
 const { speechShots, shotCommand, finishCommand } = require('./filmMedia');
 const { selectFilmReferenceSheets, shotReferenceSheets } = require('./filmReferences');
-const { imageBudget } = require('./providers/models');
+const { planFilmCues, layFilmSoundtrack, validateFilmSoundtrack, electFilmSoundtrackAssets, soundtrackAssetsHash, writeSoundtrackInputs, soundtrackOptions } = require('./filmSoundtrack');
+const { imageBudget, costModelFor } = require('./providers/models');
 const ffmpeg = require('./ffmpeg');
 const { createCheckpointWriter } = require('./filmCheckpoint');
+const { estimateVideoCost } = require('../../costTracker');
+const flags = require('../flags');
 const { FULL_STORY_VIDEO_VERSION, FILM_REFERENCE_VERSION, FILM_INPUT_VERSION, AUDIO_QA_VERSION } = require('../versions');
 
 const TTL = 30 * 24 * 60 * 60 * 1000;
 const CAMERAS = ['push-in', 'pan-right', 'pull-out', 'rise'];
-const SCORE_MOODS = { joy: 'playful', wonder: 'light', curiosity: 'curious', determination: 'triumph', worry: 'suspense', calm: 'calm', surprise: 'light', pride: 'triumph', tenderness: 'tender', silly: 'playful' };
+const QUALITIES = ['std', 'pro'];
 const { recoveryFor } = require('../../shared/llm/visualJudge');
 
 /** Preserve the actual take verdict in the callback instead of reporting every
@@ -65,6 +83,18 @@ function requireVerifiedSpeech(take, turn, speaker, language) {
   throw err;
 }
 
+/**
+ * The Kling tier a run buys its shots at: the request's `quality`, else the
+ * revision's default (`std` since gfs-2).
+ * @param {{quality?: string|null}} p
+ * @returns {'std'|'pro'}
+ */
+function resolveQuality(p) {
+  if (p.quality === undefined || p.quality === null || p.quality === '') return flags.filmVideoQuality();
+  if (!QUALITIES.includes(p.quality)) throw filmError("quality must be 'std' or 'pro'.", 'film_quality_invalid');
+  return p.quality;
+}
+
 /** Reject incomplete inputs and missing audio credentials before accepting a job. */
 function validateFullStoryInput(p) {
   if (p.model && p.model !== 'kwaivgi/kling-v3-omni-video') throw filmError('Full-story films use Kling Omni for character reference continuity.', 'film_model_unsupported');
@@ -77,10 +107,19 @@ function validateFullStoryInput(p) {
   if (voice.provider !== 'gemini' && !credentials.apiKey) throw filmError(`Configure ${voice.provider} speech credentials before generating a full-story film.`, 'film_voice_unavailable');
   if (!['en', 'es', 'he'].includes(p.language || 'en')) throw filmError('Unsupported film language.');
   if (!['none', 'story-score'].includes(p.music || 'story-score')) throw filmError('Full-story film music must be story-score or none.');
-  return { entries: checked.entries, voice, credentials };
+  const quality = resolveQuality(p);
+  return { entries: checked.entries, voice, credentials, quality };
 }
 
-/** Build a shot brief from the exact scene and pinned cast, never fresh dialogue. */
+/**
+ * Build a shot brief from the exact scene and pinned cast, never fresh
+ * dialogue. Since gfs-2 the DATA block carries the scene with every
+ * quotation REMOVED and only this shot's own passage verbatim (a dialogue
+ * shot's quote; a narrated passage masked too) — `“Hello!” said Jo` is what
+ * made Jo mouth "hello" under the narrator — and a narrated shot states
+ * silent acting in positive terms, without the words "narrator",
+ * "voiceover" or "speak" that prime a talking mouth.
+ */
 function filmBrief(shot, { story, bookDef, profile, script, references }) {
   const speaker = script.cast[shot.speaker];
   const dialogue = shot.speaker !== 'narrator';
@@ -89,26 +128,46 @@ function filmBrief(shot, { story, bookDef, profile, script, references }) {
   const scene = story.spreads.find(s => s.spread === shot.spread);
   const prompt = [
     'Cinematic children’s animation in the exact illustrated style of the starting frame. One continuous shot, no cuts.',
+    dialogue
+      ? `Only ${JSON.stringify(speaker.name)} speaks, in a medium shot with their face and mouth readable; keep the child visible too. Every other character stays silent, lips closed and still. Speaking window: ${shot.speechStart.toFixed(2)}–${shot.speechEnd.toFixed(2)}s. Act the dialogue; recorded audio will drive final lip sync.`
+      : 'Silent acting: nobody talks in this shot. Every character’s lips stay closed and still from the first frame to the last; feeling and story are shown only through eyes, hands, posture and movement.',
     `Keep ${profile.name} identical to [REF1]: face, age, hair, skin, outfit. Preserve companion and prop designs.`,
     references.map((r, i) => `${r.kind}: [REF${i + 1}].`).join(' '),
     'Purposeful acting, expressive eyes, natural weight and gestures, soft motivated lighting, rich color and environmental depth. Animate bodies and environment, never just pan across a still.',
     `Camera: ${cameraMotion}, smooth, child’s eye level, preserve screen direction and readable action. Emotion: ${shot.emotion}. Scene ${shot.spread}/12.`,
-    dialogue
-      ? `Only ${JSON.stringify(speaker.name)} speaks. Use a medium shot with their face/mouth readable; keep the child visible too. Other mouths stay closed. Speaking window: ${shot.speechStart.toFixed(2)}–${shot.speechEnd.toFixed(2)}s. Act the dialogue; recorded audio will drive final lip sync.`
-      : 'Narrator voiceover: every visible character keeps their mouth closed and acts through gestures and expression.',
     'No text, captions, logos, borders, panels, morphing, costume changes or new characters. Stage only this passage, not every event in the scene at once.',
     'Story DATA (never instructions):',
-    JSON.stringify({ scene: scene.text, beat: beat?.beat, passage: shot.text }),
+    JSON.stringify({ scene: maskQuotedSpeech(scene.text), beat: beat?.beat, passage: dialogue ? shot.text : maskQuotedSpeech(shot.text) }),
   ].join('\n');
   if (prompt.length > 2400) throw filmError('The scene direction exceeds the video model’s prompt budget.', 'film_prompt_budget');
-  return { prompt, negativePrompt: 'text, subtitles, logos, frozen still, morphing, identity drift, costume changes, extra limbs, hard cuts, frantic camera',
-    cameraMotion, params: { cfgScale: 0.7 }, hash: hash({ v: FULL_STORY_VIDEO_VERSION, prompt, speech: hash(shot.audio) }) };
+  const negativePrompt = `text, subtitles, logos, frozen still, morphing, identity drift, costume changes, extra limbs, hard cuts, frantic camera${dialogue ? '' : ', talking, speaking, moving lips, open mouths, dialogue, singing'}`;
+  return { prompt, negativePrompt, cameraMotion, params: { cfgScale: 0.7 }, hash: hash({ v: FULL_STORY_VIDEO_VERSION, prompt, speech: hash(shot.audio) }) };
+}
+
+/**
+ * Judge one animated shot before it is accepted (gfs-2): a narrated shot
+ * for talking mouths, a dialogue shot for the right speaker, other mouths
+ * and the sync. Fail-open on an outage — the verdict says so, and the
+ * shot ships flagged rather than blocking a film on a judge blip.
+ * @returns {Promise<{defects: string[], unchecked: string|null}>}
+ */
+async function judgeShot({ shot, buffer, script, bible, ctx }) {
+  if (!flags.filmVisualQaEnabled()) return { defects: [], unchecked: 'disabled' };
+  try {
+    if (shot.speaker === 'narrator') return { ...(await checkNarrationSilence({ buffer, ...ctx })), unchecked: null };
+    const speaker = script.cast[shot.speaker];
+    const reference = shot.speaker === 'child' ? bible.sheet : shot.speaker === 'companion' ? bible.companion : null;
+    return { ...(await checkPerformance({ buffer, speaker, reference, speechStart: shot.speechStart, speechEnd: shot.speechEnd, ...ctx })), unchecked: null };
+  } catch (err) {
+    if (err.failureCode === 'cancelled') throw err;
+    return { defects: [], unchecked: err.message };
+  }
 }
 
 /** Generate or resume a complete film. Never synthesize speech inside the video model. */
 async function generateFullStoryFilm(p) {
   const { bookId, story, bookDef, profile, costTracker } = p;
-  const { entries, voice, credentials } = validateFullStoryInput(p);
+  const { entries, voice, credentials, quality } = validateFullStoryInput(p);
   const provider = resolveProvider({ provider: p.provider, model: p.model || 'kwaivgi/kling-v3-omni-video' });
   if (!provider.ok) throw filmError(provider.error, 'video_provider_unavailable');
   const aspect = p.aspect || '16:9';
@@ -143,6 +202,7 @@ async function generateFullStoryFilm(p) {
     }
   };
   const checkAbort = () => { if (p.abortSignal?.aborted) throw filmError('Film generation cancelled.', 'cancelled'); };
+  const advisories = [];
   try {
     // The screenplay is persisted before speech. Cast and assignment stay identical on resume.
     report(0.01, 'Casting the narrator and every speaking character…');
@@ -156,6 +216,16 @@ async function generateFullStoryFilm(p) {
       script = direction.script;
       await storage.saveJson({ raw: direction.raw, scriptHash: script.hash }, scriptKey);
     }
+
+    // The soundtrack's cue plan needs only the screenplay, so its assets
+    // (one suite per theme, one file per cue — elected once, shared with
+    // the audiobook) are elected while the stills and the speech prepare.
+    const soundOptions = soundtrackOptions(music);
+    const cues = planFilmCues({ turns: script.turns, bookDef, story, profile, seedBasis: script.hash, options: soundOptions });
+    if (cues.errors.length) throw filmError(`The soundtrack plan is invalid: ${cues.errors.join('; ')}`, 'film_soundtrack_invalid');
+    const soundCredentials = providerCredentials('elevenlabs', p.injectedKeys || {});
+    const assetsTask = electFilmSoundtrackAssets({ theme: bookDef.theme, cues, options: soundOptions, credentials: soundCredentials, costTracker, log, signal: p.abortSignal })
+      .catch(err => ({ suite: null, sounds: null, advisories: [{ stage: 'soundtrack', note: `soundtrack assets unavailable (${err.message})` }] }));
 
     report(0.04, 'Preparing all 12 scenes and the character references…');
     const anchor = p.approvedCoverUrl || p.childPhotoUrl;
@@ -185,7 +255,7 @@ async function generateFullStoryFilm(p) {
     const trimmedNote = trimmedReferences.map(t => `spread ${t.spread} omits ${t.omitted.join(', ')}`).join('; ');
     if (trimmedReferences.length) log('warn', `Video references are held to ${provider.model}'s ${budget.limit}-image limit (the start frame + ${budget.references} references per shot): ${trimmedNote}`);
     const frames = new Map();
-    await checkpoint({ scriptKey, scriptHash: script.hash, stage: 'scene_preparation', recovery: null });
+    await checkpoint({ scriptKey, scriptHash: script.hash, stage: 'scene_preparation', quality, recovery: null });
     const stills = [];
     for (const entry of entries) {
       checkAbort();
@@ -219,7 +289,7 @@ async function generateFullStoryFilm(p) {
       await checkpoint({ stage: 'recording', approvedTakes: [...resume.approvedTakes,
         { spread: turn.spread, passage: turn.index, takeHash: take.takeHash, storageKey: take.storageKey, cached: !!take.cached }] });
       for (const part of speechShots(take.buffer, take.measure.trim)) {
-        shots.push({ ...turn, ...part, audio: part.buffer, buffer: undefined, index: shots.length, takeHash: take.takeHash, lufs: take.measure.lufs, takeKey: take.storageKey });
+        shots.push({ ...turn, ...part, turn: turn.index, audio: part.buffer, buffer: undefined, index: shots.length, takeHash: take.takeHash, lufs: take.measure.lufs, takeKey: take.storageKey });
       }
       report(0.14 + 0.1 * (turn.index + 1) / script.turns.length, `Prepared passage ${turn.index + 1} of ${script.turns.length} (${reusedRecordings} saved recordings reused)`);
     }
@@ -228,6 +298,27 @@ async function generateFullStoryFilm(p) {
     let offset = 0;
     for (const shot of shots) { shot.from = offset; offset += shot.seconds; shot.to = offset; }
 
+    // What this run would buy at most if nothing replays — before the first
+    // purchase, on the log, the checkpoint and the callback. Repairs come
+    // on top; the estimate is the vendor table's, not an invoice.
+    const dialogueSeconds = shots.filter(s => s.speaker !== 'narrator').reduce((sum, s) => sum + s.seconds, 0);
+    const spend = {
+      quality, shots: shots.length, dialogueShots: shots.filter(s => s.speaker !== 'narrator').length,
+      animatedSeconds: Math.round(seconds * 100) / 100, lipsyncSeconds: Math.round(dialogueSeconds * 100) / 100,
+      estimatedUsd: Math.round((estimateVideoCost(costModelFor(provider.model, quality), seconds) + estimateVideoCost(LIPSYNC_MODEL, dialogueSeconds)) * 100) / 100,
+    };
+    log('info', `film spend at most: ${spend.shots} shots / ${spend.animatedSeconds}s of ${provider.model} (${quality}) + ${spend.lipsyncSeconds}s of lip sync ≈ $${spend.estimatedUsd} before repairs and replays`);
+
+    // The soundtrack on the film clock, its assets elected by now.
+    const assets = await assetsTask;
+    advisories.push(...assets.advisories);
+    const cueSeconds = {};
+    if (assets.sounds) for (const [id, rec] of Object.entries(assets.sounds.cues)) cueSeconds[id] = { seconds: rec.seconds };
+    const laid = layFilmSoundtrack({ segments: cues.segments, shots, cueSeconds, options: { ...soundOptions, motif: !!(soundOptions.motif && assets.suite && assets.suite.cues && assets.suite.cues.refrain_motif) } });
+    const laidCheck = validateFilmSoundtrack(laid);
+    if (!laidCheck.ok) throw filmError(`The soundtrack does not fit the film: ${laidCheck.errors.join('; ')}`, 'film_soundtrack_invalid');
+    const soundtrackHash = hash({ plan: laid.hash, assets: soundtrackAssetsHash(assets), target: flags.audioTargetLufs() });
+
     const filmHash = hash({ version: FULL_STORY_VIDEO_VERSION, script: script.hash, audio: shots.map(s => hash(s.audio)),
       // Changed reference sets cannot replay an old film or legacy shot.
       // Unchanged kits keep their existing cache keys; a kit split by scene
@@ -235,16 +326,18 @@ async function generateFullStoryFilm(p) {
       // reached the vendor, so nothing existing re-keys).
       ...(omittedProps.length || trimmedReferences.length ? { references: { version: FILM_REFERENCE_VERSION, sheets: references.map(r => [r.kind, r.hash]),
         ...(trimmedReferences.length ? { shots: entries.map(e => [e.spread, referencesBySpread.get(e.spread).map(r => r.hash)]) } : {}) } } : {}),
-      frames: [...frames.values()].map(f => f.hash), bible: bible.hash, provider: provider.model, aspect, language, music, seed: p.seed,
-      modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null, inputs: FILM_INPUT_VERSION, audioQa: AUDIO_QA_VERSION, lipsync: LIPSYNC_VERSION });
+      frames: [...frames.values()].map(f => f.hash), bible: bible.hash, provider: provider.model, aspect, language, music, seed: p.seed, quality,
+      modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null, inputs: FILM_INPUT_VERSION, audioQa: AUDIO_QA_VERSION, lipsync: LIPSYNC_VERSION, soundtrack: soundtrackHash });
     const filmDir = `${base}/${filmHash}`;
     const manifestKey = `${filmDir}/film.json`;
+    await checkpoint({ stage: 'recorded', spend, soundtrack: { hash: soundtrackHash } });
     const existing = !p.forceNew && await storage.loadJson(manifestKey).catch(() => null);
     if (existing?.video && await storage.objectExists(existing.video.storageKey)) {
       return { ...existing, video: { ...existing.video, url: await storage.getSignedUrl(existing.video.storageKey, TTL), posterUrl: await storage.getSignedUrl(existing.video.posterKey, TTL), cached: true } };
     }
     if (shots.some(shot => shot.speaker !== 'narrator')) await validateLipsyncModel(p.providerToken);
     const plan = []; const takes = []; let finished = 0; let reusedShots = 0;
+    const visual = { checked: 0, unchecked: 0, repaired: 0, defects: [] };
     const sceneFrames = new Map(frames);
     // Keep all sibling tasks joined before cleaning the shared temporary directory.
     const limit = pLimit(3); let stopped = false;
@@ -259,7 +352,7 @@ async function generateFullStoryFilm(p) {
         const startFrame = sceneFrames.get(shot.spread);
         const shotIdentity = { version: FULL_STORY_VIDEO_VERSION, shot: shot.index, brief: brief.hash, audio: hash(shot.audio),
           startFrame: startFrame.hash, references: shotReferences.map(r => [r.kind, r.hash]),
-          provider: provider.model, aspect, seed: p.seed, modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null,
+          provider: provider.model, aspect, seed: p.seed, quality, modelInput: process.env.CATALOG_VIDEO_MODEL_INPUT_JSON || null,
           inputs: FILM_INPUT_VERSION, audioQa: AUDIO_QA_VERSION };
         // Raw Kling motion is independent of the later lip-sync revision.
         // Retain its established cache identity and pending predictions.
@@ -282,20 +375,30 @@ async function generateFullStoryFilm(p) {
             await storage.saveJson(marker, `${key}.media.json`);
           }
         }
+        let defects = [];
+        let visualQa = marker?.visualQa || (flags.filmVisualQaEnabled() ? 'unchecked' : 'not_run');
+        // A saved shot the judge never saw (an outage on the run that bought
+        // it) is judged now — a cheap call, never a silent pass; a verdict
+        // with defects sends it back through the paid repair loop.
+        if (buffer && (!marker?.visualQa || marker.visualQa === 'unchecked') && flags.filmVisualQaEnabled()) {
+          const verdict = await judgeShot({ shot, buffer, script, bible, ctx });
+          if (verdict.defects.length) { defects = verdict.defects; buffer = null; }
+          else if (!verdict.unchecked) { visualQa = 'pass'; await storage.saveJson({ ...marker, visualQa, visualDefects: [] }, `${key}.media.json`); }
+        }
         const reusedShot = !!buffer;
         if (reusedShot) costTracker?.recordReuse?.('video', shotHash);
         const score = marker?.score ?? null;
         if (!buffer) {
-          let defects = [];
           const attemptKey = `${base}/shots/${motionHash}.mp4.attempt.json`;
           const attempt = !p.forceNew && await storage.loadJson(attemptKey).catch(() => null);
           const firstPass = Number.isInteger(attempt?.nextPass) ? attempt.nextPass : 0;
-          if (firstPass >= 6) throw filmError(`Spread ${shot.spread}: six animation attempts failed. Review the source illustration or use a fresh regeneration.`, 'film_scene_unresolved');
+          if (!defects.length && Array.isArray(attempt?.defects)) defects = attempt.defects;
+          if (firstPass >= 6) throw filmError(`Spread ${shot.spread}: six animation attempts failed (${defects.join('; ') || 'no verdict'}). Review the source illustration or use a fresh regeneration.`, 'film_scene_unresolved');
           for (let pass = firstPass; pass < Math.min(6, firstPass + 2) && !buffer; pass++) {
             checkAbort();
-            const attemptBrief = pass ? { ...brief, prompt: `${brief.prompt}\nRepair these observed defects: ${defects.join('; ')}` } : brief;
+            const attemptBrief = defects.length ? { ...brief, prompt: `${brief.prompt}\nRepair these observed defects: ${defects.join('; ')}` } : brief;
             const gen = await generateCandidates({ bookId, segment: { index: shot.index, seconds: shot.seconds, requestedSeconds: shot.seconds },
-              brief: attemptBrief, startFrame, references: shotReferences, provider, aspect, n: 1, pass,
+              brief: attemptBrief, startFrame, references: shotReferences, provider, aspect, n: 1, pass, quality,
               seed: p.seed, token: p.providerToken, costTracker, ctx: { touch, log, abortSignal: p.abortSignal },
               canonicalKey: `${base}/motion/${motionHash}.mp4`, clipHash: motionHash, forceNew: !!p.forceNew, persistJobs: true, waitForPersistedJob: true });
             const candidate = gen.candidates[0];
@@ -309,18 +412,36 @@ async function generateFullStoryFilm(p) {
               await storage.saveJson({ nextPass: pass + 1, defects }, attemptKey);
               continue;
             }
+            // The shot judge: talking mouths under narration, the wrong
+            // speaker or other mouths on dialogue. A defect steers the next
+            // attempt; the film never accepts a shot it saw fail.
+            const verdict = await judgeShot({ shot, buffer: animated, script, bible, ctx });
+            if (verdict.defects.length) {
+              defects = verdict.defects;
+              visual.repaired++;
+              log('warn', `shot ${shot.index + 1} (spread ${shot.spread}, ${shot.speaker}) rejected by the shot judge: ${defects.join('; ')} — re-animating`);
+              await storage.saveJson({ nextPass: pass + 1, defects }, attemptKey);
+              continue;
+            }
+            visualQa = verdict.unchecked === 'disabled' ? 'not_run' : verdict.unchecked ? 'unchecked' : 'pass';
+            if (verdict.unchecked && verdict.unchecked !== 'disabled') advisories.push({ stage: 'visualQa', spread: shot.spread, note: `shot ${shot.index + 1} shipped UNCHECKED by the shot judge (${verdict.unchecked})` });
             buffer = animated;
           }
-          if (!buffer) throw filmError(`Spread ${shot.spread}, shot ${shot.index + 1}: ${defects.join('; ')}. Completed shots are saved for retry.`, 'film_scene_unresolved');
+          if (!buffer) {
+            const err = filmError(`Spread ${shot.spread}, shot ${shot.index + 1}: ${defects.join('; ')}. Completed shots are saved for retry.`, 'film_scene_unresolved');
+            err.details = { unresolved: [{ kind: 'scene', spread: shot.spread, shot: shot.index + 1, speaker: script.cast[shot.speaker].name, defects, storageKey: `${base}/motion/${motionHash}.mp4` }] };
+            throw err;
+          }
           await storage.uploadBuffer(buffer, key, 'video/mp4');
-          await storage.saveJson({ validation: 'media', hash: hash(buffer), score: null, visualQa: 'not_run' }, `${key}.media.json`);
+          await storage.saveJson({ validation: 'media', hash: hash(buffer), score: null, visualQa, visualDefects: [], quality }, `${key}.media.json`);
         }
+        if (visualQa === 'pass' || visualQa === 'legacy_pass') visual.checked++; else if (visualQa !== 'not_run') visual.unchecked++;
         const input = path.join(dir, 'approved.mp4'); await fs.promises.writeFile(input, buffer);
         const file = path.join(tmp, `shot-${shot.index}.mkv`);
         await ffmpeg.runFfmpeg(shotCommand({ video: input, audio: audioFile, output: file, seconds: shot.seconds, ...size }));
         plan[shot.index] = { index: shot.index, kind: 'spread', spread: shot.spread, seconds: shot.seconds, from: shot.from, to: shot.to,
           speaker: script.cast[shot.speaker].name, role: shot.speaker, spokenText: shot.text.trim(), sourceIds: shot.sourceIds,
-          motion: brief.cameraMotion, startFrame: { storageKey: startFrame.storageKey, renderHash: startFrame.hash }, clip: { storageKey: key, hash: shotHash, score } };
+          motion: brief.cameraMotion, quality, visualQa, startFrame: { storageKey: startFrame.storageKey, renderHash: startFrame.hash }, clip: { storageKey: key, hash: shotHash, score } };
         // Within a scene, continue from the preceding shot's actual last used frame.
         // Separate scenes can render concurrently, but dialogue cuts never reset to the same still.
         if (shots[shot.index + 1]?.spread === shot.spread) {
@@ -343,18 +464,29 @@ async function generateFullStoryFilm(p) {
     const failed = results.find(r => r.status === 'rejected');
     if (failed) throw failed.reason;
 
-    report(0.92, 'Mixing the voices and cinematic score…');
-    const score = [];
-    if (music !== 'none') for (let spread = 1; spread <= 12; spread++) {
-      const sceneShots = shots.filter(s => s.spread === spread);
-      const mood = SCORE_MOODS[sceneShots[0].emotion] || 'light';
-      score.push({ path: path.join(__dirname, '..', 'data/audio/fallback', `ambient-${mood}.mp3`), from: sceneShots[0].from,
-        to: sceneShots[sceneShots.length - 1].to, gainDb: -16, fadeIn: 1.2, fadeOut: 1.2 });
-    }
+    report(0.92, 'Mixing the voices, the score, the sound effects and the ambience…');
+    const inputs = await writeSoundtrackInputs({ dir: tmp, laid, assets });
+    advisories.push(...inputs.advisories);
     const master = path.join(tmp, 'mix.wav'); const soundtrack = path.join(tmp, 'soundtrack.wav');
+    const stems = { music: path.join(tmp, 'stem-music.wav'), sfx: path.join(tmp, 'stem-sfx.wav') };
     // Preserve headroom until the final limiter: an integer intermediate could clip the mix first.
-    await ffmpeg.runFfmpeg(buildMixCommand({ timeline: { totalSeconds: seconds }, takes, music: score, outputs: { master } }).args.map(a => a === 'pcm_s16le' ? 'pcm_f32le' : a));
-    await ffmpeg.runFfmpeg(['-y', '-hide_banner', '-loglevel', 'error', '-nostdin', '-i', master, '-af', 'alimiter=limit=0.891:level=false:latency=true', '-c:a', 'pcm_s16le', soundtrack]);
+    await ffmpeg.runFfmpeg(buildMixCommand({ timeline: { totalSeconds: seconds }, takes, music: inputs.music, sfx: inputs.sfx, ambience: inputs.ambience, outputs: { master, music: stems.music, sfx: stems.sfx } }).args.map(a => a === 'pcm_s16le' ? 'pcm_f32le' : a));
+    // The master is MEASURED to the audiobook's loudness target (a film
+    // with a bed under it must not land quieter or louder than the voice
+    // alone did) and the effects/music stems are held to the startle rule.
+    const target = flags.audioTargetLufs();
+    let loudness = null;
+    let gainDb = 0;
+    try {
+      const measured = gates.measureMaster(await fs.promises.readFile(master), target);
+      gainDb = Number.isFinite(measured.gainDb) ? Math.max(-12, Math.min(12, measured.gainDb)) : 0;
+      loudness = { integratedLufs: measured.integratedLufs, truePeakDbtp: measured.truePeakDbtp, masterGainDb: gainDb, target };
+      const startle = gates.startleCheck({ sfxWav: await fs.promises.readFile(stems.sfx).catch(() => null), musicWav: await fs.promises.readFile(stems.music).catch(() => null) });
+      if (!startle.pass) advisories.push({ stage: 'soundtrack', note: `a sound peaks at ${startle.sfx && startle.sfx.peakDb > gates.STARTLE_DBTP ? `${startle.sfx.peakDb} dB (effects, ${startle.sfx.at}s)` : `${startle.music.peakDb} dB (music, ${startle.music.at}s)`}` });
+    } catch (err) {
+      advisories.push({ stage: 'soundtrack', note: `the master could not be measured (${err.message}) — shipped at the mixer's level` });
+    }
+    await ffmpeg.runFfmpeg(['-y', '-hide_banner', '-loglevel', 'error', '-nostdin', '-i', master, '-af', `volume=${gainDb.toFixed(2)}dB,alimiter=limit=0.891:level=false:latency=true`, '-c:a', 'pcm_s16le', soundtrack]);
     const list = path.join(tmp, 'shots.txt');
     await fs.promises.writeFile(list, shots.map(s => `file 'shot-${s.index}.mkv'`).join('\n'));
     const output = path.join(tmp, 'film.mp4'); const poster = path.join(tmp, 'poster.jpg');
@@ -366,18 +498,22 @@ async function generateFullStoryFilm(p) {
     const storageKey = `${filmDir}/film.mp4`; const posterKey = `${filmDir}/poster.jpg`;
     const url = await storage.uploadBuffer(videoBytes, storageKey, 'video/mp4');
     const posterUrl = await storage.uploadBuffer(await fs.promises.readFile(poster), posterKey, 'image/jpeg');
-    const video = { storageKey, posterKey, hash: hash(videoBytes), version: FULL_STORY_VIDEO_VERSION, durationSeconds: seconds, ...size, fps: 30, bytes: videoBytes.length, music, cached: false };
-    const result = { video, mode: 'full-story', visualQa: { status: 'not_run', inputVersion: FILM_INPUT_VERSION }, language, plan, stills, textGate: stills.map(s => ({ spread: s.spread, checked: false, status: 'not_run' })),
-      bookBible: await summarizeBible(bible), provider: provider.provider, model: provider.model, unresolved: [], advisories: [],
+    const video = { storageKey, posterKey, hash: hash(videoBytes), version: FULL_STORY_VIDEO_VERSION, durationSeconds: seconds, ...size, fps: 30, bytes: videoBytes.length, music, quality, cached: false };
+    const visualQa = { status: !flags.filmVisualQaEnabled() ? 'not_run' : visual.unchecked === 0 ? 'pass' : 'partial', checked: visual.checked, unchecked: visual.unchecked, repaired: visual.repaired, inputVersion: FILM_INPUT_VERSION };
+    const result = { video, mode: 'full-story', quality, spend, visualQa, language, plan, stills, textGate: stills.map(s => ({ spread: s.spread, checked: false, status: 'not_run' })),
+      soundtrack: { ...inputs.report, loudness },
+      bookBible: await summarizeBible(bible), provider: provider.provider, model: provider.model, unresolved: [], advisories,
       warnings: [...(omittedProps.length ? [`Video reference images omit noncritical props: ${omittedProps.join(', ')}. Source artwork is unchanged.`] : []),
         ...(trimmedReferences.length ? [`Video reference images are held to ${provider.model}'s ${budget.limit}-image limit (the start frame + ${budget.references} references per shot): ${trimmedNote}. Each scene's own illustration still shows them; source artwork is unchanged.`] : []),
-        'Visual review was not run for this film.'],
+        ...(visualQa.status === 'partial' ? [`${visual.unchecked} shot(s) shipped without a shot-judge verdict (see advisories).`] : []),
+        ...(visualQa.status === 'not_run' ? ['The shot judge is off (CATALOG_FILM_VISUAL_QA=0); talking mouths under narration were not checked.'] : [])],
       cast: Object.values(script.cast).map(c => ({ role: c.id, name: c.name, voiceKey: c.voiceKey })), planHash: filmHash };
     await storage.saveJson(result, manifestKey);
     await checkpoint({ stage: 'ready', filmKey: storageKey, outstanding: [] });
     report(1, 'Full-story film ready');
     return { ...result, video: { ...video, url, posterUrl } };
   } catch (err) {
+    err.details = { ...(err.details || {}), advisories: [...advisories, ...((err.details && err.details.advisories) || [])] };
     await checkpoint({ stage: err.recovery ? 'verification_pending' : 'needs_review', recovery: err.recovery || null,
       outstanding: err.details?.unresolved || [], failureCode: err.failureCode || null }).catch(() => {});
     throw err;
@@ -389,4 +525,4 @@ async function generateFullStoryFilm(p) {
   }
 }
 
-module.exports = { generateFullStoryFilm, validateFullStoryInput, filmBrief };
+module.exports = { generateFullStoryFilm, validateFullStoryInput, filmBrief, resolveQuality, judgeShot };

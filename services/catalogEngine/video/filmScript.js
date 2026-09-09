@@ -6,7 +6,7 @@ const { EMOTIONS } = require('../illustrator/emotionPlan');
 const { getNextApiKey } = require('../../illustrationGenerator');
 const { fetchWithTimeout } = require('../audio/providers');
 const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../shared/llm/geminiJson');
-const { FULL_STORY_VIDEO_VERSION } = require('../versions');
+const { FULL_STORY_VIDEO_VERSION, FILM_CAST_VERSION } = require('../versions');
 const flags = require('../flags');
 
 /** Stable identity for scripts, audio, and film checkpoints. */
@@ -42,6 +42,22 @@ function manuscriptUnits(story) {
 
 /** A fragment with no letter or digit is never spoken; it needs no speaker. */
 function isSpoken(unit) { return /[\p{L}\p{N}]/u.test(unit.text); }
+
+const QUOTED_SPEECH = /[“"]([^”"]+)[”"]|‘([^’]+)’|«([^»]+)»/gu;
+
+/**
+ * The text with every quotation removed (gfs-2): a video model given
+ * `“Hello!” said Jo` animates Jo saying hello — under a narrated passage
+ * that is exactly the talking mouth the film must never show, and on a
+ * dialogue shot it puts words in every OTHER character's mouth. The scene
+ * a shot stages is described without the words anyone says; only the
+ * shot's own spoken passage rides its brief verbatim.
+ * @param {string} text
+ * @returns {string}
+ */
+function maskQuotedSpeech(text) {
+  return String(text || '').replace(QUOTED_SPEECH, ' ').replace(/\s+([,.;:!?…])/g, '$1').replace(/\s+/g, ' ').trim();
+}
 
 /** Inert, capped quotation of a fragment for an error message. */
 function quoteFragment(text) {
@@ -91,7 +107,7 @@ function validateDirection(raw, units, provider, ageBand) {
     const pin = v?.providers?.[provider];
     if (!pin || voices.has(pin.voiceId || pin.voice)) throw filmError('Every character needs a distinct supported voice.');
     voices.add(pin.voiceId || pin.voice);
-    cast[c.id] = { id: c.id, name: c.name, voiceKey: c.voiceKey, voice: { key: c.voiceKey, provider, ...pin, hash: hash({ pin, cast: castFileHash(), version: FULL_STORY_VIDEO_VERSION }) } };
+    cast[c.id] = { id: c.id, name: c.name, voiceKey: c.voiceKey, voice: { key: c.voiceKey, provider, ...pin, hash: hash({ pin, cast: castFileHash(), version: FILM_CAST_VERSION }) } };
   }
   if (!cast.narrator) throw filmError('The screenplay has no narrator.');
   const byId = new Map();
@@ -194,4 +210,4 @@ async function directScript({ story, profile, theme, provider, ageBand, ...ctx }
   }
 }
 
-module.exports = { hash, filmError, manuscriptUnits, validateDirection, normalizeAssignment, isSpoken, directScript, directorJson };
+module.exports = { hash, filmError, manuscriptUnits, validateDirection, normalizeAssignment, isSpoken, maskQuotedSpeech, directScript, directorJson };

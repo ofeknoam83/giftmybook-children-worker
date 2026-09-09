@@ -22,7 +22,7 @@
 const { downloadBuffer, uploadBuffer, loadJson, saveJson } = require('../../gcsStorage');
 const { fnv1a } = require('../selection');
 const { VIDEO_VERSION } = require('../versions');
-const { clipSecondsFor } = require('./providers/models');
+const { clipSecondsFor, costModelFor } = require('./providers/models');
 const flags = require('../flags');
 
 /** Root of one book's gift-video namespace. */
@@ -103,6 +103,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * @param {boolean} [p.forceNew] ignore cached candidate bytes
  * @param {string} [p.clipHash] the segment's clip identity (repair passes reuse the base pass's)
  * @param {string} [p.canonicalKey] the segment's canonical clip key (repair passes reuse the base pass's)
+ * @param {'std'|'pro'|null} [p.quality] the vendor tier (gfs-2): rides the model input and the cost key (`model:std`)
  * @returns {Promise<{clipHash: string, canonicalKey: string, seconds: number, candidates: Array<{k: number, pass: number, storageKey: string, buffer: Buffer|null, status: string, error: string|null, providerJobId: string|null, cached: boolean, endFrameDropped?: boolean}>}>}
  */
 async function generateCandidates(p) {
@@ -140,6 +141,7 @@ async function generateCandidates(p) {
     const job = {
       brief: p.brief, startFrameUrl: p.startFrame.url, endFrameUrl: endFrame ? endFrame.url : null, referenceUrls: p.references || [],
       seconds, aspect: p.aspect, seed: Number.isInteger(p.seed) ? p.seed + k + pass * 10 : null,
+      ...(p.quality ? { quality: p.quality } : {}),
     };
     const opts = { elements: flags.videoElementsEnabled() };
     let input = provider.profile.input(job, opts);
@@ -203,7 +205,7 @@ async function generateCandidates(p) {
         } catch (err) {
           return { k, pass, storageKey, buffer: null, status: 'failed', error: `download failed: ${err.message}`, providerJobId: ref.jobId, cached: false, seconds, endFrameDropped };
         }
-        if (p.costTracker) p.costTracker.addVideoSeconds(provider.model, seconds);
+        if (p.costTracker) p.costTracker.addVideoSeconds(costModelFor(provider.model, p.quality), seconds);
         try {
           await uploadBuffer(buffer, storageKey, 'video/mp4');
         } catch (err) {
