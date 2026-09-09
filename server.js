@@ -1710,6 +1710,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     } catch (err) {
       bookContext.log('error', `Book generation failed: ${err.message}`);
       console.error(`[server] Book ${bookId} failed:`, err);
+      const preflight = err.preflight || err.details?.preflight || null;
       const failure = {
         success: false,
         bookId,
@@ -1734,6 +1735,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         ...(err.interiorPdfUrl ? { interiorPdfUrl: err.interiorPdfUrl } : {}),
         ...(err.pageCount ? { pageCount: err.pageCount } : {}),
         ...(err.previewImageUrls?.length ? { previewImageUrls: err.previewImageUrls } : {}),
+        ...(preflight ? { preflight } : {}),
         logs: bookContext.logs,
       };
       if (callbackUrl) await postWithRetry(callbackUrl, failure);

@@ -170,7 +170,7 @@ describe('preflightPictureBook', () => {
     expect(soft.warnings).toEqual([expect.stringMatching(/1 art page below 234 ppi effective \(lowest 59 ppi on page 7/)]);
     const hard = await preflightPictureBook({ interiorPdf, bindingType: '', pageReport, ppiFloor: 150 });
     expect(hard.ok).toBe(false);
-    expect(hard.errors).toEqual([expect.stringMatching(/1 art page below the 150 ppi floor \(lowest 59 ppi on page 7\)/)]);
+    expect(hard.errors).toEqual(expect.arrayContaining([expect.stringMatching(/1 art page below the 150 ppi floor \(lowest 59 ppi on page 7\)/), expect.stringMatching(/1 art page could not be measured against the 150 ppi floor \(page 9\)/)]));
     const sharp = await preflightPictureBook({ interiorPdf, bindingType: '', pageReport: pageReport.slice(0, 2), ppiFloor: 150 });
     expect(sharp.ok).toBe(true);
     expect(sharp.warnings).toEqual([]);
@@ -195,5 +195,15 @@ describe('preflightPictureBook', () => {
     const r = await preflightPictureBook({ bindingType: '' });
     expect(r.ok).toBe(false);
     expect(r.errors).toEqual(['nothing to preflight']);
+  });
+
+  test('cover-only preflight still enforces the product page-count rules', async () => {
+    const coverPdf = await makeCover(PB, 32);
+    const odd = await preflightPictureBook({ coverPdf, pageCount: 31, bindingType: '' });
+    expect(odd.ok).toBe(false);
+    expect(odd.errors).toEqual(expect.arrayContaining([expect.stringMatching(/cover page count 31 is odd/)]));
+    const huge = await preflightPictureBook({ coverPdf, pageCount: 5000, bindingType: '' });
+    expect(huge.ok).toBe(false);
+    expect(huge.errors).toEqual(expect.arrayContaining([expect.stringMatching(/outside perfect's 32-800 page range/)]));
   });
 });

@@ -51,7 +51,7 @@ describe('print tier flags', () => {
 });
 
 describe('render-key fold and legacy continuity', () => {
-  const { printSizeFoldFor, renderCachePath } = require('../../../services/catalogEngine/illustrator');
+  const { printSizeFoldFor, foldSafetyFoldFor, renderCachePath } = require('../../../services/catalogEngine/illustrator');
 
   test('the fold names the tier for text-free layouts and is empty for embedded (its own env fold) and when off', () => {
     expect(printSizeFoldFor({ textLayout: 'half', aspect: 'wide' })).toBe('-is4k');
@@ -67,6 +67,12 @@ describe('render-key fold and legacy continuity', () => {
     const folded = renderCachePath('book-1', `abc123-c9zq${fold}-bdeadbeef`, 4, 'square', 'none');
     expect(folded).toContain('-is2k-');
     expect(folded.replace(fold, '')).toBe(renderCachePath('book-1', legacyHash, 4, 'square', 'none'));
+  });
+
+  test('fold-safety-on renders get their own cache namespace while off keeps the pre-pq legacy key', () => {
+    expect(foldSafetyFoldFor()).toBe('-fs1');
+    process.env.CATALOG_FOLD_SAFETY = '0';
+    expect(foldSafetyFoldFor()).toBe('');
   });
 });
 

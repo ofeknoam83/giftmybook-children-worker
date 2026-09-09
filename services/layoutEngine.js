@@ -242,7 +242,7 @@ async function encodeFullBleedJpeg(buf, wp, hp, { text = false } = {}) {
   const lift = printShadowLift();
   if (lift > 0) {
     const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
-    pipeline = sharp(applyShadowLift(data, lift), { raw: { width: info.width, height: info.height, channels: info.channels } });
+    pipeline = sharp(applyShadowLift(data, lift, info.channels), { raw: { width: info.width, height: info.height, channels: info.channels } });
   }
   // pq-1 Phase 4.1: every page carries an sRGB profile, so Lulu's CMYK
   // conversion starts from a declared source instead of an assumption.
@@ -269,15 +269,21 @@ function printShadowLift() {
  * mid-grey (128), leaving highlights untouched. Pure — exported for tests.
  * @param {Buffer} data raw interleaved channels
  * @param {number} lift 0–1 fraction of full scale added at black
+ * @param {number} [channels=3] raw channel count; the alpha channel is preserved
  * @returns {Buffer} the same buffer
  */
-function applyShadowLift(data, lift) {
+function applyShadowLift(data, lift, channels = 3) {
   const lut = new Uint8Array(256);
   for (let v = 0; v < 256; v += 1) {
     const t = v < 128 ? (128 - v) / 128 : 0;
     lut[v] = Math.min(255, Math.round(v + lift * 255 * t));
   }
-  for (let i = 0; i < data.length; i += 1) data[i] = lut[data[i]];
+  const step = Number.isInteger(channels) && channels > 0 ? channels : 3;
+  const alphaIndex = step === 4 ? 3 : -1;
+  for (let i = 0; i < data.length; i += 1) {
+    if (alphaIndex >= 0 && i % step === alphaIndex) continue;
+    data[i] = lut[data[i]];
+  }
   return data;
 }
 

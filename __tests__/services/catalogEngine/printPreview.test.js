@@ -12,7 +12,7 @@ const { printFrame, printPreviewKey, buildPrintPreview, attachPrintPreviews } = 
 const { uploadBuffer } = require('../../../services/gcsStorage');
 
 describe('printFrame', () => {
-  test('a wide render is scaled to the two-page spread and centre-cropped: 4096×2304 keeps the middle 2340 rows', () => {
+  test('a wide render is scaled to the two-page spread and centre-cropped: 4096×2304 keeps the middle 2048 rows', () => {
     const f = printFrame('wide', { width: 4096, height: 2304 });
     expect(f.pages).toBe(2);
     expect(f.crop).toEqual({ left: 0, top: 128, width: 4096, height: 2048 });

@@ -226,15 +226,65 @@ async function extendWithOutpaint(trimFitBuffer, bands, opts = {}) {
       .png().toBuffer();
     // Guards: the painted band must be neither blank nor flat (a white or
     // single-colour band is the failure mode that reads worse than blur).
-    const bandRegion = bands.right
-      ? { left: plan.canvas.width - bands.right, top: 0, width: bands.right, height: plan.canvas.height }
-      : bands.left
-        ? { left: 0, top: 0, width: bands.left, height: plan.canvas.height }
-        : { left: 0, top: 0, width: plan.canvas.width, height: bands.top || bands.bottom };
-    const stats = await sharp(canvasOut).extract(bandRegion).stats();
-    const stdev = Math.max(...stats.channels.map(c => c.stdev));
-    const mean = stats.channels.reduce((a, c) => a + c.mean, 0) / stats.channels.length;
-    if (stdev < 3 || mean > 250 || mean < 5) throw new Error(`painted band is flat or blank (stdev ${stdev.toFixed(1)}, mean ${mean.toFixed(0)})`);
+    const bandRegion = (side) => {
+      if (side === 'top' && bands.top) {
+        return {
+          left: Math.min(bands.left || 0, plan.canvas.width - 1),
+          top: 0,
+          width: Math.max(1, plan.canvas.width - (bands.left || 0) - (bands.right || 0)),
+          height: bands.top,
+        };
+      }
+      if (side === 'bottom' && bands.bottom) {
+        return {
+          left: Math.min(bands.left || 0, plan.canvas.width - 1),
+          top: plan.canvas.height - bands.bottom,
+          width: Math.max(1, plan.canvas.width - (bands.left || 0) - (bands.right || 0)),
+          height: bands.bottom,
+        };
+      }
+      if (side === 'left' && bands.left) {
+        return {
+          left: 0,
+          top: Math.min(bands.top || 0, plan.canvas.height - 1),
+          width: bands.left,
+          height: Math.max(1, plan.canvas.height - (bands.top || 0) - (bands.bottom || 0)),
+        };
+      }
+      if (side === 'right' && bands.right) {
+        return {
+          left: plan.canvas.width - bands.right,
+          top: Math.min(bands.top || 0, plan.canvas.height - 1),
+          width: bands.right,
+          height: Math.max(1, plan.canvas.height - (bands.top || 0) - (bands.bottom || 0)),
+        };
+      }
+      return null;
+    };
+    const bandRegions = ['top', 'bottom', 'left', 'right']
+      .map(side => (bandRegion(side) ? [side, bandRegion(side)] : null))
+      .filter(Boolean);
+    for (const [side, region] of bandRegions) {
+      const { data, info } = await sharp(canvasOut)
+        .extract(region)
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const pixels = Math.max(1, info.width * info.height);
+      const sums = Array(info.channels).fill(0);
+      const squares = Array(info.channels).fill(0);
+      for (let i = 0; i < data.length; i += 1) {
+        const c = i % info.channels;
+        sums[c] += data[i];
+        squares[c] += data[i] * data[i];
+      }
+      const means = sums.map(sum => sum / pixels);
+      const stdev = Math.max(...means.map((channelMean, i) => Math.sqrt(Math.max(0, squares[i] / pixels - channelMean * channelMean))));
+      const mean = means.reduce((a, value) => a + value, 0) / means.length;
+      if (stdev < 3 || mean > 250 || mean < 5) {
+        throw new Error(`${side} painted band is flat or blank (stdev ${stdev.toFixed(1)}, mean ${mean.toFixed(0)})`);
+      }
+    }
     console.log(`[CoverGenerator] ${opts.label || 'cover'} wrap band outpainted (${size})`);
     return { buffer: canvasOut, method: 'outpaint', note: null };
   } catch (err) {
@@ -347,6 +397,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
 
   const styleConfig = ART_STYLE_CONFIG.pixar_premium || ART_STYLE_CONFIG.cinematic_3d;
   const styleBlock = renderStyleBlock(styleConfig);
+  const coverImageSize = opts.coverImageSize || require('./catalogEngine/flags').coverImageSize();
 
   let jpegRef;
   try {
@@ -398,6 +449,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
           generationConfig: {
             responseModalities: ['TEXT', 'IMAGE'],
             maxOutputTokens: 8192,
+            ...(coverImageSize ? { imageConfig: { imageSize: coverImageSize } } : {}),
           },
         }),
       },
@@ -1302,6 +1354,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     frontCoverBuffer = opts.reuseApprovedArtworkOnly ? raw : await harmonizeChosenCoverToInteriorStyle(raw, {
       bookFormat,
       costTracker: opts.costTracker,
+      coverImageSize: require('./catalogEngine/flags').coverImageSize(),
       skipCoverStyleHarmonize,
     });
   } else {

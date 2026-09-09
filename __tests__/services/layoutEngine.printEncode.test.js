@@ -9,7 +9,7 @@
  */
 
 const sharp = require('sharp');
-const { splitSpreadImage, encodeFullBleedJpeg, PAGE_JPEG, TEXT_PAGE_JPEG } = require('../../services/layoutEngine');
+const { splitSpreadImage, encodeFullBleedJpeg, PAGE_JPEG, TEXT_PAGE_JPEG, applyShadowLift } = require('../../services/layoutEngine');
 
 // A small 2" trim keeps the 300 DPI canvas quick (wp = 600 px).
 const BLEED = 9;
@@ -45,4 +45,13 @@ test('a text-bearing page encodes once at quality 95 with 4:4:4 chroma; text-fre
   expect(plain.chromaSubsampling).toBe('4:2:0');
   expect(TEXT_PAGE_JPEG).toEqual({ quality: 95, chromaSubsampling: '4:4:4' });
   expect(PAGE_JPEG).toEqual({ quality: 93, chromaSubsampling: '4:2:0' });
+});
+
+test('shadow lift leaves the alpha channel unchanged on RGBA inputs', () => {
+  const data = Buffer.from([0, 32, 64, 17, 128, 160, 192, 34]);
+  const out = applyShadowLift(Buffer.from(data), 0.1, 4);
+  expect(out[3]).toBe(17);
+  expect(out[7]).toBe(34);
+  expect(out[0]).toBeGreaterThan(data[0]);
+  expect(out[1]).toBeGreaterThan(data[1]);
 });

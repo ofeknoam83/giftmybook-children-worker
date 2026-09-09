@@ -123,6 +123,16 @@ function printSizeFoldFor({ textLayout, aspect }) {
   return `-is${flags.printImageSize(aspect).toLowerCase()}`;
 }
 
+/**
+ * pq-1 Phase 2 — the fold/crop-band prompt block changes the render pixels.
+ * Enabled renders get their own namespace; disabled keeps the pre-pq legacy
+ * key byte-identical because the prompt falls back to the old wording.
+ * @returns {string}
+ */
+function foldSafetyFoldFor() {
+  return flags.foldSafetyEnabled() ? '-fs1' : '';
+}
+
 function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') {
   const styleKey = tuningTag && tuningTag !== 'none' ? `${STYLE_VERSION}+${tuningTag}` : STYLE_VERSION;
   return `children-jobs/${bookId}/ce-renders/${styleKey}/${storyHash}/spread-${spread}.${aspect}.png`;
@@ -1440,6 +1450,11 @@ async function renderStorySpreads(params) {
   if (textLayout === 'embedded' && flags.embeddedImageSize()) {
     keyHash = `${keyHash}-is${flags.embeddedImageSize().toLowerCase()}`;
   }
+  // pq-1: the fold/crop-band prompt lines change the render itself. Enabled
+  // renders get a dedicated fold; disabled keeps the pre-pq legacy key so
+  // an older book still replays its paid-for pixels instead of re-rendering.
+  const foldSafetyFold = foldSafetyFoldFor();
+  if (foldSafetyFold) keyHash = `${keyHash}${foldSafetyFold}`;
   // pq-1: the text-free layouts' PRINT tier changes every pixel — folded
   // whenever it is on, so a 1K render never replays into a book that asked
   // for 4K. A book rendered BEFORE the tier existed keeps its pixels at the
@@ -1573,9 +1588,12 @@ async function renderStorySpreads(params) {
       ? renderCachePath(bookId, storyHash, spread, cacheAspect, tuningTag)
       : retryUnresolved && !reviewedOnly ? renderCachePath(bookId, anchorOff ? `${storyHash}-ta0` : typographyAnchor && spread !== anchorSpreadNo ? `${storyHash}-ta${typographyAnchor.hash.slice(0, 8)}` : storyHash, spread, cacheAspect, tuningTag) : null;
     const keys = [typographyLegacy];
-    if (printSizeFold) {
-      keys.push(canonical.replace(printSizeFold, ''));
-      if (typographyLegacy) keys.push(typographyLegacy.replace(printSizeFold, ''));
+    if (printSizeFold || foldSafetyFold) {
+      const toLegacyKey = key => key
+        .replace(printSizeFold, '')
+        .replace(foldSafetyFold, '');
+      keys.push(toLegacyKey(canonical));
+      if (typographyLegacy) keys.push(toLegacyKey(typographyLegacy));
     }
     const unique = [...new Set(keys.filter(k => k && k !== canonical))];
     return unique.length === 0 ? null : unique.length === 1 ? unique[0] : unique;
@@ -2102,4 +2120,4 @@ async function illustrateStory(params) {
   };
 }
 
-module.exports = { illustrateStory, renderStorySpreads, renderCachePath, printSizeFoldFor, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, runInkConsistencyGate, renderTextColumnHint, verifyCriticalObjectSet, recoverCriticalObjectSet };
+module.exports = { illustrateStory, renderStorySpreads, renderCachePath, printSizeFoldFor, foldSafetyFoldFor, storyFingerprint, planWorldRepairs, needsRepair, runContactSheetGate, runWorldConsistencyGate, runInkConsistencyGate, renderTextColumnHint, verifyCriticalObjectSet, recoverCriticalObjectSet };

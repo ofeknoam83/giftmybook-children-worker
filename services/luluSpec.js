@@ -302,6 +302,13 @@ async function preflightPictureBook({ interiorPdf, coverPdf, bindingType, pageCo
     interior = { pages, sizePt: sizes[0] || [], expectedPt: [widthPt, heightPt], fonts: fontReport(doc, 'interior') };
   }
 
+  if (!interiorPdf && coverPdf && pages != null) {
+    if (pages < product.minPages || pages > product.maxPages) {
+      errors.push(`cover page count ${pages} is outside ${product.binding}'s ${product.minPages}-${product.maxPages} page range`);
+    }
+    if (pages % 2 !== 0) errors.push(`cover page count ${pages} is odd (every leaf prints two pages)`);
+  }
+
   if (coverPdf) {
     const doc = await PDFDocument.load(coverPdf, { updateMetadata: false });
     const sizes = doc.getPages().map(pg => [pg.getWidth(), pg.getHeight()]);
@@ -329,6 +336,10 @@ async function preflightPictureBook({ interiorPdf, coverPdf, bindingType, pageCo
     const hot = pagesReport.filter(r => r.saturatedShare != null && r.saturatedShare > GUIDELINES.gamutWarnShare);
     if (hot.length) {
       warnings.push(`${hot.length} art page${hot.length > 1 ? 's' : ''} very saturated (${Math.round(Math.max(...hot.map(r => r.saturatedShare)) * 100)}% of pixels above 0.9 saturation on page ${hot.sort((a, b) => b.saturatedShare - a.saturatedShare)[0].page}) — expect the press to print it duller than the screen`);
+    }
+    const unmeasured = ppiFloor > 0 ? pagesReport.filter(r => r.ppi == null) : [];
+    if (unmeasured.length) {
+      errors.push(`${unmeasured.length} art page${unmeasured.length > 1 ? 's' : ''} could not be measured against the ${ppiFloor} ppi floor (page ${unmeasured[0].page})`);
     }
     const measured = pagesReport.filter(r => r.ppi != null);
     if (measured.length) {

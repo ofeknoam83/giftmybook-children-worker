@@ -764,6 +764,40 @@ describe('POST /generate-book render_failed diagnostics on the failure callback'
   });
 });
 
+describe('POST /generate-book preflight diagnostics on the failure callback', () => {
+  const { runBookPipeline } = require('../services/catalogEngine/pipeline');
+  const profile = {
+    name: 'Emma', age: 2,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+
+  test('err.details.preflight is serialized for the caller', async () => {
+    const realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true });
+    runBookPipeline.mockRejectedValueOnce(Object.assign(
+      new Error('Interior PDF failed the Lulu preflight'),
+      {
+        failureCode: 'interior_pdf_failed',
+        details: { preflight: { ok: false, errors: ['interior page report covers 1/24 expected art pages'] } },
+      },
+    ));
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        bookId: 'gb-preflight-failed', profile, bookDefinitionId: 'farm_2_3_hello_farm',
+        callbackUrl: 'https://app.example/api/children/callback',
+      });
+    expect(res.status).toBe(202);
+    await new Promise(r => setTimeout(r, 25));
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload.success).toBe(false);
+    expect(payload.failureCode).toBe('interior_pdf_failed');
+    expect(payload.preflight).toEqual({ ok: false, errors: ['interior page report covers 1/24 expected art pages'] });
+    global.fetch = realFetch;
+  });
+});
+
 describe('POST /generate-book illustrationTuning passthrough', () => {
   const { runBookPipeline } = require('../services/catalogEngine/pipeline');
   const profile = {

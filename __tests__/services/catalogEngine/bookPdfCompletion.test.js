@@ -33,12 +33,29 @@ const wrap = coverGeometry(PRODUCTS.CHILDREN_PICTURE_BOOK, 36);
 beforeEach(async () => {
   jest.clearAllMocks();
   interior = await pdf(36); cover = await pdf(1, [wrap.widthPt, wrap.heightPt]);
-  assemblePdf.mockResolvedValue(interior);
+  assemblePdf.mockImplementation(async (entries, _format, opts = {}) => {
+    let page = 4;
+    for (const entry of entries || []) {
+      if (entry?.type !== 'spread') continue;
+      opts.pageReport?.push({ page, spread: entry.spread, role: 'spread-left', ppi: 234 });
+      opts.pageReport?.push({ page: page + 1, spread: entry.spread, role: 'spread-right', ppi: 234 });
+      page += 2;
+    }
+    return interior;
+  });
   generateCover.mockReset().mockResolvedValue({ coverPdfBuffer: cover });
   uploadBuffer.mockReset().mockResolvedValue(undefined);
   generateUpsellCovers.mockReset().mockResolvedValue([]);
   illustrateStory.mockResolvedValue({
-    entries: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, type: 'spread', captionText: 'Story.', spreadIllustrationStorageKey: `saved/spread-${i + 1}.png` })),
+    entries: Array.from({ length: 12 }, (_, i) => ({
+      spread: i + 1,
+      type: 'spread',
+      captionText: 'Story.',
+      textLayout: 'embedded',
+      illustrationAspect: 'wide',
+      spreadIllustrationBuffer: Buffer.from(`img-${i + 1}`),
+      spreadIllustrationStorageKey: `saved/spread-${i + 1}.png`,
+    })),
     qaAdvisories: [{ stage: 'spreadQa', spread: 7, note: 'Outfit warning retained' }], warnings: [],
     previewImageUrls: ['https://storage.example/art.png'], illustrationTuningUsed: 'none', bible: null, bookBible: { bibleHash: 'saved' },
   });
@@ -98,6 +115,22 @@ test.each([['front-only', [630, 630]], ['wrong-spine', [1260, 630]]])('a %s cove
   });
   expect(generateCover).toHaveBeenCalledTimes(1);
   expect(uploadBuffer).not.toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/cover\.pdf$/), expect.anything());
+});
+
+test('a missing page-report row fails the interior before upload and keeps the preflight-shaped verdict', async () => {
+  assemblePdf.mockImplementation(async (_entries, _format, opts) => {
+    opts.pageReport.push({ page: 4, spread: 1, role: 'spread-left', ppi: 234 });
+    return interior;
+  });
+  await expect(runBookPipeline(input)).rejects.toMatchObject({
+    failureCode: 'interior_pdf_failed',
+    preflight: expect.objectContaining({
+      ok: false,
+      errors: [expect.stringContaining('interior page report covers 1/24 expected art pages')],
+      pageCount: 36,
+    }),
+  });
+  expect(uploadBuffer).not.toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/interior\.pdf$/), expect.anything());
 });
 
 test('a PDF-stage retry requests the exact saved artwork', async () => {

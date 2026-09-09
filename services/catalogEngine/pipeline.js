@@ -29,7 +29,33 @@ class PipelineError extends Error {
     this.name = 'PipelineError';
     this.failureCode = failureCode || null;
     this.details = details || null;
+    if (details && Object.prototype.hasOwnProperty.call(details, 'preflight')) {
+      this.preflight = details.preflight;
+    }
   }
+}
+
+/**
+ * Count the printed art pages assemblePdf is expected to report in `pageReport`.
+ * A missing row means the layout added the PDF page but failed to embed its art.
+ * @param {Array} entries
+ * @returns {number}
+ */
+function expectedArtPageReportCount(entries) {
+  return (Array.isArray(entries) ? entries : []).reduce((total, entry) => {
+    if (!entry || entry.type !== 'spread') return total;
+    if (entry.textLayout === 'embedded' && entry.captionText !== undefined) {
+      return total + (entry.spreadIllustrationBuffer ? 2 : 0);
+    }
+    if (entry.textLayout === 'half' && entry.captionText !== undefined) {
+      return total + (entry.spreadIllustrationBuffer ? 1 : 0);
+    }
+    if (entry.illustrationAspect === 'square') {
+      return total + (entry.spreadIllustrationBuffer ? 1 : 0);
+    }
+    if (entry.spreadIllustrationBuffer) return total + 2;
+    return total + (entry.leftIllustrationBuffer ? 1 : 0) + (entry.rightIllustrationBuffer ? 1 : 0);
+  }, 0);
 }
 
 /**
@@ -351,6 +377,37 @@ async function runBookPipeline(params) {
   const pageCount = (await PDFDocument.load(interiorPdf)).getPageCount();
   if (pageCount < 32 || pageCount % 2 !== 0) {
     throw new PipelineError('Interior PDF has an invalid page count', 'interior_pdf_failed');
+  }
+  const expectedArtPages = expectedArtPageReportCount(art.entries);
+  const reportedArtPages = new Set(
+    (Array.isArray(pageReport) ? pageReport : [])
+      .map(r => (Number.isInteger(r?.page) ? r.page : null))
+      .filter(page => page != null),
+  ).size;
+  if (reportedArtPages !== expectedArtPages) {
+    const coverageError = `interior page report covers ${reportedArtPages}/${expectedArtPages} expected art pages`;
+    throw new PipelineError(
+      `Interior PDF failed assembly validation: ${coverageError}`,
+      'interior_pdf_failed',
+      {
+        preflight: {
+          ok: false,
+          errors: [coverageError],
+          warnings: [],
+          notes: [],
+          pageCount,
+          pages: pageReport.map(r => ({
+            page: r.page,
+            spread: r.spread ?? null,
+            role: r.role || null,
+            ppi: Number.isFinite(r.ppi) ? r.ppi : null,
+            saturatedShare: Number.isFinite(r.saturatedShare) ? r.saturatedShare : null,
+          })),
+          minPpi: null,
+          coverPpi: null,
+        },
+      },
+    );
   }
   // Lulu preflight of the interior (2026-09-08): the page count against the
   // product's range, EVERY page at trim + bleed, fonts — the checks Lulu's
