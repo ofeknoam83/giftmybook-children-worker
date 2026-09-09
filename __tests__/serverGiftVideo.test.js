@@ -282,7 +282,7 @@ describe('full-story film API', () => {
     generateFullStoryFilm.mockResolvedValue({ ...readyResult(), mode: 'full-story', model: 'kwaivgi/kling-v3-omni-video', language: 'en', cast: [{ name: 'Emma', role: 'child' }] });
     const res = await post({ ...validBody(), story: full, renders: full.response.spreads.map(s => ({ spread: s.spread, storageKey: key(s.spread) })), mode: 'full-story', voiceProvider: 'elevenlabs', apiKeys: { ELEVENLABS_API_KEY: 'injected-voice-key' } });
     expect(res.status).toBe(202);
-    expect(res.body).toMatchObject({ mode: 'full-story', videoVersion: 'gfs-1', model: 'kwaivgi/kling-v3-omni-video' });
+    expect(res.body).toMatchObject({ mode: 'full-story', videoVersion: 'gfs-2', quality: 'std', model: 'kwaivgi/kling-v3-omni-video' });
     await settle();
     expect(generateFullStoryFilm).toHaveBeenCalledWith(expect.objectContaining({ music: 'story-score', language: 'en', injectedKeys: expect.objectContaining({ apiKeys: { ELEVENLABS_API_KEY: 'injected-voice-key' } }) }));
   });

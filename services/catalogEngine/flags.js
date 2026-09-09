@@ -212,6 +212,29 @@
  *                                   the film `video_unresolved`.
  *  - CATALOG_VIDEO_MUSIC=name      — (gv-1) music bed under data/video/music/
  *                                   (default `none`: a silent audio track).
+ *  - CATALOG_FILM_VIDEO_QUALITY=std|pro — (gfs-2, 2026-09-09) the Kling tier
+ *                                   every full-story shot is bought at
+ *                                   (default `std`, 720p — the vendor bills
+ *                                   about half the `pro` 1080p rate for the
+ *                                   same seconds; the film is upscaled to
+ *                                   1080p on assembly). A request's
+ *                                   `quality` overrides it per film; the
+ *                                   tier folds into every shot key, so std
+ *                                   and pro motion never replay each other.
+ *  - CATALOG_FILM_VISUAL_QA=0      — (gfs-2) stop judging every animated shot
+ *                                   for talking mouths under narration (and
+ *                                   the wrong speaker / other mouths moving
+ *                                   on a dialogue shot) before it is
+ *                                   accepted. ON: a flagged shot spends a
+ *                                   bounded repair render with the defect
+ *                                   fed back; a judge outage ships the shot
+ *                                   with a `visualQa` advisory, never a
+ *                                   silent pass.
+ *  - CATALOG_FILM_SFX=0            — (gfs-2) no sound cues and no ambience
+ *                                   bed on the film's soundtrack (the score
+ *                                   still follows `music`). The audiobook's
+ *                                   CATALOG_AUDIO_SFX / _AMBIENCE / _MUSIC
+ *                                   switches govern the shared assets too.
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -327,6 +350,13 @@ module.exports = {
   videoTextGateRetries: () => envInt('CATALOG_VIDEO_TEXT_GATE_RETRIES', 2, 0, 6),
   videoMusic: () => String(process.env.CATALOG_VIDEO_MUSIC || 'none').trim() || 'none',
   filmDirectorRepairs: () => envInt('CATALOG_FILM_DIRECTOR_REPAIRS', 1, 0, 3),
+  // gfs-2 — the full-story film's cost tier, visual gate and sound design
+  filmVideoQuality: () => {
+    const v = String(process.env.CATALOG_FILM_VIDEO_QUALITY || '').trim().toLowerCase();
+    return v === 'pro' || v === 'std' ? v : 'std';
+  },
+  filmVisualQaEnabled: () => !envOff('CATALOG_FILM_VISUAL_QA'),
+  filmSfxEnabled: () => !envOff('CATALOG_FILM_SFX'),
   // ab-1 — the audiobook (docs/AUDIOBOOK_V2_PLAN.md §5.3). Everything ON by
   // default except the opt-ins; every env is a kill-switch or a bounded knob.
   audiobookEnabled: () => !envOff('CATALOG_AUDIOBOOK'),

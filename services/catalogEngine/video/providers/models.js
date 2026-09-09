@@ -93,14 +93,19 @@ const MODELS = {
     supportsEndFrame: true,
     imageLimit: KLING_IMAGE_LIMIT,
     referenceMention: i => `<<<image_${i}>>>`,
-    /** Official Replicate Omni schema, verified 2026-09-07. One sheet per reference. */
+    /**
+     * Official Replicate Omni schema, verified 2026-09-07. One sheet per
+     * reference. `mode` is the Kling tier — `pro` (1080p) unless the job
+     * names `quality: 'std'` (720p, about half the per-second price; the
+     * full-story film's default since gfs-2).
+     */
     input(job) {
       const images = job.referenceUrls.map(r => (r.urls || [r.url])[0]);
       assertImageCount(this, 1 + (job.endFrameUrl ? 1 : 0), images.length, 'reference images');
       const prompt = renderPromptForModel(job.brief, this.referenceMention);
       if (prompt.length > 2500) throw new Error('Kling Omni prompt exceeds 2500 characters');
       return { prompt, start_image: job.startFrameUrl, ...(job.endFrameUrl ? { end_image: job.endFrameUrl } : {}),
-        reference_images: images, duration: job.seconds, aspect_ratio: job.aspect, mode: 'pro', generate_audio: false };
+        reference_images: images, duration: job.seconds, aspect_ratio: job.aspect, mode: job.quality === 'std' ? 'std' : 'pro', generate_audio: false };
     },
   },
   'kwaivgi/kling-v3-video': {
@@ -145,6 +150,17 @@ const MODELS = {
 };
 
 /**
+ * The cost-table key of a purchase: the bare model id is its default (pro)
+ * tier; a cheaper tier is billed under `model:tier` (costTracker RATES).
+ * @param {string} model
+ * @param {string|null} [quality]
+ * @returns {string}
+ */
+function costModelFor(model, quality) {
+  return quality && quality !== 'pro' ? `${model}:${quality}` : model;
+}
+
+/**
  * Resolve a model profile, applying the env input overrides.
  * @param {string} modelId
  * @returns {object|null}
@@ -179,4 +195,4 @@ function modelProfile(modelId) {
   };
 }
 
-module.exports = { MODELS, modelProfile, clipSecondsFor, imageBudget, imageLimitFor, KLING_DURATIONS, KLING_IMAGE_LIMIT };
+module.exports = { MODELS, modelProfile, clipSecondsFor, costModelFor, imageBudget, imageLimitFor, KLING_DURATIONS, KLING_IMAGE_LIMIT };

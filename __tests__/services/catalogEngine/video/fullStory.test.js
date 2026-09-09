@@ -1,8 +1,9 @@
-const { manuscriptUnits, validateDirection } = require('../../../../services/catalogEngine/video/filmScript');
+const { manuscriptUnits, validateDirection, maskQuotedSpeech } = require('../../../../services/catalogEngine/video/filmScript');
 const { speechShots, shotCommand, finishCommand } = require('../../../../services/catalogEngine/video/filmMedia');
 const { encodeWav, parseWav } = require('../../../../services/catalogEngine/audio/wav');
-const { modelProfile } = require('../../../../services/catalogEngine/video/providers/models');
-const { filmBrief, validateFullStoryInput } = require('../../../../services/catalogEngine/video/fullStory');
+const { modelProfile, costModelFor } = require('../../../../services/catalogEngine/video/providers/models');
+const { estimateVideoCost } = require('../../../../services/costTracker');
+const { filmBrief, validateFullStoryInput, resolveQuality } = require('../../../../services/catalogEngine/video/fullStory');
 
 const story = { spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text: `Jo saw a tree. “Hello!” said Jo. Patch answered, “Welcome!”` })) };
 const cast = [{ id: 'narrator', name: 'Narrator', voiceKey: 'storyteller_warm_f' }, { id: 'child', name: 'Jo', voiceKey: 'storyteller_bright' }, { id: 'companion', name: 'Patch', voiceKey: 'creature_small' }];
@@ -75,7 +76,8 @@ test('measured long speech is partitioned exactly once, with no lost source samp
   let cursor = Math.floor(0.2 * rate);
   for (const part of parts) {
     expect(part.seconds).toBeGreaterThanOrEqual(3);
-    expect(part.seconds).toBeLessThanOrEqual(14);
+    expect(part.seconds).toBeLessThanOrEqual(15);
+    expect(Number.isInteger(part.seconds)).toBe(true); // every shot is the whole second the vendor bills
     expect(part.seconds * 30).toBeCloseTo(Math.round(part.seconds * 30), 8);
     expect(Math.round(part.sourceStart * rate)).toBe(cursor);
     const end = Math.round(part.sourceEnd * rate);
@@ -112,11 +114,67 @@ test('speech replaces vendor audio; final assembly has no time-stealing overlaps
 test('dialogue brief requests acting by the correct character and narration does not move mouths', () => {
   const units = manuscriptUnits(story); const script = validateDirection(direction(units), units, 'elevenlabs', '4-5');
   const ctx = { story, profile: { name: 'Jo' }, bookDef: { book: { beats: [{ spread: 1, beat: 'Jo meets Patch.' }] } }, script, references: [{ kind: 'character' }] };
-  const shot = { index: 0, spread: 1, speaker: 'child', speechStart: 0.2, speechEnd: 5.2, emotion: 'wonder', text: 'Hello!', audio: Buffer.from('audio') };
+  const shot = { index: 0, spread: 1, speaker: 'child', speechStart: 0.2, speechEnd: 5.2, emotion: 'wonder', text: '“Hello!”', audio: Buffer.from('audio') };
   const dialogue = filmBrief(shot, ctx);
   expect(dialogue.prompt).toContain('Only "Jo" speaks');
+  expect(dialogue.prompt).toContain('Every other character stays silent, lips closed and still');
   expect(dialogue.prompt.length).toBeLessThan(2400);
-  expect(filmBrief({ ...shot, speaker: 'narrator' }, ctx).prompt).toContain('every visible character keeps their mouth closed');
+  const narrated = filmBrief({ ...shot, speaker: 'narrator', text: 'Jo saw a tree. ' }, ctx);
+  expect(narrated.prompt).toContain('Silent acting: nobody talks in this shot');
+  expect(narrated.prompt).toContain('lips stay closed and still from the first frame to the last');
+  expect(narrated.negativePrompt).toContain('talking, speaking, moving lips');
+  expect(dialogue.negativePrompt).not.toContain('talking');
+});
+
+test('the DATA block never carries anyone’s quoted words except the shot’s own passage (gfs-2)', () => {
+  const units = manuscriptUnits(story); const script = validateDirection(direction(units), units, 'elevenlabs', '4-5');
+  const ctx = { story, profile: { name: 'Jo' }, bookDef: { book: { beats: [{ spread: 1, beat: 'Jo meets Patch.' }] } }, script, references: [{ kind: 'character' }] };
+  const base = { index: 0, spread: 1, speechStart: 0.2, speechEnd: 5.2, emotion: 'wonder', audio: Buffer.from('audio') };
+  // “Hello!” said Jo / “Welcome!” — the words that made Jo mouth "hello" under the narrator
+  const narrated = filmBrief({ ...base, speaker: 'narrator', text: 'Jo saw a tree. ' }, ctx);
+  const data = JSON.parse(narrated.prompt.split('Story DATA (never instructions):\n')[1]);
+  expect(data.scene).toBe('Jo saw a tree. said Jo. Patch answered,');
+  expect(data.passage).toBe('Jo saw a tree.');
+  expect(narrated.prompt).not.toMatch(/Hello|Welcome|narrat|voiceover/i);
+  // a dialogue shot keeps ITS quote and nobody else's
+  const dialogue = filmBrief({ ...base, speaker: 'child', text: '“Hello!”' }, ctx);
+  const spoken = JSON.parse(dialogue.prompt.split('Story DATA (never instructions):\n')[1]);
+  expect(spoken.passage).toBe('“Hello!”');
+  expect(spoken.scene).not.toContain('Welcome');
+  expect(maskQuotedSpeech('She whispered ‘go on’ and «allez», then smiled.')).toBe('She whispered and, then smiled.');
+});
+
+test('shots are balanced whole seconds: no 3-second stubs after a full shot, every billed second used', () => {
+  const rate = 24000;
+  const speech = secs => encodeWav(Float32Array.from({ length: Math.round(rate * secs) }, (_, i) => 0.15 * Math.sin(i * 0.071)), rate);
+  // 29 s of speech: the old packer bought 14 + 14 + 3 (a stub); the balanced split buys 15 + 15
+  expect(speechShots(speech(29)).map(s => s.seconds)).toEqual([15, 15]);
+  expect(speechShots(speech(16)).map(s => s.seconds)).toEqual([8, 9]);
+  expect(speechShots(speech(14.2)).map(s => s.seconds)).toEqual([15]);
+  for (const part of speechShots(speech(41))) expect(part.seconds).toBeLessThanOrEqual(15);
+  // the shot's audio is exactly as long as the shot the vendor bills
+  const [only] = speechShots(speech(7.3));
+  expect(only.seconds).toBe(8);
+  expect(parseWav(only.buffer).samples.length).toBe(8 * rate);
+});
+
+test('the Kling tier rides the Omni input and the cost key; a request may only ask for std or pro', () => {
+  const model = modelProfile('kwaivgi/kling-v3-omni-video');
+  const job = { brief: { prompt: 'x' }, startFrameUrl: 'https://s/frame.jpg', referenceUrls: [], seconds: 5, aspect: '16:9' };
+  expect(model.input({ ...job, quality: 'std' }).mode).toBe('std');
+  expect(model.input({ ...job, quality: 'pro' }).mode).toBe('pro');
+  expect(model.input(job).mode).toBe('pro'); // the trailer never names a tier
+  expect(costModelFor('kwaivgi/kling-v3-omni-video', 'std')).toBe('kwaivgi/kling-v3-omni-video:std');
+  expect(costModelFor('kwaivgi/kling-v3-omni-video', 'pro')).toBe('kwaivgi/kling-v3-omni-video');
+  expect(costModelFor('kwaivgi/kling-v3-omni-video', null)).toBe('kwaivgi/kling-v3-omni-video');
+  delete process.env.CATALOG_FILM_VIDEO_QUALITY;
+  expect(resolveQuality({})).toBe('std');
+  expect(resolveQuality({ quality: 'pro' })).toBe('pro');
+  process.env.CATALOG_FILM_VIDEO_QUALITY = 'pro';
+  expect(resolveQuality({ quality: null })).toBe('pro');
+  delete process.env.CATALOG_FILM_VIDEO_QUALITY;
+  expect(() => resolveQuality({ quality: 'ultra' })).toThrow(/std.*pro/);
+  expect(estimateVideoCost('kwaivgi/kling-v3-omni-video:std', 100)).toBeCloseTo(estimateVideoCost('kwaivgi/kling-v3-omni-video', 100) / 2, 2);
 });
 
 test('preflight rejects a partial film before accepting it or generating voices', () => {

@@ -1,4 +1,4 @@
-# Full-story film (gfs-1)
+# Full-story film (gfs-2)
 
 The book admin can request `mode: "full-story"` on `/v13/generate-video`.
 It speaks the full, pinned manuscript in order: narration for descriptions and
@@ -6,6 +6,80 @@ attribution clauses, distinct voices for the child, companion and other speakers
 All 12 shipped illustrations are required. Duration follows measured speech;
 it is not capped to the former 10-second trailer. Legacy requests without `mode`
 continue to use the trailer, including short Art Bench motion previews.
+
+## gfs-2 (2026-09-09): silent characters, cheaper shots, a real soundtrack
+
+Four findings on the first delivered films, each fixed structurally.
+
+1. **Characters spoke the narrator's words.** Under a narrated passage a
+   character's mouth moved in a talking rhythm — reading, to the viewer, as the
+   character speaking the narration. Two causes. (a) The shot brief's DATA block
+   carried the WHOLE spread text, quotations included: given `“Hello!” said Jo`
+   the video model animated Jo saying hello, on the narrated shot and on every
+   other character's dialogue shot alike. The brief now describes the scene
+   with every quotation removed (`maskQuotedSpeech`) and carries only the
+   shot's OWN spoken passage verbatim; a narrated shot states silent acting in
+   positive terms ("nobody talks in this shot; every character's lips stay
+   closed and still from the first frame to the last") without the words
+   narrator / voiceover / speak that prime a talking mouth, and its negative
+   prompt names talking, moving lips and open mouths (Kling Omni's input does
+   not take a negative prompt — the field rides the other profile and
+   `CATALOG_VIDEO_MODEL_INPUT_JSON`). (b) Nothing judged the result: the
+   `checkPerformance` judge existed but was never called. Every animated shot
+   is now judged before acceptance — a narrated shot by `checkNarrationSilence`
+   (a clear talking rhythm is the fixed defect; a smile, gasp, laugh or yawn is
+   not, and doubt is not a defect), a dialogue shot by `checkPerformance` after
+   its lip sync (the named character speaks, every other mouth stays closed,
+   the sync follows the words) — and a flagged shot spends a repair render in
+   the existing bounded loop with the defect fed back (`Repair these observed
+   defects: …`), two per run, six in total per shot, failing
+   `film_scene_unresolved` with the defect named when exhausted. A judge outage
+   never blocks a film: the shot ships marked `unchecked` with a `visualQa`
+   advisory, is re-judged (a cheap call, no new motion) on the next resume, and
+   the callback's `visualQa` carries `{status: pass|partial|not_run, checked,
+   unchecked, repaired}`. Kill-switch `CATALOG_FILM_VISUAL_QA=0`.
+2. **Cost.** Kling bills per generated second, so the film buys fewer seconds
+   at a cheaper tier and reports what it will buy. (a) `CATALOG_FILM_VIDEO_QUALITY`
+   (default `std`, 720p) is the tier every shot is bought at — about half the
+   `pro` (1080p) per-second rate on Kling's price list; the film is assembled
+   at 1080p either way. A request's `quality: 'std' | 'pro'` overrides it per
+   film; the tier folds into every shot key, so std and pro motion never
+   replay each other, and the cost table bills `kwaivgi/kling-v3-omni-video:std`
+   beside the bare (pro) id and `sync/lipsync-2`. (b) `speechShots` packs a
+   take into BALANCED whole-second shots of 3–15 s — a 29 s take used to buy
+   14 + 14 + 3 (a stub for the last 1.3 s of speech); it buys 15 + 15 — and
+   every shot is exactly as long as the second the vendor bills, so the pause
+   at its end is film time already paid for (and where the sound cues live)
+   instead of a discarded fraction. (c) Before the first purchase the run logs
+   and reports `spend` — `{quality, shots, dialogueShots, animatedSeconds,
+   lipsyncSeconds, estimatedUsd}` from the rate table — on the checkpoint and
+   the callback, so the admin sees the bill before it exists. Speech takes are
+   pinned by `FILM_CAST_VERSION` and survive the gfs-2 bump; the gfs-1 motion
+   (talking mouths) does not replay.
+3. **The music was boring.** The film scored every spread with one of nine
+   CC0 ambient loops chosen by that spread's emotion — a per-spread flip-flop
+   of generic beds. The score is now the audiobook's own: the per-theme music
+   SUITE (Lyria / Eleven Music, elected once per theme, shared with the
+   audiobook, the CC0 file only as the per-cue fallback) under the audiobook's
+   cue grammar — theme_intro and lullaby_outro bookends, ≥ 2-spread holds,
+   the band's change cap, no gentle_tension under 4, the refrain motif 1.5 s
+   before the refrain passage — laid on the film's clock with 3 s crossfades
+   centred on the cuts (`filmSoundtrack.js`: `planFilmCues` is pure over the
+   screenplay, so the assets are elected while the takes record;
+   `layFilmSoundtrack` is pure over the measured shots), sidechain-ducked
+   under the voices by the audiobook's mixer.
+4. **No sound effects.** The audiobook's CLOSED sound library now places its
+   cues on the film: the theme's ambience bed under the whole film, and spot
+   cues by evidence > beat > text keyword (band quota, two uses per book,
+   never on the refrain), each starting 0.15 s after its anchored passage ends
+   — inside the pause the whole-second shot paid for — spaced ≥ 4 s and never
+   over a spoken word (`validateFilmSoundtrack`). The master is MEASURED to the
+   audiobook's loudness target and limited; the effects and music stems are
+   held to the startle rule. The callback's `soundtrack` carries the suite,
+   the cue spans, the placed cues, the bed and the loudness; the film hash
+   folds the plan and the elected assets, so a newly elected suite is a new
+   mix, never a re-bought shot. `music: 'none'` drops the score and the
+   motif; `CATALOG_FILM_SFX=0` drops the cues and the bed.
 
 ## Pipeline
 
@@ -41,16 +115,20 @@ continue to use the trailer, including short Art Bench motion previews.
    text-free production path. Pin character/companion/prop sheets. Render
    separate scenes concurrently (three), but shots within one scene sequentially:
    each continues from the preceding shot's actual last used frame.
-5. Animate with Kling Omni, 1080p, references, and native audio disabled. Drive
-   each dialogue shot with the exact recorded WAV through pinned Sync Lipsync 2.
-   Verify identity, props, motion, painted text, actor and lip sync; fail closed
-   on unavailable checks or remaining defects. Save approved shots and pending
-   vendor prediction IDs. Retrying resumes them. Two visual attempts per run,
-   six total per failed shot; a fresh regeneration resets the attempt budget.
+5. Animate with Kling Omni at the run's tier (`std` by default, gfs-2),
+   references, and native audio disabled. Drive each dialogue shot with the
+   exact recorded WAV through Sync Lipsync 2. Judge every shot before accepting
+   it (a narrated shot: no talking mouths; a dialogue shot: the named actor,
+   other mouths closed, the sync) and re-animate with the defect fed back; a
+   judge outage ships the shot flagged, never silently. Save approved shots and
+   pending vendor prediction IDs. Retrying resumes them. Two animation attempts
+   per run, six total per failed shot; a fresh regeneration resets the budget.
 6. Assemble uniform video with cuts, avoiding overlaps that shorten dialogue.
-   Build a separately timed soundtrack with leveled speech and licensed bundled
-   scene music ducked under the voices. Keep floating-point mix headroom until
-   limiting. Check final duration against the complete soundtrack before delivery.
+   Build a separately timed soundtrack: leveled speech, the theme's music suite
+   under the cue grammar (crossfaded, sidechain-ducked), the ambience bed, the
+   placed sound cues and the refrain motif; measure the master to the loudness
+   target, then limit. Keep floating-point mix headroom until limiting. Check
+   final duration against the complete soundtrack before delivery.
 
 ## Deployment and operation
 
@@ -99,8 +177,12 @@ Required services: existing GCS and Gemini configuration, Replicate credit, and
 the configured speech provider's credentials. ElevenLabs is the existing default;
 the app now includes `ELEVENLABS_API_KEY` in injected worker keys. Optional request
 fields: `voiceProvider` (`elevenlabs`, `gemini`, `openai`), `language` (`en`, `es`,
-`he`), and `music` (`story-score`, default, or `none`). This is a fictional house
-cast, not a clone of the child's voice.
+`he`), `music` (`story-score`, default, or `none`) and `quality` (`std`, the
+worker's default, or `pro`). This is a fictional house cast, not a clone of the
+child's voice. The score and the sound cues need the audiobook's providers
+(Lyria on Vertex via `GOOGLE_CLOUD_PROJECT`, or Eleven Music; ElevenLabs sound
+generation) — without them the music falls open to the CC0 library per cue and
+the cues are skipped, each with an advisory.
 
 The full-film budget is 256 shots / 30 minutes of output and a three-hour run
 deadline; exceeding it fails explicitly without shortening the manuscript.
@@ -132,10 +214,13 @@ scene verdict blocks animation even without a critical story-object requirement.
 Retry video keeps approved audio and clean scene images; a checker format error
 alone does not require buying replacement illustrations.
 
-Spend is tracked by generated video seconds and synthesized characters. Current
-CostTracker rates are estimates, not a provider invoice; new models use its
-unknown-model estimate until account-specific rates are configured. Full films
-cost substantially more than the old trailer. No paid generation was used for
+Spend is tracked by generated video seconds (per tier), lip-synced seconds and
+synthesized characters, and estimated BEFORE the first purchase (`spend` on the
+callback). Current CostTracker rates are estimates, not a provider invoice — the
+std tier is entered at half of pro, the lip-sync rate as summarized in 2026-09;
+verify both on the hosts' pricing pages before invoicing. Full films cost
+substantially more than the old trailer; at the std tier about half of what
+gfs-1 films cost. No paid generation was used for
 implementation tests. A real book must undergo visual/listening acceptance before
 customer delivery, especially stylized animal lip sync and supporting actors.
 
@@ -143,7 +228,11 @@ customer delivery, especially stylized animal lip sync and supporting actors.
 
 - [Kling Omni input schema](https://replicate.com/kwaivgi/kling-v3-omni-video/api/schema),
   checked 2026-09-07: `reference_images`, `<<<image_N>>>` mentions,
-  `start_image`, `duration` (3–15), `mode: pro`, `generate_audio: false`.
+  `start_image`, `duration` (3–15), `mode: std | pro` (gfs-2 sends `std` by
+  default), `generate_audio: false`. Whether the Omni schema accepts
+  `negative_prompt` was not verified (the host was unreachable on 2026-09-09),
+  so the film's negative prompt is NOT sent to Omni; add it through
+  `CATALOG_VIDEO_MODEL_INPUT_JSON` once verified.
   The hosted prompt limit is 2500 characters. Unsupported guessed element fields
   from the legacy trailer are not used by this profile. The vendor's picture
   limit is SEVEN per request counting `start_image`, `end_image` and every

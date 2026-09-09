@@ -969,6 +969,12 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
   if (typeof music !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(music)) {
     return res.status(400).json({ success: false, error: "music must be 'none' or a bundled track name" });
   }
+  // gfs-2: the Kling tier a full-story film buys its shots at — `std` (the
+  // revision's default, CATALOG_FILM_VIDEO_QUALITY) or `pro`; absent ⇒ the default.
+  const quality = body.quality === undefined || body.quality === null || body.quality === '' ? null : body.quality;
+  if (quality !== null && !['std', 'pro'].includes(quality)) {
+    return res.status(400).json({ success: false, error: "quality must be 'std' or 'pro'" });
+  }
   const isHttp = u => typeof u === 'string' && /^https?:\/\//i.test(u);
   const approvedCoverUrl = isHttp(body.approvedCoverUrl) ? body.approvedCoverUrl : null;
   const childPhotoUrl = Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls.find(isHttp) || null : null;
@@ -1001,7 +1007,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       require('./services/catalogEngine/video/fullStory').validateFullStoryInput({
         bookId, story: story.response, renders: rendersCheck.entries, model: providerPick.model,
         language: body.language || 'en', voiceProvider: body.voiceProvider,
-        injectedKeys: body, music,
+        injectedKeys: body, music, quality,
       });
     } catch (err) {
       return res.status(400).json({ success: false, error: err.message, failureCode: err.failureCode });
@@ -1009,9 +1015,10 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
   }
   if (activeBooks.has(`video:${bookId}`)) return res.status(409).json({ success: false, error: 'A video run is already active for this book.', failureCode: 'in_flight' });
   const videoVersion = mode === 'full-story' ? catalogEngine.versions.FULL_STORY_VIDEO_VERSION : catalogEngine.versions.VIDEO_VERSION;
+  const resolvedQuality = mode === 'full-story' ? (quality || catalogEngine.flags.filmVideoQuality()) : null;
   res.status(202).json({
     success: true, bookId, mode, ...(dispatchId ? { dispatchId } : {}), engine: 'catalog-v13', videoVersion,
-    provider: providerPick.provider, model: providerPick.model,
+    provider: providerPick.provider, model: providerPick.model, ...(resolvedQuality ? { quality: resolvedQuality } : {}),
     accepted: { spreads: rendersCheck.entries.map(e => e.spread) },
   });
 
@@ -1049,6 +1056,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
         model: providerPick.model,
         aspect,
         music,
+        quality,
         forceNew: !!body.forceNew,
         // The app injects its Replicate token into every worker request
         // body; the revision's own env wins when set (providers/replicate.js).
@@ -1067,6 +1075,9 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       payload = {
         success: true, ...stable, provider: r.provider, model: r.model,
         video: r.video, cast: r.cast || [], language: r.language || null, plan: r.plan, stills: r.stills || [], textGate: r.textGate, bookBible: r.bookBible,
+        // gfs-2: the tier the shots were bought at, what the run set out to
+        // buy, the soundtrack that plays and the shot judge's tally.
+        quality: r.quality || null, spend: r.spend || null, soundtrack: r.soundtrack || null, visualQa: r.visualQa || null,
         unresolved: r.unresolved || [], advisories: r.advisories, warnings: r.warnings,
         costs: costTracker.getSummary(), failureCode: null, error: null,
       };
@@ -1077,6 +1088,7 @@ app.post('/v13/generate-video', authenticate, async (req, res) => {
       payload = {
         success: false, ...stable,
         video: null, plan: d.plan || [], stills: d.stills || [], textGate: d.textGate || [], bookBible: d.bookBible || null,
+        quality: resolvedQuality, spend: d.spend || null, soundtrack: null, visualQa: null,
         unresolved: d.unresolved || [], recovery: err.recovery || d.recovery || null, advisories: d.advisories || [], warnings: d.warnings || [],
         costs: costTracker.getSummary(), failureCode: err.failureCode || null, error: err.message,
       };
