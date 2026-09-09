@@ -315,6 +315,16 @@ app.post('/v13/review-visual-check', authenticate, async (req, res) => {
   }
 });
 
+app.post('/v13/retry-film-input', authenticate, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    if (req.body?.confirmExtraAttempt !== true) return res.status(400).json({ error: 'Confirm one additional input attempt' });
+    return res.json(await require('./services/catalogEngine/video/filmInputRetry').grantFilmInputRetry(req.body));
+  } catch (err) {
+    return res.status(err.status || 503).json({ error: err.status ? err.message : 'Could not verify saved input attempts' });
+  }
+});
+
 app.post('/generate-style-variant', authenticate, (req, res) => {
   const { bookId, style } = req.body || {};
   console.warn(`[server] /generate-style-variant rejected (deprecated) — book=${bookId} style=${style}`);

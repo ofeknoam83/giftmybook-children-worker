@@ -8,6 +8,7 @@ const { callGeminiImageParts } = require('../../../../services/illustrationGener
 const { anchorHash } = require('../../../../services/catalogEngine/illustrator/bible');
 const { loadFilmBible, prepareFilmStill } = require('../../../../services/catalogEngine/video/filmInputs');
 const { selectFilmReferenceSheets } = require('../../../../services/catalogEngine/video/filmReferences');
+const { grantFilmInputRetry } = require('../../../../services/catalogEngine/video/filmInputRetry');
 
 let image;
 let saved;
@@ -82,4 +83,32 @@ test('retains an image-provider refusal on retry without changing prompts or rou
     await expect(prepareFilmStill({ bookId, entry })).rejects.toMatchObject({ recovery: { reason: 'provider_blocked', retryable: false } });
   }
   expect(callGeminiImageParts).toHaveBeenCalledTimes(1);
+});
+
+test('an explicit retry completes only the exhausted input and keeps the original namespace', async () => {
+  callGeminiImageParts.mockRejectedValue(new Error('network timeout'));
+  for (let n = 0; n < 3; n++) await expect(prepareFilmStill({ bookId, entry })).rejects.toHaveProperty('recovery');
+  expect(callGeminiImageParts).toHaveBeenCalledTimes(2);
+  const root = [...saved.keys()].find(key => key.endsWith('/candidate-0.json')).replace('/candidate-0.json', '');
+  const original = saved.get(entry.storageKey);
+  await Promise.all([1, 2].map(() => grantFilmInputRetry({ bookId, evidenceKey: root, requestedBy: 'admin@example.com' })));
+  callGeminiImageParts.mockResolvedValue(image);
+  const resumed = await prepareFilmStill({ bookId, entry });
+  const reused = await prepareFilmStill({ bookId, entry });
+  expect(resumed.storageKey).toBe(`${root}/frame.png`);
+  expect(reused.buffer).toEqual(image);
+  expect(callGeminiImageParts).toHaveBeenCalledTimes(3);
+  expect(saved.get(entry.storageKey)).toEqual(original);
+  expect(saved.has(`${root}/candidate-2.png`)).toBe(true);
+  expect([...saved.keys()].some(key => key.includes('candidate-3'))).toBe(false);
+});
+
+test('a failed additional attempt cannot be renewed with another retry click', async () => {
+  callGeminiImageParts.mockRejectedValue(new Error('network timeout'));
+  for (let n = 0; n < 2; n++) await expect(prepareFilmStill({ bookId, entry })).rejects.toHaveProperty('recovery');
+  const root = [...saved.keys()].find(key => key.endsWith('/candidate-0.json')).replace('/candidate-0.json', '');
+  await grantFilmInputRetry({ bookId, evidenceKey: root, requestedBy: 'admin@example.com' });
+  for (let n = 0; n < 2; n++) await expect(prepareFilmStill({ bookId, entry })).rejects.toHaveProperty('recovery');
+  await expect(grantFilmInputRetry({ bookId, evidenceKey: root, requestedBy: 'admin@example.com' })).rejects.toMatchObject({ status: 409 });
+  expect(callGeminiImageParts).toHaveBeenCalledTimes(3);
 });
