@@ -19,8 +19,12 @@
  * failure and still fails the run.
  */
 
-/** Input fields whose loss would change what we are buying: never dropped. */
-const PROTECTED_FIELDS = new Set(['prompt', 'start_image', 'image', 'input_image']);
+/**
+ * Input fields whose loss would change what we are buying — the commission
+ * itself and the billed length: never dropped. A vendor rejecting one of
+ * these is a profile bug to fix in models.js, not a request to guess at.
+ */
+const PROTECTED_FIELDS = new Set(['prompt', 'start_image', 'image', 'input_image', 'duration']);
 
 /**
  * Read a vendor's 422 body into per-field issues.
@@ -35,23 +39,39 @@ const PROTECTED_FIELDS = new Set(['prompt', 'start_image', 'image', 'input_image
 function parseInputIssues(message) {
   const text = typeof message === 'string' ? message : '';
   const issues = [];
-  const line = /input\.([A-Za-z0-9_]+)\s*:\s*([^\n]*)/g;
+  // One segment per field. Replicate joins them on ONE line (`… (HTTP 422):
+  // - input.mode: … - input.foo: …`), so a segment ends at the next
+  // `- input.` marker or the line end, never at the next newline alone.
+  const segment = /input\.([A-Za-z0-9_]+)\s*:\s*([^\n]*?)(?=\s+-\s+input\.[A-Za-z0-9_]+\s*:|\n|$)/g;
   let m;
-  while ((m = line.exec(text)) !== null) {
+  while ((m = segment.exec(text)) !== null) {
     const field = m[1];
-    const detail = m[2].replace(/\s*-\s*$/, '').trim();
-    const allowed = [];
-    const list = /one of(?: the following)?:?\s*(.+)/i.exec(detail);
-    if (list) {
-      const re = /"([^"]+)"|'([^']+)'|([A-Za-z0-9_.+-]+)/g;
-      let v;
-      while ((v = re.exec(list[1])) !== null) allowed.push(v[1] || v[2] || v[3]);
-    }
+    const detail = m[2].trim();
     const unknown = /additional propert|not allowed|unexpected|unknown|unrecogni[sz]ed/i.test(detail);
     if (issues.some(i => i.field === field)) continue;
-    issues.push({ field, allowed, unknown, detail });
+    issues.push({ field, allowed: parseAllowed(detail), unknown, detail });
   }
   return issues;
+}
+
+/**
+ * The values a "must be one of" complaint lists. Quoted values are the
+ * list; without quotes only a bracketed list counts (`[5, 10]`) — bare
+ * prose after "one of" ("the allowed values") is never a vocabulary.
+ * @param {string} detail
+ * @returns {string[]}
+ */
+function parseAllowed(detail) {
+  const list = /one of(?: the following)?:?\s*(.+)$/i.exec(detail);
+  if (!list) return [];
+  const quoted = [];
+  const q = /"([^"]+)"|'([^']+)'/g;
+  let v;
+  while ((v = q.exec(list[1])) !== null) quoted.push(v[1] || v[2]);
+  if (quoted.length) return quoted;
+  const bracketed = /\[([^\]]*)\]/.exec(list[1]);
+  if (!bracketed) return [];
+  return bracketed[1].split(',').map(x => x.trim()).filter(Boolean);
 }
 
 /**
@@ -116,6 +136,24 @@ function repairInput(input, issues) {
 }
 
 /**
+ * Re-apply earlier repairs to a freshly built input (the end-frame fallback
+ * rebuilds from the profile, which would otherwise restore the very value
+ * the vendor already rejected).
+ * @param {object} input
+ * @param {Array<{field: string, to: string|null}>} repairs
+ * @returns {object}
+ */
+function applyRepairs(input, repairs) {
+  const out = { ...input };
+  for (const r of repairs || []) {
+    if (!Object.prototype.hasOwnProperty.call(out, r.field)) continue;
+    if (r.to === null) delete out[r.field];
+    else out[r.field] = r.to;
+  }
+  return out;
+}
+
+/**
  * One human line per repair, for logs and advisories.
  * @param {Array<{field: string, from: *, to: string|null}>} repairs
  * @returns {string}
@@ -126,4 +164,4 @@ function describeRepairs(repairs) {
     : `sent '${r.field}' as ${JSON.stringify(r.to)} instead of ${JSON.stringify(r.from)}`)).join('; ');
 }
 
-module.exports = { parseInputIssues, repairInput, describeRepairs, matchAllowed, isAbbreviation, PROTECTED_FIELDS };
+module.exports = { parseInputIssues, parseAllowed, repairInput, applyRepairs, describeRepairs, matchAllowed, isAbbreviation, PROTECTED_FIELDS };

@@ -5,7 +5,8 @@
  */
 
 const { MODELS, modelProfile, klingMode, costModelFor } = require('../../../../services/catalogEngine/video/providers/models');
-const { parseInputIssues, repairInput, describeRepairs, matchAllowed } = require('../../../../services/catalogEngine/video/providers/inputRepair');
+const { parseInputIssues, repairInput, applyRepairs, describeRepairs, matchAllowed } = require('../../../../services/catalogEngine/video/providers/inputRepair');
+const { qualityBought } = require('../../../../services/catalogEngine/video/generate');
 
 const job = (quality) => ({
   brief: { prompt: 'a child walks through the meadow', negativePrompt: 'text', params: { cfgScale: 0.5 }, referenceLines: [] },
@@ -81,7 +82,34 @@ describe('vendor 422 repair', () => {
     expect(matchAllowed('s', ['standard', 'super'])).toBeNull();
   });
 
-  test('a repaired tier field is billed at the default tier, never at the cheap key', () => {
+  test('several issues on ONE line are read separately, and prose after "one of" is never a vocabulary', () => {
+    const issues = parseInputIssues('Replicate refused the prediction (HTTP 422): - input.mode: mode must be one of the following: "standard", "pro" - input.end_image: Additional properties are not allowed');
+    expect(issues).toEqual([
+      expect.objectContaining({ field: 'mode', allowed: ['standard', 'pro'], unknown: false }),
+      expect.objectContaining({ field: 'end_image', allowed: [], unknown: true }),
+    ]);
+    expect(parseInputIssues('- input.duration: 12 is not one of [5, 10]')[0].allowed).toEqual(['5', '10']);
+    expect(parseInputIssues('- input.mode: must be one of the allowed values')[0].allowed).toEqual([]);
+  });
+
+  test('a known field the vendor rejects without listing values is left alone (no guessing)', () => {
+    const issues = parseInputIssues('- input.cfg_scale: must be <= 1');
+    expect(repairInput({ prompt: 'p', cfg_scale: 3 }, issues)).toEqual({ input: { prompt: 'p' }, repairs: [expect.objectContaining({ field: 'cfg_scale', to: null })] });
+    // …but the billed length is protected: a wrong duration is a profile bug, never dropped.
+    expect(repairInput({ prompt: 'p', duration: 12 }, parseInputIssues('- input.duration: 12 is not one of [5, 10]'))).toBeNull();
+  });
+
+  test('earlier repairs survive a rebuilt input (the end-frame fallback)', () => {
+    const rebuilt = { prompt: 'p', start_image: 'u', mode: 'std', extra: 1 };
+    expect(applyRepairs(rebuilt, [{ field: 'mode', to: 'standard' }, { field: 'extra', to: null }, { field: 'absent', to: null }]))
+      .toEqual({ prompt: 'p', start_image: 'u', mode: 'standard' });
+  });
+
+  test('a tier re-spelled for the vendor is still billed as asked; a DROPPED tier bills the default', () => {
+    expect(qualityBought('std', [{ field: 'mode', to: 'standard' }])).toBe('std');
+    expect(qualityBought('std', [{ field: 'mode', to: null }])).toBeNull();
+    expect(qualityBought('std', [])).toBe('std');
+    expect(qualityBought(null, [])).toBeNull();
     expect(costModelFor('kwaivgi/kling-v3-omni-video', 'std')).toBe('kwaivgi/kling-v3-omni-video:std');
     expect(costModelFor('kwaivgi/kling-v3-omni-video', null)).toBe('kwaivgi/kling-v3-omni-video');
   });

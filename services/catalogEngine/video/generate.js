@@ -32,7 +32,7 @@ const { downloadBuffer, uploadBuffer, loadJson, saveJson } = require('../../gcsS
 const { fnv1a } = require('../selection');
 const { VIDEO_VERSION } = require('../versions');
 const { clipSecondsFor, costModelFor, QUALITY_FIELD } = require('./providers/models');
-const { repairInput, describeRepairs } = require('./providers/inputRepair');
+const { repairInput, applyRepairs, describeRepairs } = require('./providers/inputRepair');
 const flags = require('../flags');
 
 /** Submits one candidate may spend correcting a vendor-rejected input. */
@@ -40,15 +40,16 @@ const MAX_INPUT_REPAIRS = 3;
 
 /**
  * The tier a purchase is billed at: the requested one, unless an input
- * repair touched the model's tier field — then the vendor applied its own
- * default and the cost key must say so.
+ * repair DROPPED the model's tier field — then the vendor applied its own
+ * default and the cost key must say so. A tier merely re-spelled in the
+ * vendor's vocabulary (`std` → `standard`) is still the tier we asked for.
  * @param {string|null|undefined} quality
- * @param {Array<{field: string}>} repairs
+ * @param {Array<{field: string, to: string|null}>} repairs
  * @returns {string|null}
  */
 function qualityBought(quality, repairs) {
   if (!quality) return null;
-  return (repairs || []).some(r => r.field === QUALITY_FIELD) ? null : quality;
+  return (repairs || []).some(r => r.field === QUALITY_FIELD && r.to === null) ? null : quality;
 }
 
 /** Root of one book's gift-video namespace. */
@@ -202,7 +203,7 @@ async function generateCandidates(p) {
           }
           if (hasEndFrame) {
             log('warn', `segment ${p.segment.index}: candidate ${k} input rejected with an end frame (${err.message}) — resubmitting without it`);
-            input = provider.profile.input({ ...job, endFrameUrl: null }, opts);
+            input = applyRepairs(provider.profile.input({ ...job, endFrameUrl: null }, opts), inputRepairs);
             hasEndFrame = false;
             endFrameDropped = true;
             continue;
@@ -266,4 +267,4 @@ async function generateCandidates(p) {
   return { clipHash, canonicalKey, seconds, candidates };
 }
 
-module.exports = { generateCandidates, clipHashFor, clipKey, candidateClipKey, parseCandidateClipKey, videoBase, CLIP_KEY_RE };
+module.exports = { generateCandidates, qualityBought, clipHashFor, clipKey, candidateClipKey, parseCandidateClipKey, videoBase, CLIP_KEY_RE };
