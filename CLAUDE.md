@@ -371,7 +371,18 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   photo is QA-only: `photoLikeness` rides the result, sidecar and callbacks,
   with a review-cover advisory below 0.5. Cover-to-photo resemblance must
   be fixed before cover approval, never by independently redesigning the
-  kit. The old photo election/floor is retired. Sheets are elected per
+  kit. The old photo election/floor is retired. The sheet RENDER climbs the
+  same prompt-variant safety ladder as every other image call (recovery-3,
+  2026-09-15 — `sheetPromptLadder`: `original` → `sanitized`, the fixed
+  template with none of the caller-supplied description/name/age →
+  `generic-safe`, a calm character-centric ask with no repair source)
+  inside its candidate slot; a block buys no image, only a block on EVERY
+  rung is the durable `provider_blocked` failure — named as the render's,
+  never "Verifier blocked", with each rung's outcome in `attempts` — and
+  an elected sheet rendered below the first rung carries a stage
+  `characterSheet` advisory (`candidate-N.render.json` beside its PNG).
+  Before recovery-3 one PROHIBITED_CONTENT on the single prompt paused the
+  book for a review that could only replay the same block. Sheets are elected per
   anchor path in GCS
   (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
   `.json`). Every strict-JSON judge call in the illustrator (sheet, prop,

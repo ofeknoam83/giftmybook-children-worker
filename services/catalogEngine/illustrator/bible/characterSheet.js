@@ -9,10 +9,29 @@
  * cover shows ON a garment is reproduced by the render prompt and judged
  * under the outfit fields; only annotation text — labels, view names,
  * captions, notes, arrows, watermarks — outside the clothing is `sheet_text`.
+ *
+ * The render climbs a PROMPT-VARIANT SAFETY LADDER (2026-09-15, recovery-3):
+ * every other Gemini image path in this worker retries a provider block on
+ * a sanitized and then a generic-safe prompt, but the sheet render posted
+ * ONE prompt, stamped the block with the VERIFIER's wording ("Verifier
+ * blocked the request: PROHIBITED_CONTENT" — no verifier had run), saved it
+ * as the slot's durable failure and paused the book for a review that could
+ * only ever replay the same block. A block now advances to the next rung of
+ * `sheetPromptLadder` inside the SAME slot — `sanitized` (the fixed template
+ * with none of the caller-supplied text: the cover-time description of a
+ * real child's photo, the name and the age are the only per-book words in
+ * the prompt), then `generic-safe` (the same sheet asked for in calm,
+ * character-centric language and no repair source) — and only a block on
+ * every rung is the durable `provider_blocked` failure, named as the RENDER's
+ * with each rung's outcome on record. A blocked call buys no image, so a
+ * slot still purchases at most one; the judge holds a degraded-rung sheet to
+ * every required check like any other candidate, and an elected one carries
+ * a stage advisory naming the rung it rendered on.
  */
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../../illustrationGenerator');
 const { PIXAR_STYLE, GEMINI_QA_MODEL, GEMINI_IMAGE_SAFETY_SETTINGS } = require('../../../shared/illustration/config');
+const { sanitizeForGemini } = require('../../../promptSanitizer');
 const { judgeImage, digest, responseOutcome } = require('../../../shared/llm/visualJudge');
 const { GARMENT_LETTERING_JUDGE_NOTE } = require('../../../shared/illustration/garmentLettering');
 const { pending } = require('../referenceContract');
@@ -51,7 +70,13 @@ const _inFlight = new Map();
 // recovery-2 (2026-09-08): the render prompt and the judge treat garment
 // lettering as clothing — recovery-1 roots hold candidates rejected for the
 // letters on their own patches and are never replayed.
-const RECOVERY_VERSION = 'character-sheet-recovery-2';
+// recovery-3 (2026-09-15): the render climbs the prompt-variant safety
+// ladder — recovery-2 roots hold slots whose ONE prompt the image provider
+// blocked (a block the sanitized / generic-safe rungs exist to clear) and
+// are never replayed.
+const RECOVERY_VERSION = 'character-sheet-recovery-3';
+/** The prompt-variant safety ladder, climbed in order on a provider block. */
+const RUNGS = ['original', 'sanitized', 'generic-safe'];
 const RENDER_LEASE_MS = SHEET_TIMEOUT_MS + 30000;
 
 /** LRU get: refresh recency on hit. @param {string} key @returns {object|null} */
@@ -186,6 +211,48 @@ function buildSheetPrompt({ profile = null, characterDescription = null } = {}) 
 }
 
 /**
+ * The ladder's LAST rung: the same model sheet asked for in calm,
+ * character-centric language — no caller-supplied text, no age, none of
+ * the full template's body-part vocabulary or capitalised prohibitions
+ * (the wire sanitizer's own note: harsh meta-directives skew the image
+ * classifier toward PROHIBITED_CONTENT), and no repair source. The judge
+ * still holds the result to every required check against the approved
+ * cover, so a calmer ASK never lowers the bar on the RESULT.
+ * @returns {string}
+ */
+function buildGenericSafeSheetPrompt() {
+  return [
+    renderStyleBlock(PIXAR_STYLE),
+    'CHARACTER MODEL SHEET (turnaround) of the cartoon character in REFERENCE 1, in the same rendering style.',
+    'The approved character in REFERENCE 1 is ground truth for the face, hair, skin tone, proportions, apparent age, and the colours and materials of the outfit: reproduce them; only the viewing angle and the expression change.',
+    'LAYOUT: three complete standing views of the same character side by side in one row, each shown whole from the top of the head to the shoes — front view on the left, three-quarter view in the middle, back view on the right — standing relaxed with the arms at the sides, entirely inside the frame.',
+    'OUTFIT: the identical complete outfit in every view — every garment, colour, pattern and length the same from view to view; complete any garment or shoe the reference crops, once, and draw that completion identically in each view. Add nothing that is not worn in the reference; a held story object, scenery and cover text are not clothing.',
+    'HEAD INSETS: two small head-and-shoulders insets in a top corner, one happy and one curious — the same character, hair and skin tone.',
+    'BACKGROUND: a flat light-grey studio background with even, soft lighting and nothing else in the picture.',
+    'ANATOMY: correct anatomy on every figure — two arms, two hands with five separated fingers each, two legs, two feet.',
+    'TEXT: apart from lettering the reference shows on the clothing, the image contains no writing of any kind.',
+  ].join('\n');
+}
+
+/**
+ * The prompt-variant safety ladder for one anchor, climbed in order when
+ * the image provider blocks a rung: `original` (the full template with the
+ * sanitized child line and description), `sanitized` (the same template
+ * with NONE of the caller-supplied text, through the wire sanitizer's
+ * image-mode softeners), `generic-safe` (`buildGenericSafeSheetPrompt`).
+ * Deterministic for the same inputs; the recovery root digests every rung.
+ * @param {{profile?: object|null, characterDescription?: string|null}} [params]
+ * @returns {Array<{rung: string, prompt: string}>}
+ */
+function sheetPromptLadder({ profile = null, characterDescription = null } = {}) {
+  return [
+    { rung: 'original', prompt: buildSheetPrompt({ profile, characterDescription }) },
+    { rung: 'sanitized', prompt: sanitizeForGemini(buildSheetPrompt({}), { mode: 'image' }) },
+    { rung: 'generic-safe', prompt: buildGenericSafeSheetPrompt() },
+  ];
+}
+
+/**
  * Build a tagged `identity_kit_failed` error.
  * @param {string} message
  * @param {Array<{stage: string, note: string}>} advisories
@@ -204,15 +271,19 @@ function advisory(note) {
 }
 
 /**
- * One Gemini image call for one sheet candidate: the fixed prompt, the
- * labeled approved-character reference only. Kept local instead of reusing
- * generateIllustration: that path wraps scenes in per-spread prompt language
- * a model sheet must not carry.
+ * One Gemini image call for one rung of one sheet candidate: the rung's
+ * prompt, the labeled approved-character reference, and (below the last
+ * rung) the repair source. Kept local instead of reusing
+ * generateIllustration: that path wraps scenes in per-spread prompt
+ * language a model sheet must not carry. Resolves `{buffer}` on an image,
+ * `{failure}` (a typed outcome — `provider_blocked` / `transient` /
+ * `configuration`) otherwise; never throws on a provider answer.
  * @param {string} prompt
  * @param {{base64: string, mimeType?: string}} refPhoto the approved anchor bytes
- * @returns {Promise<Buffer>}
+ * @param {{buffer: Buffer, defects: string[]}|null} repair
+ * @returns {Promise<{buffer?: Buffer, failure?: object}>}
  */
-async function renderSheetCandidate(prompt, refPhoto, repair = null) {
+async function postSheetRender(prompt, refPhoto, repair) {
   const parts = [
     { text: prompt },
     { text: 'REFERENCE 1 — APPROVED CHARACTER (the parent-approved rendering of the child: face, hair, skin tone, body proportions, rendering style, and outfit are ground truth)' },
@@ -237,15 +308,54 @@ async function renderSheetCandidate(prompt, refPhoto, repair = null) {
     SHEET_TIMEOUT_MS,
   );
   if (!resp.ok) {
-    const outcome = responseOutcome(null, resp.status);
-    throw Object.assign(new Error(`Character sheet render HTTP ${resp.status}`), { verification: { ...outcome, reason: `Character sheet render HTTP ${resp.status}` } });
+    // The shared transport's rule: a 400 whose body names a safety block
+    // is the provider refusing the request, never a configuration fault.
+    const body = typeof resp.text === 'function' ? await resp.text().catch(() => '') : '';
+    if (resp.status === 400 && /safety|blocked/i.test(body)) {
+      return { failure: { status: 'provider_blocked', reason: `HTTP 400 ${body.slice(0, 160)}`, promptBlock: null, finishReason: null } };
+    }
+    return { failure: { ...responseOutcome(null, resp.status), reason: `Character sheet render HTTP ${resp.status}` } };
   }
   const data = await resp.json();
   const outcome = responseOutcome(data);
-  if (outcome) throw Object.assign(new Error(`Character sheet render stopped: ${outcome.reason}`), { verification: { ...outcome, reason: `Character sheet render stopped: ${outcome.reason}` } });
+  if (outcome?.status === 'provider_blocked') return { failure: { ...outcome, reason: outcome.promptBlock || outcome.finishReason } };
+  if (outcome) return { failure: { ...outcome, reason: `Character sheet render stopped: ${outcome.reason}` } };
   const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!imagePart?.inlineData?.data) throw Object.assign(new Error('no image in Gemini sheet response'), { verification: { status: 'transient', reason: 'Character sheet renderer returned no image' } });
-  return Buffer.from(imagePart.inlineData.data, 'base64');
+  if (!imagePart?.inlineData?.data) return { failure: { status: 'transient', reason: 'Character sheet renderer returned no image' } };
+  return { buffer: Buffer.from(imagePart.inlineData.data, 'base64') };
+}
+
+/**
+ * Render one sheet candidate through the prompt-variant safety ladder: a
+ * provider block advances to the next rung (the repair source rides every
+ * rung but `generic-safe` — the judge-authored defect text is caller text
+ * too, and the last rung is a fresh render by design); any other failure
+ * ends the slot as before. Resolves the image with the rung that produced
+ * it and the blocked rungs on record; a block on EVERY rung throws a
+ * `provider_blocked` failure named as the render's (never the verifier's),
+ * with each rung's outcome in `verification.attempts`.
+ * @param {Array<{rung: string, prompt: string}>} ladder
+ * @param {{base64: string, mimeType?: string}} refPhoto
+ * @param {{buffer: Buffer, defects: string[]}|null} [repair]
+ * @returns {Promise<{buffer: Buffer, rung: string, attempts: Array<object>}>}
+ */
+async function renderSheetCandidate(ladder, refPhoto, repair = null) {
+  const attempts = [];
+  for (const { rung, prompt } of ladder) {
+    const { buffer, failure } = await postSheetRender(prompt, refPhoto, rung === 'generic-safe' ? null : repair);
+    if (buffer) return { buffer, rung, attempts };
+    const attempt = { rung, status: failure.status, reason: failure.reason, promptBlock: failure.promptBlock || null, finishReason: failure.finishReason || null };
+    attempts.push(attempt);
+    if (failure.status !== 'provider_blocked') {
+      throw Object.assign(new Error(failure.reason), { verification: { ...failure, model: GEMINI_MODEL, attempts } });
+    }
+  }
+  const last = attempts.at(-1);
+  const reasons = [...new Set(attempts.map(a => a.reason))].join(', ');
+  const reason = `Character sheet render blocked by the image provider on every prompt variant (${attempts.map(a => a.rung).join(', ')}): ${reasons}`;
+  throw Object.assign(new Error(reason), {
+    verification: { status: 'provider_blocked', reason, model: GEMINI_MODEL, promptBlock: last.promptBlock, finishReason: last.finishReason, attempts },
+  });
 }
 
 /**
@@ -363,11 +473,27 @@ function sheetPending(outcome, results = []) {
   return err;
 }
 
+/**
+ * The durable record of a candidate that rendered below the ladder's first
+ * rung, saved beside its PNG so a resume replays the advisory and the
+ * evidence panel shows the blocked rungs. Null for an `original` render.
+ * @param {string} key candidate key (no extension)
+ * @returns {Promise<{rung: string, attempts: Array<object>}|null>}
+ */
+async function readRenderRecord(key) {
+  const raw = await readSaved(`${key}.render.json`);
+  if (!raw) return null;
+  try {
+    const json = JSON.parse(raw.toString());
+    return json && RUNGS.includes(json.rung) ? { rung: json.rung, attempts: Array.isArray(json.attempts) ? json.attempts : [] } : null;
+  } catch { return null; }
+}
+
 /** One initial candidate, then repairs guided by actual findings, up to the
  * persisted limit (default three TOTAL images, not three per retry). */
-async function resolveCandidates({ path, prompt, refPhoto, childPhoto, costTracker, log }) {
+async function resolveCandidates({ path, ladder, refPhoto, childPhoto, costTracker, log }) {
   const image = { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 };
-  const root = `${path}.${digest({ version: RECOVERY_VERSION, model: GEMINI_MODEL, prompt, image })}.recovery-v1`;
+  const root = `${path}.${digest({ version: RECOVERY_VERSION, model: GEMINI_MODEL, prompts: ladder.map(r => r.prompt), image })}.recovery-v1`;
   const results = [];
   let repair = null;
   try {
@@ -378,6 +504,7 @@ async function resolveCandidates({ path, prompt, refPhoto, childPhoto, costTrack
       const key = `${root}/candidate-${index}`;
       let buffer = await readSaved(`${key}.png`);
       let renderFailure = await readSaved(`${key}.error.json`);
+      let render = buffer ? await readRenderRecord(key) : null;
       if (renderFailure) {
         renderFailure = JSON.parse(renderFailure.toString());
       } else if (!buffer) {
@@ -396,7 +523,12 @@ async function resolveCandidates({ path, prompt, refPhoto, childPhoto, costTrack
         } else {
           log('info', `character sheet candidate ${index + 1}: ${repair ? 'repairing verified defects' : 'generating'} (${root})`);
           try {
-            buffer = await renderSheetCandidate(prompt, refPhoto, repair);
+            const rendered = await renderSheetCandidate(ladder, refPhoto, repair);
+            buffer = rendered.buffer;
+            if (rendered.rung !== 'original') {
+              render = { rung: rendered.rung, attempts: rendered.attempts };
+              log('warn', `character sheet candidate ${index + 1}: rendered on the ${rendered.rung} prompt after the image provider blocked ${describeBlocks(rendered.attempts)}`);
+            }
             costTracker?.addImageGeneration?.(GEMINI_MODEL, 1);
           } catch (err) {
             renderFailure = err.verification || { status: 'transient', reason: 'Character-sheet render transport interrupted' };
@@ -404,7 +536,10 @@ async function resolveCandidates({ path, prompt, refPhoto, childPhoto, costTrack
           }
           // Save before QA. A storage failure must not be recast as a visual
           // defect or cause more image purchases in this run.
-          if (buffer) await uploadBufferIfAbsent(buffer, `${key}.png`, 'image/png');
+          if (buffer) {
+            await uploadBufferIfAbsent(buffer, `${key}.png`, 'image/png');
+            if (render) await saveJson(`${key}.render.json`, render);
+          }
         }
       } else costTracker?.recordReuse?.('image');
       if (renderFailure) {
@@ -414,7 +549,7 @@ async function resolveCandidates({ path, prompt, refPhoto, childPhoto, costTrack
         continue; // known failed call: next bounded slot can run immediately
       }
       const judged = await judgeSheetCandidate(buffer, refPhoto, childPhoto, root, costTracker);
-      results.push({ index, buffer, ...judged });
+      results.push({ index, buffer, render, ...judged });
       if (!judged.verdict) throw sheetPending(judged.verification, results);
       await saveJson(`${key}.verdict.json`, judged.verdict);
       if (judged.verdict.pass) return { ...electCandidate(results, log), count: index + 1, root };
@@ -433,6 +568,15 @@ async function resolveCandidates({ path, prompt, refPhoto, childPhoto, costTrack
     if (err.recovery) throw err;
     throw sheetPending({ status: 'configuration', reason: 'Character-sheet evidence storage unavailable', evidenceKey: root }, results);
   }
+}
+
+/**
+ * The blocked rungs of a laddered render as one log/advisory fragment.
+ * @param {Array<{rung: string, reason: string}>} attempts
+ * @returns {string}
+ */
+function describeBlocks(attempts) {
+  return attempts.map(a => `the ${a.rung} prompt (${a.reason})`).join(' and ');
 }
 
 /** @param {{likeness: number, photoLikeness?: number|null}} verdict @returns {string} log fragment */
@@ -481,6 +625,12 @@ function electCandidate(results, log) {
   if (passing.length > 0) {
     const winner = passing.reduce((best, r) => (r.verdict.likeness > best.verdict.likeness ? r : best), passing[0]);
     const photoLikeness = typeof winner.verdict.photoLikeness === 'number' ? winner.verdict.photoLikeness : null;
+    if (winner.render && winner.render.rung !== 'original') {
+      // A degraded-rung sheet is never silent: it passed every required
+      // check against the approved cover, but the prompt that produced it
+      // carried none of the caller text (or, generic-safe, a calmer ask).
+      advisories.push(advisory(`elected sheet (candidate ${winner.index + 1}) rendered on the ${winner.render.rung} prompt variant after the image provider blocked ${describeBlocks(winner.render.attempts)}; it passed every required check against the approved cover`));
+    }
     if (photoLikeness !== null && photoLikeness < PHOTO_LIKENESS_ADVISORY) {
       advisories.push(advisory(`elected sheet photo likeness ${photoLikeness.toFixed(2)} — the child may not be recognizable in the illustrations; review the cover against the child photo and regenerate the cover if needed; do not redesign the kit independently`));
     }
@@ -596,8 +746,8 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
         cacheSet(key, sheet);
         return sheet;
       }
-      const prompt = buildSheetPrompt({ profile, characterDescription });
-      const election = await resolveCandidates({ path, prompt, refPhoto, childPhoto, costTracker, log });
+      const ladder = sheetPromptLadder({ profile, characterDescription });
+      const election = await resolveCandidates({ path, ladder, refPhoto, childPhoto, costTracker, log });
       const count = election.count;
       // Create-if-absent: concurrent cold instances race to create the same
       // deterministic object and exactly one write wins — every loser ADOPTS
@@ -661,6 +811,8 @@ module.exports = {
   characterSheetPath,
   characterSheetSidecarPath,
   buildSheetPrompt,
+  buildGenericSafeSheetPrompt,
+  sheetPromptLadder,
   buildSheetQaPrompt,
   cleanDescription,
   parseSheetVerdict,
