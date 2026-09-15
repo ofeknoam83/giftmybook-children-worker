@@ -41,6 +41,19 @@
  * rung is tagged `providerRefusedRender` on the thrown error so the bible
  * can fall back to cover-anchored rendering (`CATALOG_SHEET_REFUSAL_FALLBACK`)
  * instead of pausing a book no retry can unblock.
+ *
+ * The JUDGE has a ladder too (2026-09-15): the sheet check attaches the
+ * child's RAW photo only for the ADVISORY `photo_likeness`, and a real
+ * minor's photo beside a full-body sheet with compare-the-face instructions
+ * is what the provider's prohibited-content classifier refuses — a book
+ * whose sheet finally rendered then paused on the CHECK with the photo in
+ * its evidence. Every required field is judged between the sheet (image 1)
+ * and the approved cover (image 2), so a `provider_blocked` verdict WITH
+ * the photo attached is re-asked once WITHOUT it (its own fingerprint and
+ * durable evidence); the elected sheet carries a `characterSheet` advisory
+ * (`photoLikeness` null), and only a block on the photo-free check pauses
+ * the book — with photo-free evidence, so the reviewed recheck never ships
+ * the photo either.
  */
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../../illustrationGenerator');
@@ -466,17 +479,40 @@ function parseSheetVerdict(json, { detailed = false } = {}) {
   return { pass: defects.length === 0, defects, likeness, photoLikeness, garmentLettering };
 }
 
-/** Same saved evidence and full validation on every recheck. */
+/**
+ * Same saved evidence and full validation on every recheck. The child's
+ * photo rides only for the advisory `photo_likeness`: a verifier block
+ * WITH it attached is re-asked once WITHOUT it (a different fingerprint,
+ * its own durable evidence under the same `checks` root), and the result
+ * carries `photoDropped` (the blocked verification) so the caller can say
+ * so. A block on the photo-free check is the verification returned.
+ * @param {Buffer} sheetBuffer
+ * @param {{base64: string, mimeType?: string}} refPhoto the approved cover
+ * @param {{base64: string, mimeType?: string}|null} childPhoto
+ * @param {string} root the candidate recovery root
+ * @param {object} [costTracker]
+ * @returns {Promise<{verdict?: object, verification: object, photoDropped?: object}>}
+ */
 async function judgeSheetCandidate(sheetBuffer, refPhoto, childPhoto, root, costTracker) {
-  const parts = [
-    { text: buildSheetQaPrompt(Boolean(childPhoto?.base64)) },
-    { inline_data: { mimeType: 'image/png', data: sheetBuffer.toString('base64') } },
-    { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
-  ];
-  if (childPhoto?.base64) parts.push({ inline_data: { mimeType: childPhoto.mimeType || 'image/jpeg', data: childPhoto.base64 } });
-  const verification = await judgeImage({ parts, model: QA_MODEL(), label: 'character-sheet', recoveryRoot: `${root}/checks`, costTracker,
-    validate: json => parseSheetVerdict(json, { detailed: true }) ? null : 'Complete character verdict and specific visible outfit mismatch evidence are required' });
-  return verification.status === 'verified' ? { verdict: parseSheetVerdict(verification.json, { detailed: true }), verification } : { verification };
+  const judge = photo => {
+    const parts = [
+      { text: buildSheetQaPrompt(Boolean(photo)) },
+      { inline_data: { mimeType: 'image/png', data: sheetBuffer.toString('base64') } },
+      { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
+    ];
+    if (photo) parts.push({ inline_data: { mimeType: photo.mimeType || 'image/jpeg', data: photo.base64 } });
+    return judgeImage({ parts, model: QA_MODEL(), label: photo ? 'character-sheet' : 'character-sheet-cover-only', recoveryRoot: `${root}/checks`, costTracker,
+      validate: json => parseSheetVerdict(json, { detailed: true }) ? null : 'Complete character verdict and specific visible outfit mismatch evidence are required' });
+  };
+  const withPhoto = childPhoto?.base64 ? childPhoto : null;
+  let verification = await judge(withPhoto);
+  let photoDropped = null;
+  if (withPhoto && verification.status === 'provider_blocked') {
+    photoDropped = verification;
+    verification = await judge(null);
+  }
+  if (verification.status !== 'verified') return { verification, ...(photoDropped ? { photoDropped } : {}) };
+  return { verdict: parseSheetVerdict(verification.json, { detailed: true }), verification, ...(photoDropped ? { photoDropped } : {}) };
 }
 
 async function readSaved(path) {
@@ -577,6 +613,7 @@ async function resolveCandidates({ path, ladder, refPhoto, childPhoto, retryName
         continue; // known failed call: next bounded slot can run immediately
       }
       const judged = await judgeSheetCandidate(buffer, refPhoto, childPhoto, root, costTracker);
+      if (judged.photoDropped) log('warn', `character sheet candidate ${index + 1}: the verifier blocked the check with the child's photo attached (${judged.photoDropped.reason}) — re-asked against the approved cover alone`);
       results.push({ index, buffer, render, ...judged });
       if (!judged.verdict) throw sheetPending(judged.verification, results);
       await saveJson(`${key}.verdict.json`, judged.verdict);
@@ -634,6 +671,9 @@ function electCandidate(results, log) {
   const advisories = [];
   for (const r of results) {
     const n = r.index + 1;
+    if (r.photoDropped) {
+      advisories.push(advisory(`candidate ${n}: the verifier blocked the check with the child's photo attached (${r.photoDropped.reason}); judged against the approved cover alone — photo likeness unavailable`));
+    }
     if (r.error) {
       log('warn', `character sheet candidate ${n}: generation failed (${r.error})`);
       advisories.push(advisory(`candidate ${n} generation failed: ${r.error}`));

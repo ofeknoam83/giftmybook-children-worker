@@ -393,7 +393,16 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   regeneration (`forceNew` / `forceRerender` → `identityRetry` →
   `retryNamespace`) opens a fresh recovery root and budget for the anchor
   while a plain resume replays, and (3) the generic-safe rung's REFERENCE
-  1 label is free of the child/body vocabulary too. Sheets are elected per
+  1 label is free of the child/body vocabulary too. The JUDGE has a ladder
+  as well (same day): the sheet check attaches the child's RAW photo only
+  for the advisory `photo_likeness`, and a real minor's photo beside a
+  full-body sheet with compare-the-face instructions is what the
+  classifier refuses — a book whose sheet finally rendered paused on the
+  CHECK. A `provider_blocked` verdict WITH the photo is re-asked once
+  WITHOUT it (label `character-sheet-cover-only`, its own fingerprint and
+  evidence); the elected sheet carries a `characterSheet` advisory with
+  `photoLikeness` null, and only a block on the photo-free check pauses
+  the book, with photo-free evidence for the reviewed recheck. Sheets are elected per
   anchor path in GCS
   (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
   `.json`). Every strict-JSON judge call in the illustrator (sheet, prop,
