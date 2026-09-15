@@ -1714,6 +1714,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookFrom: body.bookFrom || null,
         bindingType: body.bindingType || null,
         forceRerender: !!body.forceRerender,
+        forceNew: !!body.forceNew,
         reviewedOnly: body.reviewedOnly === true,
         identityKeyed: !!body.identityKeyed,
         seed: Number.isInteger(body.seed) ? body.seed : null,

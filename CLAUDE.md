@@ -382,7 +382,18 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   an elected sheet rendered below the first rung carries a stage
   `characterSheet` advisory (`candidate-N.render.json` beside its PNG).
   Before recovery-3 one PROHIBITED_CONTENT on the single prompt paused the
-  book for a review that could only replay the same block. Sheets are elected per
+  book for a review that could only replay the same block. The first
+  laddered book was refused on ALL THREE rungs (the trigger is the cover
+  or the "model sheet of a child" ask, not the prose), and "regenerate"
+  replayed the saved refusal — so since the same day (1) a refusal on
+  every rung is `providerRefusedRender` and the bible renders the book on
+  the approved cover alone with a loud `characterSheet` advisory and
+  `bookBible.characterSheet: null` (`CATALOG_SHEET_REFUSAL_FALLBACK=0`
+  keeps the pause; a JUDGE-side block still pauses), (2) an explicit
+  regeneration (`forceNew` / `forceRerender` → `identityRetry` →
+  `retryNamespace`) opens a fresh recovery root and budget for the anchor
+  while a plain resume replays, and (3) the generic-safe rung's REFERENCE
+  1 label is free of the child/body vocabulary too. Sheets are elected per
   anchor path in GCS
   (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
   `.json`). Every strict-JSON judge call in the illustrator (sheet, prop,
@@ -1222,6 +1233,12 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_SHEET_REQUIRED=0` — (ce-9) a book whose sheet cannot be built
   renders sheet-less with a stage `characterSheet` advisory instead of
   failing `identity_kit_failed`.
+- `CATALOG_SHEET_REFUSAL_FALLBACK=0` — (2026-09-15) keep pausing a book
+  whose character model sheet the image provider refused to DRAW on every
+  rung of the prompt ladder (`visual_recovery_pending`, "Character
+  reference rendering paused" in the app); the default renders it on the
+  approved cover alone with the advisory. A judge rejection or a blocked
+  CHECK still follows `CATALOG_SHEET_REQUIRED`.
 - `CATALOG_SHEET_PHOTO_LIKENESS_MIN` — retired in ce-22; has no effect.
   Sheet election requires cover identity/outfit agreement and cover
   likeness >= 0.8. Photo likeness is advisory only at this stage.

@@ -1343,7 +1343,7 @@ async function renderStorySpreads(params) {
     bookId, story, bookDef, profile,
     approvedCoverUrl, childPhotoUrl, characterDescription,
     textLayout = 'caption', spreads = null, rerenderSpreads = null, probeNonce = null,
-    costTracker, forceRerender = false, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false,
+    costTracker, forceRerender = false, forceNew = false, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false,
     // The full-book caller keeps rendering a spread that came back with NO
     // illustration (bounded rounds, below); a probe reports it as failed.
     retryMissing = false,
@@ -1415,6 +1415,11 @@ async function renderStorySpreads(params) {
       bookId, theme, book, story, profile, ageBand: bookDef.ageBand,
       legacyReviewed: reviewedOnly,
       anchorUrl: characterRefUrl, refPhoto, childPhoto, characterDescription: characterDescription || null,
+      // An EXPLICIT regeneration (the admin's full regeneration sends
+      // forceNew; a re-render sends forceRerender) retries the character
+      // sheet under its own key instead of replaying a saved refusal or an
+      // exhausted budget; a plain resume (neither flag) replays.
+      identityRetry: forceNew || forceRerender ? `${bookId}:${Date.now()}` : null,
       costTracker, log,
     });
     if (reviewedManifest && bible.storyObjects?.objects?.length) {

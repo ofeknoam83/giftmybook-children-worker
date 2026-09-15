@@ -78,6 +78,13 @@
  *                                   (character/prop crops vs the sheets)
  *                                   and its re-renders; independent of
  *                                   CATALOG_WORLD_QA.
+ *  - CATALOG_SHEET_REFUSAL_FALLBACK=0 — (2026-09-15) keep pausing a book
+ *                                   whose character model sheet the image
+ *                                   provider refused to DRAW on every rung
+ *                                   of the prompt ladder (the default renders
+ *                                   it on the approved cover alone, with a
+ *                                   stage `characterSheet` advisory and
+ *                                   `bookBible.characterSheet: null`).
  *  - CATALOG_SHIP_ON_EXHAUSTION=0 — opt out of automatic best-art completion
  *                                   (the default since #297, and since
  *                                   2026-09-08 it covers EVERY spread-level
@@ -283,6 +290,11 @@ module.exports = {
   // ce-9 — the Book Bible + selection gate
   characterSheetEnabled: () => !envOff('CATALOG_CHARACTER_SHEET'),
   sheetRequired: () => !envOff('CATALOG_SHEET_REQUIRED'),
+  // 2026-09-15 — when the image provider refuses to DRAW the sheet on every
+  // rung of the prompt ladder, render the book on the approved cover alone
+  // with an advisory (a judge rejection still pauses under sheetRequired).
+  // Explicit 0 keeps the pause (visual_recovery_pending) for that case too.
+  sheetRefusalFallback: () => !envOff('CATALOG_SHEET_REFUSAL_FALLBACK'),
   propSheetsEnabled: () => !envOff('CATALOG_PROP_SHEETS'),
   // ce-19 — secondary characters: a person-typed companion gets a sheet too
   humanCompanionSheetEnabled: () => !envOff('CATALOG_HUMAN_COMPANION_SHEET'),
