@@ -414,18 +414,50 @@ test('a malformed answer can recover by rechecking, with no image replacement', 
   expect(judgeCalls()).toHaveLength(2);
 });
 
-test('a provider QA block stops with exact saved evidence; repeated resumes do not bypass it', async () => {
+const blockedResponse = () => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) });
+
+test('a provider QA block on BOTH the photo and the photo-free check stops with photo-free saved evidence; repeated resumes do not bypass it', async () => {
   installTransport([() => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) })]);
   const anchorUrl = freshAnchor();
   const failure = await run(anchorUrl).catch(e => e);
   expect(failure.recovery).toMatchObject({ reason: 'provider_blocked', retryable: false });
   expect(failure.recovery.issues[0]).toMatchObject({ finishReason: 'PROHIBITED_CONTENT', fingerprint: expect.any(String), evidenceKey: expect.stringContaining('/request.json') });
+  // The evidence an admin reviews (and a reviewed recheck would resend) is the photo-free request.
+  const evidence = JSON.parse(objects.get(failure.recovery.issues[0].evidenceKey).toString());
+  expect(evidence.parts.filter(p => p.inline_data)).toHaveLength(2);
+  expect(evidence.parts[0].text).not.toContain('Image 3');
+  expect(judgeCalls()).toHaveLength(2);
+  expect(judgeCalls().map(c => JSON.parse(c[1].body).contents[0].parts.filter(p => p.inline_data).length)).toEqual([3, 2]);
   await run(anchorUrl).catch(() => {});
   expect(imageCalls()).toHaveLength(1);
-  expect(judgeCalls()).toHaveLength(1);
+  expect(judgeCalls()).toHaveLength(2);
 });
 
-const blockedResponse = () => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) });
+test('a verifier block WITH the child photo attached is re-asked without it; the elected sheet carries the advisory and no photo likeness', async () => {
+  fetchWithTimeout.mockImplementation(async (url, init) => {
+    if (url.includes(IMAGE_MODEL_URL)) return imageResponse(CANDIDATE_PNGS[0]);
+    const parts = JSON.parse(init.body).contents[0].parts;
+    return parts.filter(p => p.inline_data).length === 3 ? blockedResponse() : qaResponse({ ...CLEAN_VERDICT, likeness: 0.9 });
+  });
+  const anchorUrl = freshAnchor();
+  const sheet = await run(anchorUrl);
+  expect(sheet.base64).toBe(bytes());
+  expect(sheet.likeness).toBe(0.9);
+  expect(sheet.photoLikeness).toBeNull();
+  expect(sheet.advisories).toEqual([{ stage: 'characterSheet', note: expect.stringMatching(/^candidate 1: the verifier blocked the check with the child's photo attached \(Verifier blocked the request: PROHIBITED_CONTENT\); judged against the approved cover alone — photo likeness unavailable$/) }]);
+  expect(imageCalls()).toHaveLength(1);
+  const prompts = judgeCalls().map(c => JSON.parse(c[1].body).contents[0].parts[0].text);
+  expect(prompts).toHaveLength(2);
+  expect(prompts[0]).toContain('Image 3 is a PHOTO');
+  expect(prompts[1]).not.toContain('Image 3');
+  expect(objects.has(characterSheetPath(anchorHash(anchorUrl)))).toBe(true);
+  // A photo-free verdict never stands in for a photo the verifier accepted: with the photo verified, the score rides.
+  fetchWithTimeout.mockImplementation(async url => (url.includes(IMAGE_MODEL_URL) ? imageResponse(CANDIDATE_PNGS[1]) : qaResponse({ ...CLEAN_VERDICT, photo_likeness: 0.7 })));
+  const other = await run(freshAnchor());
+  expect(other.photoLikeness).toBe(0.7);
+  expect(other.advisories).toEqual([]);
+});
+
 const promptOf = call => JSON.parse(call[1].body).contents[0].parts[0].text;
 const partsOf = call => JSON.parse(call[1].body).contents[0].parts;
 
