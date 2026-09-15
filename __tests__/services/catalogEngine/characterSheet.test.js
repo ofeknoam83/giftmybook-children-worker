@@ -24,7 +24,7 @@ const { GEMINI_IMAGE_SAFETY_SETTINGS } = require('../../../services/shared/illus
 const { STYLE_VERSION } = require('../../../services/catalogEngine/versions');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
 const {
-  getCharacterSheet, characterSheetPath, characterSheetSidecarPath, buildSheetPrompt, buildSheetQaPrompt,
+  getCharacterSheet, characterSheetPath, characterSheetSidecarPath, buildSheetPrompt, buildGenericSafeSheetPrompt, sheetPromptLadder, buildSheetQaPrompt,
   cleanDescription, parseSheetVerdict, sheetCandidateCount, anchorHash, FAILURE_CODE, PHOTO_LIKENESS_ADVISORY, COVER_LIKENESS_MIN,
 } = require('../../../services/catalogEngine/illustrator/bible/characterSheet');
 
@@ -199,6 +199,31 @@ describe('determinism', () => {
     expect(buildSheetPrompt({})).not.toContain('The child is');
     expect(buildSheetPrompt({})).not.toContain('REFERENCE 2');
   });
+  test('the prompt ladder is original → sanitized (no caller text) → generic-safe (calm, character-centric), pure for the same inputs', () => {
+    const args = { profile: PROFILE, characterDescription: 'freckles and a red bow' };
+    const ladder = sheetPromptLadder(args);
+    expect(ladder.map(r => r.rung)).toEqual(['original', 'sanitized', 'generic-safe']);
+    expect(ladder).toEqual(sheetPromptLadder({ ...args, profile: { ...PROFILE } }));
+    expect(ladder[0].prompt).toBe(buildSheetPrompt(args));
+    expect(ladder[0].prompt).toContain('named Mia, 5 years old');
+    expect(ladder[0].prompt).toContain('Character description: freckles and a red bow');
+    // The sanitized rung is the fixed template with NONE of the per-book text.
+    expect(ladder[1].prompt).not.toContain('Mia');
+    expect(ladder[1].prompt).not.toContain('years old');
+    expect(ladder[1].prompt).not.toContain('Character description');
+    expect(ladder[1].prompt).toContain('CHARACTER MODEL SHEET of this exact child');
+    expect(ladder[1].prompt).toContain('front view');
+    // The generic-safe rung asks for the same sheet without the child/body
+    // vocabulary, the capitalised prohibitions, or any caller text.
+    expect(ladder[2].prompt).toBe(buildGenericSafeSheetPrompt());
+    expect(ladder[2].prompt).not.toMatch(/child|years old|FULL-BODY|body proportions|ABSOLUTELY|NEVER|Mia|freckles/);
+    expect(ladder[2].prompt).toContain('REFERENCE 1');
+    expect(ladder[2].prompt).toContain('front view on the left, three-quarter view in the middle, back view on the right');
+    expect(ladder[2].prompt).toContain('two small head-and-shoulders insets');
+    expect(ladder[2].prompt).toContain('flat light-grey studio background');
+    expect(ladder[2].prompt).toContain('apart from lettering the reference shows on the clothing, the image contains no writing');
+    expect(new Set(ladder.map(r => r.prompt)).size).toBe(3);
+  });
   test('paths derive from the anchor PATH only and pin STYLE_VERSION', () => {
     const h = anchorHash('https://covers.example/a/b.png?sig=1');
     expect(h).toBe(anchorHash('https://covers.example/a/b.png?sig=2'));
@@ -318,8 +343,10 @@ describe('garment lettering is clothing (2026-09-08)', () => {
     await run(freshAnchor());
     const roots = [...objects.keys()].filter(k => k.includes('.recovery-v1/'));
     expect(roots.length).toBeGreaterThan(0);
-    // The root digest folds RECOVERY_VERSION: the same anchor + prompt under
-    // recovery-1 lived at a different key, so its exhausted budget is gone.
+    // The root digest folds RECOVERY_VERSION and every rung of the prompt
+    // ladder: the same anchor + prompt under recovery-1/-2 lived at a
+    // different key, so an exhausted budget or a saved un-laddered block
+    // there is never replayed.
     expect(pngKeys()).toHaveLength(1);
   });
 });
@@ -398,13 +425,98 @@ test('a provider QA block stops with exact saved evidence; repeated resumes do n
   expect(judgeCalls()).toHaveLength(1);
 });
 
-test('a render provider block does not trigger alternative generation slots', async () => {
-  fetchWithTimeout.mockResolvedValue({ ok: true, json: async () => ({ promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } }) });
-  const anchorUrl = freshAnchor();
-  await expect(run(anchorUrl)).rejects.toMatchObject({ recovery: { reason: 'provider_blocked' } });
-  await run(anchorUrl).catch(() => {});
-  expect(imageCalls()).toHaveLength(1);
-  expect(judgeCalls()).toHaveLength(0);
+const blockedResponse = () => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) });
+const promptOf = call => JSON.parse(call[1].body).contents[0].parts[0].text;
+const partsOf = call => JSON.parse(call[1].body).contents[0].parts;
+
+describe('the render climbs the prompt-variant safety ladder on a provider block (recovery-3)', () => {
+  test('a block on every rung stops inside ONE slot, named as the RENDER\'s block with each rung on record; resumes replay it without new spend', async () => {
+    fetchWithTimeout.mockResolvedValue({ ok: true, json: async () => ({ promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } }) });
+    const anchorUrl = freshAnchor();
+    const failure = await run(anchorUrl, { characterDescription: 'a toddler in a striped swimsuit' }).catch(e => e);
+    expect(failure).toMatchObject({ failureCode: 'visual_recovery_pending', recovery: { stage: 'character_sheet', reason: 'provider_blocked', retryable: false, nextAction: 'review_provider_block' } });
+    const issue = failure.recovery.issues[0];
+    expect(issue.reason).toBe('Character sheet render blocked by the image provider on every prompt variant (original, sanitized, generic-safe): PROHIBITED_CONTENT');
+    expect(issue.reason).not.toMatch(/Verifier/);
+    expect(issue).toMatchObject({ promptBlock: 'PROHIBITED_CONTENT', model: 'test-image-model', fingerprint: undefined, evidenceKey: expect.stringContaining('.recovery-v1') });
+    // Three rungs, one slot, no judge call and no second slot.
+    expect(imageCalls()).toHaveLength(3);
+    expect(judgeCalls()).toHaveLength(0);
+    const prompts = imageCalls().map(promptOf);
+    expect(prompts[0]).toContain('a toddler in a striped swimsuit');
+    expect(prompts[1]).not.toContain('swimsuit');
+    expect(prompts[1]).not.toContain('Mia');
+    expect(prompts[2]).toBe(buildGenericSafeSheetPrompt());
+    expect(pngKeys()).toHaveLength(0);
+    const errorKey = [...objects.keys()].find(k => k.endsWith('/candidate-0.error.json'));
+    const saved = JSON.parse(objects.get(errorKey).toString());
+    expect(saved.status).toBe('provider_blocked');
+    expect(saved.attempts.map(a => [a.rung, a.status, a.promptBlock])).toEqual([
+      ['original', 'provider_blocked', 'PROHIBITED_CONTENT'], ['sanitized', 'provider_blocked', 'PROHIBITED_CONTENT'], ['generic-safe', 'provider_blocked', 'PROHIBITED_CONTENT'],
+    ]);
+    await expect(run(anchorUrl, { characterDescription: 'a toddler in a striped swimsuit' })).rejects.toMatchObject({ recovery: { reason: 'provider_blocked', retryable: false } });
+    expect(imageCalls()).toHaveLength(3);
+    expect(judgeCalls()).toHaveLength(0);
+  });
+
+  test('a block on the original prompt renders on the sanitized rung, is judged like any candidate, and the elected sheet carries the advisory durably', async () => {
+    let image = 0;
+    fetchWithTimeout.mockImplementation(async url => {
+      if (url.includes(IMAGE_MODEL_URL)) return image++ === 0 ? blockedResponse() : imageResponse(CANDIDATE_PNGS[0]);
+      return qaResponse(CLEAN_VERDICT);
+    });
+    const anchorUrl = freshAnchor();
+    const sheet = await run(anchorUrl);
+    expect(sheet.base64).toBe(bytes());
+    expect(imageCalls()).toHaveLength(2);
+    expect(promptOf(imageCalls()[0])).toContain('named Mia');
+    expect(promptOf(imageCalls()[1])).not.toContain('Mia');
+    expect(judgeCalls()).toHaveLength(1);
+    expect(sheet.advisories).toEqual([{ stage: 'characterSheet', note: expect.stringMatching(/^elected sheet \(candidate 1\) rendered on the sanitized prompt variant after the image provider blocked the original prompt \(PROHIBITED_CONTENT\); it passed every required check/) }]);
+    // The rung is a durable record beside the PNG: a resume of an unelected
+    // root would replay the advisory and the evidence panel can show it.
+    const renderKey = [...objects.keys()].find(k => k.endsWith('/candidate-0.render.json'));
+    expect(JSON.parse(objects.get(renderKey).toString())).toEqual({ rung: 'sanitized', attempts: [{ rung: 'original', status: 'provider_blocked', reason: 'PROHIBITED_CONTENT', promptBlock: null, finishReason: 'PROHIBITED_CONTENT' }] });
+    expect(objects.has(characterSheetPath(anchorHash(anchorUrl)))).toBe(true);
+  });
+
+  test('a blocked repair climbs to the generic-safe rung WITHOUT the repair source; a 400 naming a safety block is a block too', async () => {
+    let image = 0;
+    fetchWithTimeout.mockImplementation(async (url, init) => {
+      if (url.includes(IMAGE_MODEL_URL)) {
+        const i = image++;
+        if (i === 0) return imageResponse(CANDIDATE_PNGS[0]); // candidate 1: rendered, then rejected by the judge
+        if (i === 1) return { ok: false, status: 400, text: async () => '{"error":{"message":"The request was blocked for safety reasons"}}' }; // repair on the original prompt
+        if (i === 2) return blockedResponse(); // repair on the sanitized prompt
+        return imageResponse(CANDIDATE_PNGS[1]); // generic-safe: a fresh render
+      }
+      const sheetB64 = JSON.parse(init.body).contents[0].parts.find(p => p.inline_data).inline_data.data;
+      return qaResponse(sheetB64 === CANDIDATE_PNGS[0].toString('base64') ? outfitMismatch : CLEAN_VERDICT);
+    });
+    const sheet = await run();
+    expect(sheet.base64).toBe(bytes(1));
+    expect(imageCalls()).toHaveLength(4);
+    // The repair source rides the original and sanitized rungs (its defect
+    // text is caller text too) and is dropped on the generic-safe rung.
+    expect(partsOf(imageCalls()[1]).filter(p => p.inline_data)).toHaveLength(2);
+    expect(partsOf(imageCalls()[1]).some(p => p.text && p.text.startsWith('REFERENCE 2 — REPAIR SOURCE'))).toBe(true);
+    expect(partsOf(imageCalls()[2]).filter(p => p.inline_data)).toHaveLength(2);
+    expect(partsOf(imageCalls()[3]).filter(p => p.inline_data)).toHaveLength(1);
+    expect(partsOf(imageCalls()[3]).some(p => p.text && p.text.includes('REFERENCE 2'))).toBe(false);
+    expect(promptOf(imageCalls()[3])).toBe(buildGenericSafeSheetPrompt());
+    expect(judgeCalls()).toHaveLength(2);
+    expect(sheet.advisories.map(a => a.note)).toEqual([
+      'candidate 1 rejected: top colour: cover shows rose pink dress; sheet shows blue dress',
+      expect.stringMatching(/^elected sheet \(candidate 2\) rendered on the generic-safe prompt variant after the image provider blocked the original prompt \(HTTP 400 .*safety.*\) and the sanitized prompt \(PROHIBITED_CONTENT\)/),
+    ]);
+  });
+
+  test('a transient failure on a rung ends the slot as before — the ladder is for provider blocks only', async () => {
+    installTransport([CLEAN_VERDICT, CLEAN_VERDICT], { imageFailures: [0] });
+    expect((await run()).base64).toBe(bytes(1));
+    expect(imageCalls()).toHaveLength(2);
+    expect(promptOf(imageCalls()[1])).toContain('named Mia');
+  });
 });
 
 test('a known failed render moves to the next bounded slot without a cooldown', async () => {
