@@ -27,6 +27,20 @@
  * slot still purchases at most one; the judge holds a degraded-rung sheet to
  * every required check like any other candidate, and an elected one carries
  * a stage advisory naming the rung it rendered on.
+ *
+ * Two more things the first laddered book taught (all three rungs blocked,
+ * and "regenerate" changed nothing): (1) the fixed REFERENCE 1 label — "the
+ * parent-approved rendering of the child: … body proportions …" — rode every
+ * rung, the generic-safe one included, so the last rung never was free of
+ * the child/body vocabulary it exists to drop; it is neutral there now.
+ * (2) The recovery root was purely content-keyed, so an admin's explicit
+ * regeneration (`forceNew` / `forceRerender`) replayed the saved refusal
+ * without ever calling the provider again — `retryNamespace` (the explicit
+ * regeneration's key, threaded from the pipeline) opens a fresh durable
+ * budget for the anchor; a plain resume still replays. A refusal on every
+ * rung is tagged `providerRefusedRender` on the thrown error so the bible
+ * can fall back to cover-anchored rendering (`CATALOG_SHEET_REFUSAL_FALLBACK`)
+ * instead of pausing a book no retry can unblock.
  */
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../../illustrationGenerator');
@@ -283,10 +297,14 @@ function advisory(note) {
  * @param {{buffer: Buffer, defects: string[]}|null} repair
  * @returns {Promise<{buffer?: Buffer, failure?: object}>}
  */
-async function postSheetRender(prompt, refPhoto, repair) {
+async function postSheetRender(prompt, refPhoto, repair, rung = 'original') {
   const parts = [
     { text: prompt },
-    { text: 'REFERENCE 1 — APPROVED CHARACTER (the parent-approved rendering of the child: face, hair, skin tone, body proportions, rendering style, and outfit are ground truth)' },
+    // The label is prompt text too: the generic-safe rung keeps it free of
+    // the child/body vocabulary the rung exists to drop.
+    { text: rung === 'generic-safe'
+      ? 'REFERENCE 1 — APPROVED CHARACTER (the approved rendering: face, hair, skin tone, proportions, rendering style, and outfit are ground truth)'
+      : 'REFERENCE 1 — APPROVED CHARACTER (the parent-approved rendering of the child: face, hair, skin tone, body proportions, rendering style, and outfit are ground truth)' },
     { inline_data: { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 } },
   ];
   if (repair) parts.push(
@@ -342,7 +360,7 @@ async function postSheetRender(prompt, refPhoto, repair) {
 async function renderSheetCandidate(ladder, refPhoto, repair = null) {
   const attempts = [];
   for (const { rung, prompt } of ladder) {
-    const { buffer, failure } = await postSheetRender(prompt, refPhoto, rung === 'generic-safe' ? null : repair);
+    const { buffer, failure } = await postSheetRender(prompt, refPhoto, rung === 'generic-safe' ? null : repair, rung);
     if (buffer) return { buffer, rung, attempts };
     const attempt = { rung, status: failure.status, reason: failure.reason, promptBlock: failure.promptBlock || null, finishReason: failure.finishReason || null };
     attempts.push(attempt);
@@ -490,10 +508,13 @@ async function readRenderRecord(key) {
 }
 
 /** One initial candidate, then repairs guided by actual findings, up to the
- * persisted limit (default three TOTAL images, not three per retry). */
-async function resolveCandidates({ path, ladder, refPhoto, childPhoto, costTracker, log }) {
+ * persisted limit (default three TOTAL images, not three per retry). An
+ * explicit regeneration (`retryNamespace`) gets its own root — and budget —
+ * beside the content-keyed one; a plain resume replays the latter. */
+async function resolveCandidates({ path, ladder, refPhoto, childPhoto, retryNamespace = null, costTracker, log }) {
   const image = { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 };
-  const root = `${path}.${digest({ version: RECOVERY_VERSION, model: GEMINI_MODEL, prompts: ladder.map(r => r.prompt), image })}.recovery-v1`;
+  const root = `${path}.${digest({ version: RECOVERY_VERSION, model: GEMINI_MODEL, prompts: ladder.map(r => r.prompt), image, ...(retryNamespace ? { retry: retryNamespace } : {}) })}.recovery-v1`;
+  if (retryNamespace) log('info', `character sheet: explicit regeneration (${retryNamespace}) — a fresh attempt budget at ${root}`);
   const results = [];
   let repair = null;
   try {
@@ -545,7 +566,14 @@ async function resolveCandidates({ path, ladder, refPhoto, childPhoto, costTrack
       if (renderFailure) {
         const outcome = { ...renderFailure, evidenceKey: root };
         results.push({ index, verification: outcome, error: outcome.reason });
-        if (outcome.status !== 'transient') throw sheetPending(outcome, results);
+        if (outcome.status !== 'transient') {
+          const err = sheetPending(outcome, results);
+          // The provider refused to draw the sheet on every rung of the
+          // ladder: no retry can route around it, so the bible may render
+          // the book on the cover alone instead of pausing it for good.
+          if (outcome.status === 'provider_blocked') err.providerRefusedRender = true;
+          throw err;
+        }
         continue; // known failed call: next bounded slot can run immediately
       }
       const judged = await judgeSheetCandidate(buffer, refPhoto, childPhoto, root, costTracker);
@@ -718,14 +746,22 @@ function copySheet(sheet) {
  * @param {{name?: string, age?: number|string}|null} [params.profile]
  * @param {string|null} [params.characterDescription] the app's cover-time
  *   description sentence (sanitized before it is pinned)
+ * @param {string|null} [params.retryNamespace] an EXPLICIT regeneration's
+ *   key (the pipeline derives it from `forceNew` / `forceRerender`): the
+ *   sheet's recovery root — and its durable attempt budget — is opened
+ *   afresh under it, so a regenerate really calls the provider again. Null
+ *   (a plain resume) replays the content-keyed root. An ELECTED sheet is
+ *   pinned per anchor and wins either way.
  * @param {object} [params.costTracker]
  * @param {(level: string, msg: string) => void} [params.log]
  * @returns {Promise<{base64: string, mimeType: string, hash: string, storageKey: string, likeness: number|null, photoLikeness: number|null, candidates: number, advisories: Array<{stage: string, note: string}>}|null>}
  *   null ONLY when the kill-switch is off.
  * @throws {Error} `visual_recovery_pending` for unresolved work, retaining
- *   candidates and the original cause; `identity_kit_failed` for missing input.
+ *   candidates and the original cause (`providerRefusedRender: true` when
+ *   the image provider blocked the render on every rung of the ladder);
+ *   `identity_kit_failed` for missing input.
  */
-async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profile = null, characterDescription = null, costTracker, log = () => {} }) {
+async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profile = null, characterDescription = null, retryNamespace = null, costTracker, log = () => {} }) {
   if (!flags.characterSheetEnabled()) return null;
   if (!anchorUrl || !refPhoto?.base64) {
     throw identityKitError('character sheet: an identity anchor URL and its bytes are required', [advisory('no identity anchor supplied')]);
@@ -747,7 +783,7 @@ async function getCharacterSheet({ anchorUrl, refPhoto, childPhoto = null, profi
         return sheet;
       }
       const ladder = sheetPromptLadder({ profile, characterDescription });
-      const election = await resolveCandidates({ path, ladder, refPhoto, childPhoto, costTracker, log });
+      const election = await resolveCandidates({ path, ladder, refPhoto, childPhoto, retryNamespace: typeof retryNamespace === 'string' && retryNamespace ? retryNamespace : null, costTracker, log });
       const count = election.count;
       // Create-if-absent: concurrent cold instances race to create the same
       // deterministic object and exactly one write wins — every loser ADOPTS

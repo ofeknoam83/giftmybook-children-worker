@@ -129,6 +129,9 @@ async function electEmotionPlan({ book, story, ageBand, log }) {
  * @param {{base64: string, mimeType: string}} p.refPhoto anchor bytes
  * @param {{base64: string, mimeType: string}|null} [p.childPhoto] raw photo bytes (likeness aid)
  * @param {string|null} [p.characterDescription]
+ * @param {string|null} [p.identityRetry] an explicit regeneration's key
+ *   (`forceNew` / `forceRerender`): the character sheet's saved refusal or
+ *   exhausted budget is not replayed — a fresh attempt runs under this key
  * @param {object} [p.costTracker]
  * @param {(level: string, msg: string) => void} [p.log]
  * @returns {Promise<object>} the bible (see fields below)
@@ -154,19 +157,32 @@ async function buildBookBible(p) {
       sheet = await getCharacterSheet({
         anchorUrl: p.anchorUrl, refPhoto: p.refPhoto, childPhoto: p.childPhoto || null,
         profile: p.profile, characterDescription: p.characterDescription || null,
+        retryNamespace: p.identityRetry || null,
         costTracker: p.costTracker, log,
       });
       for (const a of (sheet && sheet.advisories) || []) advisories.push(a);
     } catch (err) {
-      if (flags.sheetRequired()) {
+      // The image provider refused to DRAW the sheet on every rung of the
+      // prompt ladder (2026-09-15): no candidate exists to judge, no retry
+      // can route around it, and the only remedy — a different approved
+      // cover — is a guess. That is the world plate's situation, not a
+      // judge rejection: the book renders on the approved cover alone
+      // (the pre-ce-9 path every kill-switch already supports), loudly —
+      // the advisory below and `bookBible.characterSheet: null` on the
+      // callback — unless CATALOG_SHEET_REFUSAL_FALLBACK=0 keeps the pause.
+      const refused = err.providerRefusedRender === true && flags.sheetRefusalFallback();
+      if (flags.sheetRequired() && !refused) {
         if (err.recovery) throw err;
         const e = new Error(`character model sheet could not be built (${err.message}) — the book needs review rather than rendering on the cover alone`);
         e.failureCode = err.failureCode || 'identity_kit_failed';
         e.advisories = err.advisories || [];
         throw e;
       }
-      log('warn', `character sheet unavailable (${err.message}) — rendering on the cover alone`);
-      advisories.push({ stage: 'characterSheet', note: `renders are NOT anchored on a character model sheet (${err.message}); identity and outfit rely on the cover alone` });
+      const cause = refused ? (err.recovery?.issues?.[0]?.reason || err.message) : err.message;
+      log('warn', `character sheet unavailable (${cause}) — rendering on the cover alone`);
+      advisories.push({ stage: 'characterSheet', note: refused
+        ? `the image provider refused to draw the character model sheet on every prompt variant (${cause}); renders are NOT anchored on a model sheet — identity and outfit rely on the approved cover alone. A full regeneration retries the sheet; a different approved cover starts a fresh render`
+        : `renders are NOT anchored on a character model sheet (${err.message}); identity and outfit rely on the cover alone` });
     }
   }
 

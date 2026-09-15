@@ -511,6 +511,49 @@ describe('the render climbs the prompt-variant safety ladder on a provider block
     ]);
   });
 
+  test('the fixed reference label is neutral on the generic-safe rung; a refusal on every rung is tagged for the bible, a judge block is not', async () => {
+    fetchWithTimeout.mockResolvedValue(blockedResponse());
+    const failure = await run().catch(e => e);
+    expect(failure.providerRefusedRender).toBe(true);
+    const labels = imageCalls().map(call => partsOf(call)[1].text);
+    expect(labels[0]).toContain('rendering of the child');
+    expect(labels[1]).toContain('rendering of the child');
+    expect(labels[2]).toBe('REFERENCE 1 — APPROVED CHARACTER (the approved rendering: face, hair, skin tone, proportions, rendering style, and outfit are ground truth)');
+    expect(labels[2]).not.toMatch(/child|body/);
+    // A VERIFIER block keeps the judge's review path: the render was fine.
+    installTransport([() => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) })]);
+    const judged = await run(freshAnchor()).catch(e => e);
+    expect(judged.recovery.reason).toBe('provider_blocked');
+    expect(judged.providerRefusedRender).toBeUndefined();
+    expect(judged.recovery.issues[0].fingerprint).toEqual(expect.any(String));
+  });
+
+  test('an explicit regeneration (retryNamespace) opens a fresh attempt budget instead of replaying the saved refusal; a plain resume still replays', async () => {
+    fetchWithTimeout.mockResolvedValue(blockedResponse());
+    const anchorUrl = freshAnchor();
+    await run(anchorUrl).catch(() => {});
+    await run(anchorUrl).catch(() => {});
+    expect(imageCalls()).toHaveLength(3); // the saved refusal replays without a call
+    const regenerated = await run(anchorUrl, { retryNamespace: 'book-1:1700000000000' }).catch(e => e);
+    expect(regenerated.recovery.reason).toBe('provider_blocked');
+    expect(imageCalls()).toHaveLength(6); // three rungs again, under a new root
+    const roots = new Set([...objects.keys()].filter(k => k.endsWith('/candidate-0.error.json')).map(k => k.replace(/\/candidate-0\.error\.json$/, '')));
+    expect(roots.size).toBe(2);
+    await run(anchorUrl, { retryNamespace: 'book-1:1700000000000' }).catch(() => {});
+    expect(imageCalls()).toHaveLength(6); // the same regeneration key replays its own outcome
+    await run(anchorUrl).catch(() => {});
+    expect(imageCalls()).toHaveLength(6);
+    // A regeneration whose render succeeds ELECTS the sheet for the anchor: every later call gets it.
+    let image = 0;
+    fetchWithTimeout.mockImplementation(async url => (url.includes(IMAGE_MODEL_URL) ? (image++ === 0 ? blockedResponse() : imageResponse(CANDIDATE_PNGS[0])) : qaResponse(CLEAN_VERDICT)));
+    const sheet = await run(anchorUrl, { retryNamespace: 'book-1:1700000000001' });
+    expect(sheet.base64).toBe(bytes());
+    expect(objects.has(characterSheetPath(anchorHash(anchorUrl)))).toBe(true);
+    fetchWithTimeout.mockReset();
+    expect((await run(anchorUrl)).base64).toBe(bytes());
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
   test('a transient failure on a rung ends the slot as before — the ladder is for provider blocks only', async () => {
     installTransport([CLEAN_VERDICT, CLEAN_VERDICT], { imageFailures: [0] });
     expect((await run()).base64).toBe(bytes(1));

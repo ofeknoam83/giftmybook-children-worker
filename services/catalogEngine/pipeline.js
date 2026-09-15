@@ -184,6 +184,10 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
  * @param {string|null} params.bookFrom
  * @param {string|null} params.bindingType
  * @param {boolean} params.forceRerender
+ * @param {boolean} [params.forceNew] the admin's full regeneration (the
+ *   checkpoint is already cleared by the caller); with forceRerender it also
+ *   retries the character sheet under a fresh key instead of replaying a
+ *   saved provider refusal
  * @param {boolean} [params.identityKeyed] probe-compat render cache keying —
  *   the Art Bench "create final book" dispatch sends the same identityKeyed
  *   (and seed) it probed with so the approved probe renders REPLAY into the
@@ -201,7 +205,7 @@ async function runBookPipeline(params) {
     bookId, bookDefinitionId, sessionId, storyPair, checkpoint, saveCheckpoint,
     approvedCoverUrl, childPhotoUrl, characterDescription,
     textLayout = 'caption', heartfeltNote, bookFrom, bindingType,
-    forceRerender = false, reviewedOnly = false, costTracker, onProgress = () => {}, log,
+    forceRerender = false, forceNew = false, reviewedOnly = false, costTracker, onProgress = () => {}, log,
   } = params;
   const profile = normalizeProfile(params.profile);
 
@@ -258,6 +262,7 @@ async function runBookPipeline(params) {
     seed: Number.isInteger(params.seed) ? params.seed : null,
     costTracker,
     forceRerender,
+    forceNew,
     // A previous run already reached PDF assembly. Resume from its saved
     // artwork even when the retry came through the ordinary generation URL.
     reviewedOnly: reviewedOnly || resumeArtwork,

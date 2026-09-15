@@ -123,6 +123,7 @@ beforeEach(() => {
   process.env.CATALOG_MISSING_RENDER_BACKOFF_MS = '0';
   delete process.env.CATALOG_MISSING_RENDER_ROUNDS;
   delete process.env.CATALOG_SHEET_REQUIRED;
+  delete process.env.CATALOG_SHEET_REFUSAL_FALLBACK;
   delete process.env.CATALOG_CHARACTER_SHEET;
   delete process.env.CATALOG_SPREAD_QA_MAX_REPAIRS;
   delete process.env.CATALOG_DRIFT_MAX_REPAIRS;
@@ -255,6 +256,40 @@ test('the identity kit is required by default (identity_kit_failed); CATALOG_SHE
   expect(advisories).toEqual(expect.arrayContaining([expect.objectContaining({ stage: 'characterSheet', note: expect.stringContaining('NOT anchored on a character model sheet') })]));
   expect(bookBible.characterSheet).toBeNull();
   expect(generateIllustration.mock.calls[0][3].referencePack.map(r => r.kind)).toEqual(['cover']);
+});
+
+test('a sheet the image provider refused to draw on every rung renders the book on the cover alone with a loud advisory; CATALOG_SHEET_REFUSAL_FALLBACK=0 keeps the pause', async () => {
+  const reason = 'Character sheet render blocked by the image provider on every prompt variant (original, sanitized, generic-safe): PROHIBITED_CONTENT';
+  const recovery = { version: 1, status: 'verification_pending', stage: 'character_sheet', reason: 'provider_blocked', retryable: false, nextAction: 'review_provider_block',
+    issues: [{ status: 'provider_blocked', reason, model: 'gemini-3.1-flash-image', evidenceKey: 'catalog-assets/character-sheets/x/anchor.png.hash.recovery-v1', promptBlock: 'PROHIBITED_CONTENT' }] };
+  const refused = Object.assign(new Error(`Character reference needs attention: ${reason}. Saved sheets are retained.`), { failureCode: 'visual_recovery_pending', recovery, providerRefusedRender: true });
+  getCharacterSheet.mockRejectedValue(refused);
+  getOutfitLock.mockResolvedValueOnce({ outfit: 'Top: red. Bottom: jeans. Footwear: shoes.', hash: 'coverlock' });
+  const { results, advisories, bookBible } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  expect(results[0].buffer).not.toBeNull();
+  expect(bookBible.characterSheet).toBeNull();
+  expect(advisories).toEqual(expect.arrayContaining([expect.objectContaining({ stage: 'characterSheet',
+    note: expect.stringMatching(/^the image provider refused to draw the character model sheet on every prompt variant \(Character sheet render blocked .*PROHIBITED_CONTENT\); renders are NOT anchored on a model sheet/) })]));
+  expect(generateIllustration.mock.calls[0][3].referencePack.map(r => r.kind)).toEqual(['cover']);
+
+  process.env.CATALOG_SHEET_REFUSAL_FALLBACK = '0';
+  await expect(renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }))).rejects.toBe(refused);
+
+  // A judge-side recovery (the render was fine; the CHECK was blocked) still pauses by default.
+  delete process.env.CATALOG_SHEET_REFUSAL_FALLBACK;
+  const judged = Object.assign(new Error('Character reference needs attention'), { failureCode: 'visual_recovery_pending',
+    recovery: { ...recovery, issues: [{ ...recovery.issues[0], fingerprint: 'f'.repeat(64), evidenceKey: 'catalog-assets/x/checks/ffff/request.json' }] } });
+  getCharacterSheet.mockRejectedValue(judged);
+  await expect(renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }))).rejects.toBe(judged);
+});
+
+test('an explicit regeneration (forceNew or forceRerender) retries the character sheet under its own key; a plain run passes none', async () => {
+  await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+  expect(getCharacterSheet.mock.calls[0][0].retryNamespace).toBeNull();
+  await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], forceNew: true }));
+  expect(getCharacterSheet.mock.calls[1][0].retryNamespace).toMatch(/^bible-book-1:\d+$/);
+  await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], forceRerender: true }));
+  expect(getCharacterSheet.mock.calls[2][0].retryNamespace).toMatch(/^bible-book-1:\d+$/);
 });
 
 test('prop and companion sheets ride the pack only on the spreads that carry them, with their specs in the PROPS block', async () => {
