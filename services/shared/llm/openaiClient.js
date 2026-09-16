@@ -31,7 +31,9 @@ const DEFAULT_TIMEOUT_MS = 180000;
 const DEFAULT_MAX_TOKENS = 12000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const STREAM_THRESHOLD_TOKENS = 6000;
-const GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
+// The Gemini text model the fallback path targets — the registry's
+// CATALOG_TEXT_FALLBACK_MODEL (default gemini-3.5-flash), read per call.
+const { textFallbackModel } = require('./models');
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 class LlmTransientError extends Error {
@@ -390,7 +392,7 @@ async function callGeminiOnce(params) {
   const key = resolveGeminiKey(apiKey);
   if (!key) throw new Error(`${label}: no Gemini key`);
 
-  const resolvedModel = model && /^gemini-/i.test(model) ? model : GEMINI_TEXT_MODEL;
+  const resolvedModel = model && /^gemini-/i.test(model) ? model : textFallbackModel();
   const url = `${GEMINI_BASE_URL}/${resolvedModel}:generateContent?key=${key}`;
 
   // Wire-layer scrub for invisibles/homoglyphs/role-injection patterns.
@@ -578,7 +580,7 @@ async function callText(params) {
         if (!isGeminiPrimary && allowGeminiFallback && resolveGeminiKey(geminiApiKey)) {
           try {
             console.warn(
-              `[LLM_FALLBACK] label=${label} primary_model=${model} fallback_model=${GEMINI_TEXT_MODEL} primary_error_class=${err?.name || 'Error'} primary_error='${(err?.message || '').slice(0, 300)}' attempt=${attempt} elapsed_ms=${Date.now() - attemptStart}`,
+              `[LLM_FALLBACK] label=${label} primary_model=${model} fallback_model=${textFallbackModel()} primary_error_class=${err?.name || 'Error'} primary_error='${(err?.message || '').slice(0, 300)}' attempt=${attempt} elapsed_ms=${Date.now() - attemptStart}`,
             );
             const fbStart = Date.now();
             const fb = await callGeminiOnce({
@@ -598,7 +600,7 @@ async function callText(params) {
               text: fb.text,
               json,
               usage: { inputTokens: fb.inputTokens, outputTokens: fb.outputTokens },
-              model: GEMINI_TEXT_MODEL,
+              model: textFallbackModel(),
               attempts: attempt,
               label,
               finishReason: fb.finishReason,

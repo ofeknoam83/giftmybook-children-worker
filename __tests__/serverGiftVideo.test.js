@@ -61,7 +61,7 @@ const shutdownHandler = process.listeners('SIGTERM').at(-1);
 
 test('reviewed visual verification requires an admin attestation in addition to the worker key', async () => {
   await request(app).post('/v13/review-visual-check').send({}).expect(403);
-  await request(app).post('/v13/review-visual-check').set('x-api-key', 'test-api-key').send({ reviewedBy: 'forged-admin', model: 'gemini-2.5-pro' }).expect(403);
+  await request(app).post('/v13/review-visual-check').set('x-api-key', 'test-api-key').send({ reviewedBy: 'forged-admin', model: require('../services/shared/llm/models').proModel() }).expect(403);
 });
 test('extra film input attempts require worker authentication and explicit confirmation', async () => {
   await request(app).post('/v13/retry-film-input').send({ confirmExtraAttempt: true }).expect(403);

@@ -7,7 +7,7 @@
  *
  * Pipeline:
  *   1. Idempotent GCS cache, keyed by sha256(faceCropUrl + artStyle + VERSION).
- *   2. Likeness description via `gemini-2.5-flash` vision on the faceCrop
+ *   2. Likeness description via the QA vision model (CATALOG_QA_VISION_MODEL) on the faceCrop
  *      image → strict JSON visualLocks (face, hair, skinTone, facialHair,
  *      glasses, build, distinguishingFeatures, suggestedOutfit, signatureColor).
  *   3. ADULT comic / graphic-novel reference sheet via IMG2IMG on
@@ -37,7 +37,10 @@ const {
   CHAT_API_BASE,
 } = require('../shared/illustration/config');
 
-const VISION_MODEL = 'gemini-2.5-flash';
+const { qaVisionModel } = require('../shared/llm/models');
+
+/** The vision model, read per call (CATALOG_QA_VISION_MODEL). */
+const VISION_MODEL = () => qaVisionModel();
 const CACHE_VERSION = 'v2';
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]+$/;
 const IMAGE_TIMEOUT_MS = 120000;
@@ -231,7 +234,7 @@ function parseJsonLoose(text) {
 }
 
 /**
- * Call gemini-2.5-flash vision to produce the visualLocks JSON. On failure
+ * Call the QA vision model to produce the visualLocks JSON. On failure
  * returns an empty object so the caller can still generate the sheet.
  *
  * @param {string} apiKey
@@ -240,7 +243,7 @@ function parseJsonLoose(text) {
  * @returns {Promise<object>}
  */
 async function describeVisualLocks(apiKey, face, ctx) {
-  const url = `${CHAT_API_BASE}/${VISION_MODEL}:generateContent?key=${apiKey}`;
+  const url = `${CHAT_API_BASE}/${VISION_MODEL()}:generateContent?key=${apiKey}`;
   const body = {
     contents: [{
       role: 'user',

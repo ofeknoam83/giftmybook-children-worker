@@ -19,8 +19,9 @@
 
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../shared/llm/geminiJson');
+const { qaVisionModel } = require('../../shared/llm/models');
 
-const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+const QA_MODEL = () => qaVisionModel();
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001f\\u007f]+', 'g');
 

@@ -1,6 +1,7 @@
 process.env.GEMINI_API_KEY = 'test-key';
 jest.mock('../../services/gcsStorage', () => ({ uploadBuffer: jest.fn().mockResolvedValue('https://saved.example/art.png') }));
 const { verifyImageText, generateIllustration } = require('../../services/illustrationGenerator');
+const QA_MODEL = require('../../services/shared/llm/models').qaVisionModel();
 const { uploadBuffer } = require('../../services/gcsStorage');
 const originalFetch = global.fetch;
 const letters = text => text.split(' ').map(w => [...w].join('|')).join(' ');
@@ -15,7 +16,8 @@ test('the reader never receives the expected words, has enough non-thinking outp
   const prompt = body.contents[0].parts.find(p => p.text).text;
   expect(prompt).not.toContain('PrivateName');
   expect(prompt).toContain('Never correct spelling');
-  expect(body.generationConfig).toMatchObject({ maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } });
+  expect(body.generationConfig).toMatchObject({ maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: 'MINIMAL' } });
+  expect(global.fetch.mock.calls[0][0]).toContain(`/${QA_MODEL}:generateContent`);
 });
 
 test.each([
@@ -31,7 +33,7 @@ test.each([
 test('the final legacy image attempt cannot bypass spelling or upload bad lettering', async () => {
   let images = 0, reads = 0;
   global.fetch = jest.fn(async (url, init) => {
-    if (url.includes('gemini-2.5-flash')) { reads++; return reply(init.body.includes('CHARACTER MODE') ? letters('Siiver leaves.') : 'Siiver leaves.'); }
+    if (url.includes(`/${QA_MODEL}:`)) { reads++; return reply(init.body.includes('CHARACTER MODE') ? letters('Siiver leaves.') : 'Siiver leaves.'); }
     images++;
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { data: 'YQ==', mimeType: 'image/png' } }] } }] }) };
   });
@@ -46,7 +48,7 @@ test('the final legacy image attempt cannot bypass spelling or upload bad letter
 test('a reader outage stops legacy image retries instead of generating five more pictures', async () => {
   let images = 0;
   global.fetch = jest.fn(async url => {
-    if (url.includes('gemini-2.5-flash')) return { ok: false, status: 503 };
+    if (url.includes(`/${QA_MODEL}:`)) return { ok: false, status: 503 };
     images++;
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { data: 'YQ==', mimeType: 'image/png' } }] } }] }) };
   });

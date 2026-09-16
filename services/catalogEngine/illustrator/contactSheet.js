@@ -40,13 +40,13 @@
 
 const sharp = require('sharp');
 const { getNextApiKey, fetchWithTimeout } = require('../../illustrationGenerator');
-const { GEMINI_QA_MODEL } = require('../../shared/illustration/config');
+const { qaVisionModel } = require('../../shared/llm/models');
 const { jsonQaGenerationConfig } = require('../../shared/llm/geminiJson');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
-const VISION_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || GEMINI_QA_MODEL;
+const VISION_MODEL = () => qaVisionModel();
 const VISION_TIMEOUT_MS = 90000;
 const VISION_MAX_OUTPUT_TOKENS = 1024;
 

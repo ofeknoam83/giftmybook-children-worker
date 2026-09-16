@@ -14,6 +14,7 @@ const eleven = require('../../../../services/catalogEngine/audio/providers/eleve
 const gemini = require('../../../../services/catalogEngine/audio/providers/gemini');
 const openai = require('../../../../services/catalogEngine/audio/providers/openai');
 const { parseWav } = require('../../../../services/catalogEngine/audio/wav');
+const { ttsModel } = require('../../../../services/shared/llm/models');
 
 const lines = [
   { text: 'Emma looked around.', direction: { emotion: 'wonder', intensity: 'soft', pace: 'even', shape: 'statement' }, isRefrain: false },
@@ -113,9 +114,14 @@ describe('gemini + openai', () => {
       expect(body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Kore');
       return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: pcmBase64() } }] } }] }) };
     });
-    const r = await gemini.synthesize({ lines, directionWords: 'x', paceWords: 'y', voice: { voice: 'Kore', model: 'gemini-2.5-pro-preview-tts' }, credentials: { apiKey: 'g' } });
+    const r = await gemini.synthesize({ lines, directionWords: 'x', paceWords: 'y', voice: { voice: 'Kore', model: ttsModel() }, credentials: { apiKey: 'g' } });
     expect(parseWav(r.wav).sampleRate).toBe(24000);
-    expect(r.model).toBe('gemini-2.5-pro-preview-tts');
+    expect(r.model).toBe(ttsModel());
+    expect(global.fetch.mock.calls[0][0]).toContain(`/${ttsModel()}:generateContent`);
+    // A cast voice that names no model rides the registry's TTS default.
+    const fallback = await gemini.synthesize({ lines, directionWords: 'x', paceWords: 'y', voice: { voice: 'Kore' }, credentials: { apiKey: 'g' } });
+    expect(fallback.model).toBe(ttsModel());
+    expect(ttsModel()).not.toMatch(/gemini-2\.5/);
   });
   test('openai sends instructions apart from the input and returns the WAV bytes', async () => {
     const { text, instructions } = openai.composeText(lines, 'full', { directionWords: 'bright and happy', paceWords: 'a lively pace', tuning: 'Smile more.' });

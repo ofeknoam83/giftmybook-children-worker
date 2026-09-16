@@ -14,7 +14,7 @@
  */
 
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
-const { jsonQaGenerationConfig, responseText, parseJsonText, unparseableDetail } = require('../../shared/llm/geminiJson');
+const { jsonQaGenerationConfig, responseText, parseJsonText, unparseableDetail, isThinkingFieldError, stripThinking } = require('../../shared/llm/geminiJson');
 const flags = require('../flags');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -47,13 +47,26 @@ async function judgeAudio({ prompt, audio = [], schema, model, maxOutputTokens, 
   }
   parts.push({ text: prompt });
   const generationConfig = { ...jsonQaGenerationConfig(maxOutputTokens, m), ...(schema ? { responseSchema: schema } : {}) };
-  const resp = await fetchWithTimeout(`${GEMINI_API}/${m}:generateContent?key=${key}`, {
+  const send = config => fetchWithTimeout(`${GEMINI_API}/${m}:generateContent?key=${key}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig }),
+    body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: config }),
   }, timeoutMs, signal);
+  let resp = await send(generationConfig);
+  let errText = '';
   if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
+    errText = await resp.text().catch(() => '');
+    // A model that rejects the thinking field (a budget sent to a level
+    // model or the reverse) gets ONE retry without it — the imageSize
+    // pattern in illustrationGenerator. Same audio, same prompt, same model.
+    if (generationConfig.thinkingConfig && isThinkingFieldError(resp.status, errText)) {
+      console.warn(`[geminiAudio] ${m} rejected generationConfig.thinkingConfig — retrying once without it: ${errText.slice(0, 120)}`);
+      resp = await send(stripThinking(generationConfig));
+      errText = resp.ok ? '' : await resp.text().catch(() => '');
+    }
+  }
+  if (!resp.ok) {
+    const text = errText;
     const e = new Error(`audio judge HTTP ${resp.status}${text ? `: ${text.slice(0, 200)}` : ''}`);
     e.statusCode = resp.status;
     throw e;

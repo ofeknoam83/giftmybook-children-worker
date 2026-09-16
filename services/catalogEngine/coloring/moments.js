@@ -23,10 +23,11 @@
 
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 const { jsonQaGenerationConfig, responseText, parseJsonText, unparseableDetail } = require('../../shared/llm/geminiJson');
+const { qaVisionModel } = require('../../shared/llm/models');
 const flags = require('../flags');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
-const WRITER_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+const WRITER_MODEL = () => qaVisionModel();
 const WRITER_TIMEOUT_MS = 90000;
 const MOMENT_MIN_CHARS = 20;
 const MOMENT_MAX_CHARS = 320;

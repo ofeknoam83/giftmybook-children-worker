@@ -9,10 +9,13 @@
  */
 
 const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
-// Strict-JSON cover judges: thinking OFF + a ≥2048-token ceiling (the 2.5
-// flash judge counts reasoning tokens against maxOutputTokens; a small cap
-// clipped the JSON and the fail-open checks ran blind). See shared/llm/geminiJson.
+// Strict-JSON cover judges: thinking held to its minimum (a MINIMAL level on
+// the 3.x family, budget 0 on 2.5 flash) + a ≥2048-token ceiling (the judge
+// counts reasoning tokens against maxOutputTokens; a small cap clipped the
+// JSON and the fail-open checks ran blind). See shared/llm/geminiJson. The
+// judge model comes from the registry (CATALOG_QA_VISION_MODEL).
 const { jsonQaGenerationConfig } = require('./shared/llm/geminiJson');
+const { qaVisionModel } = require('./shared/llm/models');
 const {
   generateIllustration,
   getNextApiKey,
@@ -650,7 +653,7 @@ Answer STRICT JSON only:
 ${opts.embeddedText ? `This design intentionally includes text. Check spelling and completeness against these exact copy values: ${JSON.stringify(backCoverArtworkCopy(opts))}. Ignore line breaks, capitalization, punctuation style, and blank values. Do not reject correct text merely because it is embedded in artwork. Footer captions, QR and barcode graphics are added later; their absence is expected. Do not require a personal line, publisher or code caption. Explicit code symbols or artificial blank label panels are unwanted.` : 'No readable text belongs in this artwork.'}`;
   try {
     const resp = await fetch(
-      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `${GEMINI_IMAGE_API}/${qaVisionModel()}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         signal: AbortSignal.timeout(45_000),
@@ -663,7 +666,7 @@ ${opts.embeddedText ? `This design intentionally includes text. Check spelling a
               { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: jsonQaGenerationConfig(512, 'gemini-2.5-flash'),
+          generationConfig: jsonQaGenerationConfig(512, qaVisionModel()),
         }),
       }
     );
@@ -718,7 +721,7 @@ Answer STRICT JSON only:
 }`;
   try {
     const resp = await fetchWithTimeout(
-      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `${GEMINI_IMAGE_API}/${qaVisionModel()}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -730,7 +733,7 @@ Answer STRICT JSON only:
               { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: jsonQaGenerationConfig(256, 'gemini-2.5-flash'),
+          generationConfig: jsonQaGenerationConfig(256, qaVisionModel()),
         }),
       },
       30000,
@@ -778,7 +781,7 @@ Count carefully. Answer STRICT JSON only:
 A normal child has exactly two hands and two arms. Only report what you can clearly and countably see; do not guess from occluded/hidden limbs.`;
   try {
     const resp = await fetchWithTimeout(
-      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `${GEMINI_IMAGE_API}/${qaVisionModel()}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -790,7 +793,7 @@ A normal child has exactly two hands and two arms. Only report what you can clea
               { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: jsonQaGenerationConfig(256, 'gemini-2.5-flash'),
+          generationConfig: jsonQaGenerationConfig(256, qaVisionModel()),
         }),
       },
       30000,
@@ -840,7 +843,7 @@ Answer STRICT JSON only:
 }`;
   try {
     const resp = await fetchWithTimeout(
-      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `${GEMINI_IMAGE_API}/${qaVisionModel()}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -852,7 +855,7 @@ Answer STRICT JSON only:
               { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
             ],
           }],
-          generationConfig: jsonQaGenerationConfig(256, 'gemini-2.5-flash'),
+          generationConfig: jsonQaGenerationConfig(256, qaVisionModel()),
         }),
       },
       30000,

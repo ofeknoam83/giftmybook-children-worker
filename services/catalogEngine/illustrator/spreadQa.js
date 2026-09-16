@@ -34,10 +34,13 @@ const { SHOT_TYPE_QA_DESCRIPTIONS } = require('./shotPlan');
 const metrics = require('./metrics');
 const flags = require('../flags');
 
-const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
-// Every strict-JSON judge call shares ONE generationConfig: thinking OFF on
-// the 2.5 flash family and a ≥2048-token ceiling (the model counts its
-// reasoning against maxOutputTokens — a small cap clips the JSON).
+const { qaVisionModel } = require('../../shared/llm/models');
+
+const QA_MODEL = () => qaVisionModel();
+// Every strict-JSON judge call shares ONE generationConfig: thinking held to
+// its minimum (a MINIMAL level on the 3.x family, budget 0 on 2.5 flash) and
+// a ≥2048-token ceiling (the model counts its reasoning against
+// maxOutputTokens — a small cap clips the JSON).
 const { jsonQaGenerationConfig, parseJsonText, unparseableDetail } = require('../../shared/llm/geminiJson');
 const { judgeImage, responseOutcome } = require('../../shared/llm/visualJudge');
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';

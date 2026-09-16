@@ -312,6 +312,14 @@ module.exports = {
 
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 1, 1, 3),
+  // 2026-09-16: character-sheet candidates rendered + judged CONCURRENTLY in
+  // the first round (clamped to the total budget at run time); the rest of
+  // the budget runs today's sequential repair loop. Time over cost: one
+  // extra image when the first candidate would have passed.
+  sheetFirstRound: () => envInt('CATALOG_SHEET_FIRST_ROUND', 2, 1, 4),
+  // How often a run waiting on another instance's live sheet claim re-reads
+  // the slot (tests shorten it).
+  sheetClaimPollMs: () => envInt('CATALOG_SHEET_CLAIM_POLL_MS', 5000, 10, 60000),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 0, 0, 4),
   renderBudgetPerSpread: () => envInt('CATALOG_RENDER_BUDGET_PER_SPREAD', 3, 1, 12),
   renderConcurrency: () => envInt('CATALOG_RENDER_CONCURRENCY', 6, 1, 8),
@@ -443,7 +451,7 @@ module.exports = {
   audioCharacterVoicesEnabled: () => !envOff('CATALOG_AUDIO_CHARACTER_VOICES'),
   audioDirectorEnabled: () => !envOff('CATALOG_AUDIO_DIRECTOR'),
   audioTranscriptQaEnabled: () => !envOff('CATALOG_AUDIO_TRANSCRIPT_QA'),
-  audioSttModel: () => String(process.env.CATALOG_AUDIO_STT_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash',
+  audioSttModel: () => require('../shared/llm/models').audioModel(),
   audioMusicEnabled: () => !envOff('CATALOG_AUDIO_MUSIC'),
   audioMusicProvider: () => String(process.env.CATALOG_AUDIO_MUSIC_PROVIDER || 'lyria').trim().toLowerCase() || 'lyria',
   audioSfxEnabled: () => !envOff('CATALOG_AUDIO_SFX'),

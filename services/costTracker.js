@@ -9,6 +9,13 @@ const RATES = {
   'gpt-4.1-mini': { input: 0.40, output: 1.60 },
   'gemini-2.5-flash': { input: 0.30, output: 2.50 },
   'gemini-3-flash-preview': { input: 0.30, output: 2.50 },
+  // The 3.x judge/text family (2026-09-16 migration — shared/llm/models.js).
+  // Confirm before invoicing: 3.5 flash is assumed at the 2.5 flash rate.
+  'gemini-3.5-flash': { input: 0.30, output: 2.50 },
+  // Placeholder pending the published 3.5 flash-lite rate.
+  'gemini-3.5-flash-lite': { input: 0.10, output: 0.40 },
+  // Placeholder pending the published 3.1 pro preview rate.
+  'gemini-3.1-pro-preview': { input: 2.00, output: 12.00 },
   // DeepSeek (OpenAI-compatible API). Confirm rates against the published
   // DeepSeek pricing page before relying on these numbers for invoicing.
   'deepseek-v4-pro':   { input: 0.27, output: 1.10 },
@@ -55,6 +62,9 @@ const RATES = {
   'elevenlabs:eleven_multilingual_v2': { perThousandChars: 0.18 },
   'gemini:gemini-2.5-pro-preview-tts': { perThousandChars: 0.08 },
   'gemini:gemini-2.5-flash-preview-tts': { perThousandChars: 0.04 },
+  // The cast's Gemini TTS voice since ab-2 (2026-09-16). Placeholder at the
+  // 2.5 flash TTS rate pending the published preview pricing.
+  'gemini:gemini-3.1-flash-tts-preview': { perThousandChars: 0.04 },
   'openai:gpt-4o-mini-tts': { perThousandChars: 0.015 },
   'elevenlabs:music_v1': { perSecond: 0.0025 },
   'elevenlabs:sound_effects': { perSecond: 0.002 },

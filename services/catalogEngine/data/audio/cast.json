@@ -9,7 +9,7 @@
       "description": "close, unhurried, smiling — the bedtime reader",
       "providers": {
         "elevenlabs": { "voiceId": "EXAVITQu4vr4xnSDxMaL", "model": "eleven_v3", "settings": { "stability": 0.45, "similarity_boost": 0.8, "style": 0.35, "use_speaker_boost": true } },
-        "gemini": { "voice": "Kore", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Kore", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "nova", "model": "gpt-4o-mini-tts" }
       }
     },
@@ -20,7 +20,7 @@
       "description": "deep, gentle, amused — the grandfather voice",
       "providers": {
         "elevenlabs": { "voiceId": "pNInz6obpgDQGcFmaJgB", "model": "eleven_v3", "settings": { "stability": 0.5, "similarity_boost": 0.8, "style": 0.3, "use_speaker_boost": true } },
-        "gemini": { "voice": "Charon", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Charon", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "onyx", "model": "gpt-4o-mini-tts" }
       }
     },
@@ -31,7 +31,7 @@
       "description": "light, quick, playful — the playground voice",
       "providers": {
         "elevenlabs": { "voiceId": "pFZP5JQG7iQjIQuC4Bku", "model": "eleven_v3", "settings": { "stability": 0.4, "similarity_boost": 0.75, "style": 0.45, "use_speaker_boost": true } },
-        "gemini": { "voice": "Zephyr", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Zephyr", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "shimmer", "model": "gpt-4o-mini-tts" }
       }
     },
@@ -42,7 +42,7 @@
       "description": "small, quick, chirpy — a young animal or a little sprite",
       "providers": {
         "elevenlabs": { "voiceId": "MF3mGyEYCl7XYWbV9V6O", "model": "eleven_v3", "settings": { "stability": 0.4, "similarity_boost": 0.7, "style": 0.5, "use_speaker_boost": true } },
-        "gemini": { "voice": "Leda", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Leda", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "coral", "model": "gpt-4o-mini-tts" }
       }
     },
@@ -53,7 +53,7 @@
       "description": "round, slow, kindly — a big gentle animal",
       "providers": {
         "elevenlabs": { "voiceId": "VR6AewLTigWG4xSOukaG", "model": "eleven_v3", "settings": { "stability": 0.55, "similarity_boost": 0.75, "style": 0.3, "use_speaker_boost": true } },
-        "gemini": { "voice": "Orus", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Orus", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "ash", "model": "gpt-4o-mini-tts" }
       }
     },
@@ -64,7 +64,7 @@
       "description": "practical, warm, encouraging — the farmer, the ranger",
       "providers": {
         "elevenlabs": { "voiceId": "21m00Tcm4TlvDq8ikWAM", "model": "eleven_v3", "settings": { "stability": 0.5, "similarity_boost": 0.8, "style": 0.3, "use_speaker_boost": true } },
-        "gemini": { "voice": "Aoede", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Aoede", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "sage", "model": "gpt-4o-mini-tts" }
       }
     },
@@ -75,7 +75,7 @@
       "description": "hearty, patient, cheerful — the builder, the captain",
       "providers": {
         "elevenlabs": { "voiceId": "TxGEqnHWrfWFTfGW9XjX", "model": "eleven_v3", "settings": { "stability": 0.5, "similarity_boost": 0.8, "style": 0.3, "use_speaker_boost": true } },
-        "gemini": { "voice": "Puck", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Puck", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "echo", "model": "gpt-4o-mini-tts" }
       }
     },
@@ -86,7 +86,7 @@
       "description": "airy, twinkling, a little mysterious — a sprite, a moon-moth",
       "providers": {
         "elevenlabs": { "voiceId": "AZnzlk1XvdvUeBnXmlld", "model": "eleven_v3", "settings": { "stability": 0.4, "similarity_boost": 0.7, "style": 0.55, "use_speaker_boost": true } },
-        "gemini": { "voice": "Callirrhoe", "model": "gemini-2.5-pro-preview-tts" },
+        "gemini": { "voice": "Callirrhoe", "model": "gemini-3.1-flash-tts-preview" },
         "openai": { "voice": "fable", "model": "gpt-4o-mini-tts" }
       }
     }

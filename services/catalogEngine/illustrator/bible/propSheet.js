@@ -69,7 +69,7 @@ const { judgeImage } = require('../../../shared/llm/visualJudge');
 const { isHumanCompanionType, isChildCompanionType } = require('../../../shared/illustration/companionKind');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
-const VISION_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || GEMINI_QA_MODEL;
+const VISION_MODEL = () => require('../../../shared/llm/models').qaVisionModel();
 const SHEET_TIMEOUT_MS = 180000;
 const VISION_TIMEOUT_MS = 60000;
 const SHEET_ATTEMPTS = 2; // transport retries per image call (the QA retry is separate)

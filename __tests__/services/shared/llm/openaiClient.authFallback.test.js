@@ -4,7 +4,8 @@
  * The bug: Cloud Run revision shipped with OPENAI_API_KEY="" (empty). OpenAI
  * returned 401 invalid_api_key on every call. The error was classified as
  * "non-transient", which made it eligible for the Gemini fallback path. Every
- * book stage silently switched from gpt-5.x to gemini-2.5-flash. Prompts tuned
+ * book stage silently switched from gpt-5.x to the Gemini text fallback
+ * (gemini-2.5-flash then; shared/llm/models.js textFallbackModel() now). Prompts tuned
  * for GPT then rendered as Gemini output without anyone noticing for weeks.
  *
  * These tests lock in the fix:
@@ -197,6 +198,10 @@ describe('openaiClient — auth error handling (PR AA-1)', () => {
     });
 
     expect(result.model).toMatch(/gemini/);
+    // The fallback model is the registry's (CATALOG_TEXT_FALLBACK_MODEL), never a retired literal.
+    const { textFallbackModel } = require('../../../../services/shared/llm/models');
+    expect(result.model).toBe(textFallbackModel());
+    expect(fetchMock.mock.calls[1][0]).toContain(`/${textFallbackModel()}:generateContent`);
     expect(result.json).toEqual({ hello: 'from-gemini' });
     // Both calls should have been issued: OpenAI then Gemini.
     expect(fetchMock).toHaveBeenCalledTimes(2);

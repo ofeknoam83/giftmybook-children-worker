@@ -9,6 +9,8 @@ const { spreadDependencies } = require('../../../services/catalogEngine/illustra
 const files = new Map();
 const { createHmac } = require('crypto');
 const { handleReview } = require('../../../services/shared/llm/visualReview');
+// The reviewed fallback goes to whatever CATALOG_QA_SECONDARY_MODEL names — here the registry's Pro tier.
+const SECONDARY = require('../../../services/shared/llm/models').proModel();
 const ok = json => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(json) }] } }] }) });
 const opts = () => ({ parts: [{ text: 'Check all identity, count, state and scene-quality requirements' }, { inline_data: { mimeType: 'image/png', data: 'c2NlbmU=' } }], model: 'gemini-test', recoveryRoot: 'children-jobs/test/qa', label: 'test', validate: j => typeof j?.pass === 'boolean' ? null : 'pass must be boolean' });
 beforeEach(() => {
@@ -25,24 +27,24 @@ function approval(result, over = {}) {
   const bookId = '6979a16e-d8c9-42af-a09e-f8874c3f7e97';
   const payload = JSON.stringify({ version: 1, audience: 'children-visual-review', bookId,
     adminId: 'admin-1', reviewedBy: 'reviewer@giftmybook.com', decision: 'benign_verification',
-    fingerprint: result.fingerprint, evidenceKey: result.evidenceKey, provider: 'gemini', model: 'gemini-2.5-pro', expiresAt: Date.now() + 60000, ...over });
+    fingerprint: result.fingerprint, evidenceKey: result.evidenceKey, provider: 'gemini', model: SECONDARY, expiresAt: Date.now() + 60000, ...over });
   return { payload, signature: createHmac('sha256', process.env.VISUAL_REVIEW_SECRET).update(payload).digest('hex') };
 }
 test('reviewed fallback uses the identical full evidence and schema, then reuses its result', async () => {
-  process.env.VISUAL_REVIEW_SECRET = 's'.repeat(40); process.env.CATALOG_QA_SECONDARY_MODEL = 'gemini-2.5-pro';
+  process.env.VISUAL_REVIEW_SECRET = 's'.repeat(40); process.env.CATALOG_QA_SECONDARY_MODEL = SECONDARY;
   const p = { ...opts(), recoveryRoot: 'children-jobs/6979a16e-d8c9-42af-a09e-f8874c3f7e97/qa' };
   fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) }).mockResolvedValue(ok({ pass: true }));
   const blocked = await judgeImage(p);
-  await expect(handleReview(approval(blocked))).resolves.toMatchObject({ approved: true, model: 'gemini-2.5-pro' });
+  await expect(handleReview(approval(blocked))).resolves.toMatchObject({ approved: true, model: SECONDARY });
   const result = await judgeImage(p);
-  expect(result).toMatchObject({ status: 'verified', model: 'gemini-2.5-pro' });
-  expect(fetch.mock.calls[1][0]).toContain('/gemini-2.5-pro:generateContent');
+  expect(result).toMatchObject({ status: 'verified', model: SECONDARY });
+  expect(fetch.mock.calls[1][0]).toContain(`/${SECONDARY}:generateContent`);
   expect(JSON.parse(fetch.mock.calls[1][1].body).contents[0].parts).toEqual(p.parts);
   await judgeImage(p);
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 test.each(['signature', 'model', 'bookId', 'expiresAt', 'fingerprint'])('rejects an approval with invalid %s', async field => {
-  process.env.VISUAL_REVIEW_SECRET = 's'.repeat(40); process.env.CATALOG_QA_SECONDARY_MODEL = 'gemini-2.5-pro';
+  process.env.VISUAL_REVIEW_SECRET = 's'.repeat(40); process.env.CATALOG_QA_SECONDARY_MODEL = SECONDARY;
   const p = { ...opts(), recoveryRoot: 'children-jobs/6979a16e-d8c9-42af-a09e-f8874c3f7e97/qa' };
   const result = await judgeImage(p);
   const values = { model: 'another-model', bookId: '11111111-1111-1111-1111-111111111111', expiresAt: Date.now() - 1, fingerprint: 'a'.repeat(64) };
@@ -52,11 +54,11 @@ test.each(['signature', 'model', 'bookId', 'expiresAt', 'fingerprint'])('rejects
   expect([...files.keys()].some(k => k.endsWith('/review.json'))).toBe(false);
 });
 test('a secondary refusal stops without another model or modified evidence', async () => {
-  process.env.VISUAL_REVIEW_SECRET = 's'.repeat(40); process.env.CATALOG_QA_SECONDARY_MODEL = 'gemini-2.5-pro';
+  process.env.VISUAL_REVIEW_SECRET = 's'.repeat(40); process.env.CATALOG_QA_SECONDARY_MODEL = SECONDARY;
   const p = { ...opts(), recoveryRoot: 'children-jobs/6979a16e-d8c9-42af-a09e-f8874c3f7e97/qa' };
   fetch.mockResolvedValue({ ok: true, json: async () => ({ promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } }) });
   const result = await judgeImage(p); await handleReview(approval(result));
-  expect(await judgeImage(p)).toMatchObject({ status: 'provider_blocked', model: 'gemini-2.5-pro' });
+  expect(await judgeImage(p)).toMatchObject({ status: 'provider_blocked', model: SECONDARY });
   await judgeImage(p);
   expect(fetch).toHaveBeenCalledTimes(2);
 });
@@ -167,4 +169,24 @@ test('changing an object invalidates only the spreads that depend on it', () => 
   expect(spreadDependencies(bible, 2)).toEqual(before[1]);
   bible.manifest.anchorHash = 'different-child';
   expect(spreadDependencies(bible, 2)).not.toEqual(before[1]);
+});
+test('a 400 naming the thinking field is retried ONCE without thinkingConfig on the same evidence and model', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  fetch.mockResolvedValueOnce({ ok: false, status: 400, text: async () => 'Invalid JSON payload received. Unknown name "thinking_level" at generation_config.thinking_config' }).mockResolvedValue(ok({ pass: true }));
+  const p = { ...opts(), model: 'gemini-3.5-flash' };
+  expect(await judgeImage(p)).toMatchObject({ status: 'verified', model: 'gemini-3.5-flash' });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const first = JSON.parse(fetch.mock.calls[0][1].body);
+  const second = JSON.parse(fetch.mock.calls[1][1].body);
+  expect(first.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+  expect(second.generationConfig.thinkingConfig).toBeUndefined();
+  expect(second.generationConfig).toEqual({ temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json' });
+  expect(second.contents).toEqual(first.contents);
+  expect(fetch.mock.calls[1][0]).toContain('/gemini-3.5-flash:generateContent');
+  warn.mockRestore();
+});
+test('a 400 that names another field is a configuration outcome, never a thinking retry', async () => {
+  fetch.mockResolvedValue({ ok: false, status: 400, text: async () => 'Unknown name "image_size"' });
+  expect(await judgeImage({ ...opts(), model: 'gemini-3.5-flash' })).toMatchObject({ status: 'configuration' });
+  expect(fetch).toHaveBeenCalledTimes(1);
 });

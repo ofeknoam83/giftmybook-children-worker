@@ -86,8 +86,9 @@ const validBody = () => ({
 const post = body => request(app).post('/v13/generate-coloring-book').set('x-api-key', 'test-api-key').send(body);
 const settle = () => new Promise(r => setTimeout(r, 40));
 
+const { qaVisionModel } = require('../services/shared/llm/models');
 const readyResult = () => ({
-  cached: false, planHash: 'plan1', plan: { hash: 'plan1', band: '4-5', kinds: { meet: 1, between: 9 }, peakSpread: 8, momentWriter: 'gemini-2.5-flash', gateRejections: [] },
+  cached: false, planHash: 'plan1', plan: { hash: 'plan1', band: '4-5', kinds: { meet: 1, between: 9 }, peakSpread: 8, momentWriter: qaVisionModel(), gateRejections: [] },
   bookBible: { bibleHash: 'bh', lineSheet: { hash: 'h' } },
   interiorPdfUrl: 'https://signed/interior.pdf', coverPdfUrl: 'https://signed/cover.pdf', coverImageUrl: 'https://signed/thumb.png', previewImageUrls: ['https://signed/p1.png'],
   pageCount: 24, coloringPageCount: 20,

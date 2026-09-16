@@ -20,9 +20,10 @@
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 const { jsonQaGenerationConfig, responseText, parseJsonText, unparseableDetail } = require('../../shared/llm/geminiJson');
 const { KIND_GUIDE } = require('./moments');
+const { qaVisionModel } = require('../../shared/llm/models');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
-const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+const QA_MODEL = () => qaVisionModel();
 const QA_TIMEOUT_MS = 90000;
 const OUTFIT_SLOTS = ['top', 'bottom', 'footwear', 'outerwear', 'accessories'];
 const SLOT_ANSWERS = new Set(['match', 'mismatch', 'not_visible']);

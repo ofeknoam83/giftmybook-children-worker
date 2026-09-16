@@ -6,7 +6,7 @@ const { createHash } = require('crypto');
 const Ajv = require('ajv');
 const { completeOccurrences } = require('./storyObjectRepair');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
-const { GEMINI_QA_MODEL } = require('../../shared/illustration/config');
+const { qaVisionModel } = require('../../shared/llm/models');
 const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../shared/llm/geminiJson');
 const { downloadBuffer, uploadBufferIfAbsent } = require('../../gcsStorage');
 const catalogObjects = require('../data/storyObjects.json');
@@ -203,7 +203,7 @@ async function resolveStoryObjects(params) {
   try {
     const cached = await readOptional(path);
     if (cached) return read(cached);
-    const model = GEMINI_QA_MODEL;
+    const model = qaVisionModel();
     const request = async (prompt, responseJsonSchema) => {
       const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${getNextApiKey()}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

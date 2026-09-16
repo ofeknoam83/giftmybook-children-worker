@@ -14,19 +14,28 @@
  * ce-9 judges were written against the small legacy caps instead.
  *
  * Perception questions ("is there readable text?", "same child?") gain
- * nothing from a reasoning pass, so thinking is switched OFF where the
- * model allows a zero budget (the 2.5 flash family; 2.5 Pro cannot go
- * below 128 and older models reject the field), and the output ceiling
- * never drops below QA_MIN_OUTPUT_TOKENS.
+ * nothing from a reasoning pass, so thinking is held to the model's
+ * minimum: the 3.x family (`gemini-3.5-flash`, `gemini-3.1-pro-preview`,
+ * the default since the 2026-09-16 migration) takes a thinking LEVEL
+ * (`thinkingLevel: MINIMAL` by default — CATALOG_QA_THINKING_LEVEL; a 3.x
+ * request carrying BOTH `thinkingBudget` and `thinkingLevel` is a 400),
+ * the legacy 2.5 flash family takes a zero BUDGET (`thinkingBudget: 0`;
+ * 2.5 Pro cannot go below 128 and older models reject the field, so
+ * neither gets a thinkingConfig), and the output ceiling never drops below
+ * QA_MIN_OUTPUT_TOKENS. A transport that meets a 400 naming the thinking
+ * field retries ONCE without it (`isThinkingFieldError` + `stripThinking`)
+ * — the `imageSize` pattern in illustrationGenerator.
  */
 
-const { GEMINI_QA_MODEL } = require('../illustration/config');
+const { qaVisionModel, qaThinkingLevel } = require('./models');
 
 /** The floor for any strict-JSON QA answer (the largest legitimate verdict is ~400 tokens). */
 const QA_MIN_OUTPUT_TOKENS = 2048;
 
 /**
- * Whether the model accepts `thinkingConfig.thinkingBudget: 0`.
+ * Whether the model accepts `thinkingConfig.thinkingBudget: 0` (the legacy
+ * 2.5 flash family only; kept for compatibility — the 3.x family takes a
+ * level, see `thinkingConfigFor`).
  * @param {string} model
  * @returns {boolean}
  */
@@ -35,19 +44,60 @@ function supportsZeroThinking(model) {
 }
 
 /**
+ * The thinkingConfig a strict-JSON judge sends to a model: a zero BUDGET on
+ * the 2.5 flash family, a thinking LEVEL on the 3.x family (never both —
+ * the API rejects the pair), nothing for every other model.
+ * @param {string} model
+ * @param {string} [level] a 3.x thinking level (default: CATALOG_QA_THINKING_LEVEL)
+ * @returns {{thinkingBudget: number}|{thinkingLevel: string}|null}
+ */
+function thinkingConfigFor(model, level = qaThinkingLevel()) {
+  const id = String(model || '');
+  if (supportsZeroThinking(id)) return { thinkingBudget: 0 };
+  if (/gemini-3/i.test(id)) return { thinkingLevel: level };
+  return null;
+}
+
+/**
  * generationConfig for a strict-JSON judge call.
  * @param {number} [maxOutputTokens] the caller's ceiling — raised to the floor
  * @param {string} [model] the model the call targets (default: the QA model)
- * @returns {{temperature: number, maxOutputTokens: number, responseMimeType: string, thinkingConfig?: {thinkingBudget: number}}}
+ * @param {{thinkingLevel?: string}} [opts] `thinkingLevel` overrides the env level on a 3.x model
+ * @returns {{temperature: number, maxOutputTokens: number, responseMimeType: string, thinkingConfig?: {thinkingBudget: number}|{thinkingLevel: string}}}
  */
-function jsonQaGenerationConfig(maxOutputTokens, model = GEMINI_QA_MODEL) {
+function jsonQaGenerationConfig(maxOutputTokens, model = qaVisionModel(), opts = {}) {
   const requested = Number.isInteger(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : QA_MIN_OUTPUT_TOKENS;
+  const thinkingConfig = thinkingConfigFor(model, opts && opts.thinkingLevel ? opts.thinkingLevel : undefined);
   return {
     temperature: 0,
     maxOutputTokens: Math.max(QA_MIN_OUTPUT_TOKENS, requested),
     responseMimeType: 'application/json',
-    ...(supportsZeroThinking(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+    ...(thinkingConfig ? { thinkingConfig } : {}),
   };
+}
+
+/**
+ * Whether a failed response is the model rejecting the thinking field
+ * (a 400 whose body names `thinking` — an id that takes a budget being sent
+ * a level, or the reverse) — the one failure a transport retries once
+ * without `thinkingConfig`.
+ * @param {number} status HTTP status
+ * @param {string} bodyText the error body
+ * @returns {boolean}
+ */
+function isThinkingFieldError(status, bodyText) {
+  return Number(status) === 400 && /thinking/i.test(String(bodyText || ''));
+}
+
+/**
+ * The same generationConfig without its `thinkingConfig` (a new object; the
+ * input is never mutated).
+ * @param {object} config
+ * @returns {object}
+ */
+function stripThinking(config) {
+  const { thinkingConfig, ...rest } = config || {}; // eslint-disable-line no-unused-vars
+  return rest;
 }
 
 /**
@@ -111,4 +161,15 @@ function unparseableDetail(data, text) {
   return ` (${bits.join(', ')})`;
 }
 
-module.exports = { QA_MIN_OUTPUT_TOKENS, supportsZeroThinking, jsonQaGenerationConfig, responseText, finishReasonOf, parseJsonText, unparseableDetail };
+module.exports = {
+  QA_MIN_OUTPUT_TOKENS,
+  supportsZeroThinking,
+  thinkingConfigFor,
+  jsonQaGenerationConfig,
+  isThinkingFieldError,
+  stripThinking,
+  responseText,
+  finishReasonOf,
+  parseJsonText,
+  unparseableDetail,
+};

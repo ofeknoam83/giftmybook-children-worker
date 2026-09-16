@@ -17,6 +17,7 @@ const { buildColoringPlan } = require('../../../../services/catalogEngine/colori
 const {
   duplicationGate, templateMoment, resolveMoments, contentTokens, inventedNames, cleanTitle, buildWriterPrompt, KIND_GUIDE,
 } = require('../../../../services/catalogEngine/coloring/moments');
+const { qaVisionModel } = require('../../../../services/shared/llm/models');
 
 const catalog = loadCatalog();
 const farm = catalog.themes.farm;
@@ -101,7 +102,7 @@ describe('resolveMoments', () => {
   test('writer answers that pass the gate are used; the meet page keeps its template', async () => {
     fetchWithTimeout.mockResolvedValueOnce(writerResponse(plan.pages.filter(p => p.kind !== 'meet').map(p => good(p.index))));
     const r = await resolveMoments(ctx());
-    expect(r.writer).toBe('gemini-2.5-flash');
+    expect(r.writer).toBe(qaVisionModel());
     expect(r.pages[0].source).toBe('template');
     expect(r.pages.slice(1).every(p => p.source === 'writer')).toBe(true);
     expect(r.gateRejections).toEqual([]);
