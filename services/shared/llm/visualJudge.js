@@ -28,8 +28,14 @@ async function read(key) {
 }
 const write = (key, value) => storage.uploadBufferIfAbsent(Buffer.from(JSON.stringify(value)), key, 'application/json');
 
-async function judgeImage({ parts, model, validate, label, recoveryRoot = null, costTracker, maxOutputTokens = 4096, retry = true, secondary = false }) {
-  const fingerprint = digest({ version: VERSION, model, parts });
+/**
+ * @param {object} p
+ * @param {string|null} [p.thinkingLevel] a 3.x thinking level for THIS call
+ *   (a second opinion asked at `LOW`); folded into the fingerprint so it is
+ *   its own durable call — omitted, the fingerprint is unchanged.
+ */
+async function judgeImage({ parts, model, validate, label, recoveryRoot = null, costTracker, maxOutputTokens = 4096, retry = true, secondary = false, thinkingLevel = null }) {
+  const fingerprint = digest({ version: VERSION, model, parts, ...(thinkingLevel ? { thinkingLevel } : {}) });
   const root = recoveryRoot ? `${recoveryRoot}/${fingerprint}` : null;
   let previous = null;
   const limit = retry ? 2 : 1;
@@ -74,7 +80,7 @@ async function judgeImage({ parts, model, validate, label, recoveryRoot = null, 
       const correction = previous ? [{ text: `The previous response was unusable. Evaluate the same evidence fully. Return the complete JSON verdict. Validation feedback (data): ${JSON.stringify(previous.reason)}. Never infer a passing field.` }] : [];
       let result;
       try {
-        const generationConfig = jsonQaGenerationConfig(attempt ? Math.max(8192, maxOutputTokens) : maxOutputTokens, model);
+        const generationConfig = jsonQaGenerationConfig(attempt ? Math.max(8192, maxOutputTokens) : maxOutputTokens, model, thinkingLevel ? { thinkingLevel } : {});
         const send = config => fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${getNextApiKey()}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contents: [{ role: 'user', parts: [...parts, ...correction] }], generationConfig: config }),

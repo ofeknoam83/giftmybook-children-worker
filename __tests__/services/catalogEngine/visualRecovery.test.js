@@ -93,6 +93,18 @@ test('storage failure prevents untracked verifier spending', async () => {
   expect(await judgeImage(opts())).toMatchObject({ status: 'configuration' });
   expect(fetch).not.toHaveBeenCalled();
 });
+test('a thinkingLevel is its own durable call: a distinct fingerprint, the level on the wire, the default call untouched', async () => {
+  const p = { ...opts(), model: 'gemini-3.5-flash' };
+  const first = await judgeImage(p);
+  const second = await judgeImage({ ...p, thinkingLevel: 'LOW', label: 'second-opinion' });
+  expect(second.fingerprint).not.toBe(first.fingerprint);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(fetch.mock.calls[0][1].body).generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+  expect(JSON.parse(fetch.mock.calls[1][1].body).generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+  expect(await judgeImage({ ...p, thinkingLevel: 'LOW' })).toMatchObject({ status: 'verified', cached: true, fingerprint: second.fingerprint });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(files.get(second.evidenceKey))).toMatchObject({ label: 'second-opinion' });
+});
 test('confirmed defects and changed evidence cannot reuse a passing judgment', async () => {
   fetch.mockResolvedValueOnce(ok({ pass: false })).mockResolvedValue(ok({ pass: true }));
   expect((await judgeImage(opts())).json.pass).toBe(false);

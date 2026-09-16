@@ -133,6 +133,44 @@ test('changed manuscript invalidates only its scene-presence check without mutat
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
+test('a persisted re-plan is re-applied AFTER the audit: the saved request never moves, objects carry the re-plan, renderObjects the original', async () => {
+  const p = fixture();
+  const plain = await resolveScenePresence(p);
+  const request = JSON.parse(fetch.mock.calls[0][1].body);
+  const reference = { kind: 'single', subject: 'creature', description: 'One representative meerkat' };
+  const replans = { meerkats: { round: 1, design: { ...p.plan.objects[0].design, colors: 'sandy tan' }, reference, reason: 'x', at: 't' } };
+  const { applyReplans } = require('../../../services/catalogEngine/illustrator/storyObjects');
+  const objects = applyReplans(p.plan.objects, replans).map(d => (d.id === 'boxes' ? { ...d, degraded: true } : d));
+  const replanned = await resolveScenePresence({ ...p, plan: { ...p.plan, objects, renderObjects: p.plan.objects, replans } });
+  expect(fetch).toHaveBeenCalledTimes(1); // the same saved request (audited on the ORIGINAL contract)
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(request);
+  expect(replanned.objects[0]).toMatchObject({ design: { colors: 'sandy tan' }, reference, replanned: 1 });
+  expect(replanned.objects[0].degraded).toBeUndefined();
+  expect(replanned.objects[1].degraded).toBe(true); // a saved manifest's degraded flag survives the audit
+  expect(replanned.objects[0].occurrences).toEqual(plain.objects[0].occurrences);
+  expect(replanned.renderObjects).toEqual(p.plan.objects);
+  expect(replanned.hash).toBe(plain.hash);
+  expect(replanned.scenePresence.spreadHashes).toEqual(plain.scenePresence.spreadHashes);
+});
+
+test('an explicit regeneration re-asks a saved block under the retry root; a verified check is reused as-is', async () => {
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) }).mockResolvedValue(response(verdict()));
+  await expect(resolveScenePresence(fixture())).rejects.toMatchObject({ recovery: { reason: 'provider_blocked' } });
+  const corrected = await resolveScenePresence({ ...fixture(), retryNamespace: 'presence-test:1700000000000' });
+  expect(corrected.objects[0].occurrences[0].visibility).toBe('absent');
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect([...files.keys()].some(k => /story-presence\/scene-presence-1\/retry-[0-9a-z]+\//.test(k))).toBe(true);
+  // The same namespace replays its own verified answer; a plain run still sees the block.
+  expect(await resolveScenePresence({ ...fixture(), retryNamespace: 'presence-test:1700000000000' })).toEqual(corrected);
+  await expect(resolveScenePresence(fixture())).rejects.toMatchObject({ recovery: { reason: 'provider_blocked' } });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  process.env.CATALOG_REFERENCE_AUTOHEAL = '0';
+  try {
+    await expect(resolveScenePresence({ ...fixture(), retryNamespace: 'presence-test:1700000000001' })).rejects.toMatchObject({ recovery: { reason: 'provider_blocked' } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally { delete process.env.CATALOG_REFERENCE_AUTOHEAL; }
+});
+
 test('a story without object families needs no new check', async () => {
   const p = fixture(); p.plan.objects = [];
   expect(await resolveScenePresence(p)).toBe(p.plan);

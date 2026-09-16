@@ -989,6 +989,45 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   STYLE_VERSION and COLORING_VERSION stay — the sheet prompts only govern
   anchors with no elected sheet, and an elected sheet passed the stricter
   check.
+  **References that heal themselves (2026-09-16 —
+  `docs/CHILDREN_VISUAL_RECOVERY.md`, `docs/STORY_OBJECT_CONTINUITY.md`)**:
+  a story object whose three durable reference candidates all failed the
+  prop-reference judge paused the book for an admin, and — every root on
+  that path being content-fingerprinted — a regeneration replayed the
+  saved rejection for ever. Behind ONE kill-switch
+  (`CATALOG_REFERENCE_AUTOHEAL`, on by default) the path now heals in a
+  fixed order: a `design_matches` / `representation_matches` rejection
+  is re-asked ONCE at thinking level `LOW` with the contract restated
+  (`prop-reference-second-opinion`, its own durable call — `judgeImage`
+  takes a `thinkingLevel` that folds into the fingerprint) and only two
+  agreeing rejections are a defect (`CATALOG_REFERENCE_JUDGE_QUORUM`);
+  an exhausted ladder — or an elected reference failing re-verification
+  — gets ONE re-plan (`CATALOG_REFERENCE_REPLAN_ROUNDS`; label
+  `reference-replan`, root `catalog-assets/reference-replans/v1`) that may
+  only rewrite the design within the closed vocabulary (never a
+  catalog-authored one) and/or downgrade the contract to `single`
+  (`validateReplan`), re-keying `valueHash` so the ladder runs fresh, the
+  round persisted at `<election>.replans/<id>/r<n>.json` and applied to
+  `objects` on every later read (`renderObjects` keep the originals, the
+  plan `hash` stays, the presence audit runs on the original contract);
+  when that fails too, or the judge is blocked / exhausted / a
+  configuration hold, the object DEGRADES to a described object — no
+  sheet, its design in the PROPS block, a `storyObjects` advisory
+  `reference degraded: <name> — <reason>`, `degraded: true` on
+  `bookBible.props[]` (via `manifest.degradedReferences`, outside the
+  bible hash) and on the plan object; a critical degraded object keeps
+  presence/count/lettering/state blocking with its `look` advisory
+  (`degradedObjectAdvisories`; the set gate skips it), and
+  `CATALOG_PROP_SHEETS=0` degrades the same way. A STORED plan that no
+  longer validates is re-planned under a retry fold
+  (`<inputHash>-r<n>.json`) and, failing that, the catalog seeds become
+  the plan (`seedPlan`, `fallback: {kind: 'catalog_seeds'}` elected at
+  the fold, an advisory) — `contract_conflict` only with the switch off,
+  and a planner outage still throws. `forceNew` / `forceRerender`
+  (`identityRetry`) reach the prop roots as `retryNamespace`: fresh
+  candidate slots (`.candidates/retry-<hash>/N.png`), a fresh
+  verification root, and the contract / presence calls re-ask a saved
+  block under `…/retry-<hash>`; a plain resume replays.
   **Gemini model migration (2026-09-16 — `qa-17` / `cq-2` / `ab-2`)**:
   `gemini-2.5-flash` / `-flash-lite` shut down on 2026-10-16, so every
   text / vision / audio / TTS model id now comes from ONE registry,
@@ -1275,6 +1314,16 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   likeness >= 0.8. Photo likeness is advisory only at this stage.
 - `CATALOG_PROP_SHEETS=0` — (ce-9) no prop / companion sheets (props ride
   as quoted nouns only).
+- `CATALOG_REFERENCE_AUTOHEAL=0` — (2026-09-16) restore the story-object
+  reference PAUSES: no re-plan after a confirmed reference defect, no
+  degrade to a described object, no seed fallback for a stored plan that
+  stopped validating, no second judge opinion, no fresh candidate
+  namespace on an explicit regeneration (`visual_recovery_pending` /
+  `contract_conflict` exactly as before). `CATALOG_REFERENCE_REPLAN_ROUNDS`
+  (default 1, 0–2) — re-plan rounds a rejected reference may spend before
+  it degrades. `CATALOG_REFERENCE_JUDGE_QUORUM` (default 2, 1–2) —
+  agreeing rejections a design / representation defect needs (`1` = a
+  single rejection counts, the pre-autoheal rule).
 - `CATALOG_HUMAN_COMPANION_SHEET=0` — (ce-19) no SECONDARY CHARACTER sheet
   / character spec for a PERSON-typed companion (Farmer Bea, Builder Sam
   ride as nouns again, unchecked, as before ce-19); creature companion

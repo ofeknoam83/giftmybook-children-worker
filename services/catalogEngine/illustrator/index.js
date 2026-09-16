@@ -59,7 +59,7 @@ const { resolveBookTextRules, resolveTypographyGuideRules } = require('../../sha
 const { readManifest, saveManifest, readReviewedRender } = require('./reviewedArt');
 const { checkSavedText, recoverText } = require('./textRecovery');
 const { textVerificationCurrent, applyTextVerification, TEXT_MISMATCH } = require('../../shared/illustration/manuscript');
-const { objectsForSpread, designText, criticalObjectFailures } = require('./storyObjects');
+const { objectsForSpread, designText, criticalObjectFailures, degradedObjectAdvisories } = require('./storyObjects');
 const { presenceHash, forbidden, resolveScenePresence } = require('./scenePresence');
 const { recoveryFor } = require('../../shared/llm/visualJudge');
 
@@ -303,7 +303,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         recoveryRoot: retryUnresolved ? `children-jobs/${bookId}/visual-checks/spread-${spread}` : null, costTracker,
         props: reviewedObjects.map(def => ({ name: def.value, specText: designText(def), sheet: propSheetFor(bible, def.value),
           reference: propSheetFor(bible, def.value)?.reference || def.reference,
-          storyObject: true, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity,
+          storyObject: true, degraded: !!def.degraded, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity,
           expected: forbidden(def.occurrence) ? 'absent' : def.occurrence.required ? 'required' : 'optional' })),
       });
       const objectNames = new Set(reviewedObjects.map(d => d.value.toLowerCase()));
@@ -517,7 +517,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     props: [...sceneObjects.map(def => {
       const sheet = propSheetFor(bible, def.value);
       return { name: def.value, specText: designText(def), sheet, expected: forbidden(def.occurrence) ? 'absent' : def.occurrence.required ? 'required' : 'optional',
-        storyObject: true, critical: def.critical, reference: sheet?.reference || def.reference || null, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity };
+        storyObject: true, critical: def.critical, degraded: !!def.degraded, reference: sheet?.reference || def.reference || null, state: def.occurrence.state, multiplicity: def.occurrence.multiplicity };
     }), ...[...declaredProps, ...carriedProps].map(name => {
       const sheet = propSheetFor(bible, name); // normalized match (case/whitespace)
       // A declared prop is the beat's evidence (absence BLOCKS); a carried
@@ -1826,6 +1826,12 @@ async function renderStorySpreads(params) {
   }
   const bookBible = reviewedManifest ? { ...reviewedManifest.bookBible, storyObjects: bible.storyObjects } : await summarizeBible(bible);
   const objectFailures = criticalObjectFailures(results, bible.storyObjects);
+  // Autoheal 5b: a DEGRADED object's judged look is advisory — there is no
+  // verified reference to hold it to — while its presence stayed blocking.
+  for (const a of degradedObjectAdvisories(results, bible.storyObjects)) {
+    const result = results.find(r => r.spread === a.spread);
+    if (result) result.advisories.push({ stage: 'spreadQa', spread: a.spread, note: a.note });
+  }
   // Check the FINAL selected set after every repair, including cached/admin
   // picks. A repair attempt alone is not proof the family is now consistent.
   objectFailures.push(...objectContactFailures);
@@ -1888,6 +1894,9 @@ async function renderStorySpreads(params) {
 async function verifyCriticalObjectSet(results, bible, onProgress = () => {}, context = {}) {
   const failures = [];
   for (const definition of (bible.storyObjects?.objects || []).filter(d => d.critical)) {
+    // A DEGRADED object (autoheal 5b) has no reference to tile against: the
+    // set-level look is not checkable, and its advisory is already on record.
+    if (definition.degraded) continue;
     const value = `Story object: ${definition.name}`;
     const visible = results.filter(r => {
       const occurrence = definition.occurrences.find(o => o.spread === r.spread);

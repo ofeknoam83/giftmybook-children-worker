@@ -22,7 +22,7 @@
 const { getCharacterSheet } = require('./characterSheet');
 const { getBibleProps, getPropSheet, normalizePropValue } = require('./propSheet');
 const pLimit = require('p-limit');
-const { resolveStoryObjects, objectsForSpread, propName, designText } = require('../storyObjects');
+const { resolveStoryObjects, objectsForSpread, propName, designText, authoredObjectIds } = require('../storyObjects');
 const { resolveScenePresence, needsReference } = require('../scenePresence');
 const { getOutfitLock } = require('../outfitLock');
 const { getEmotionPlan, renderEmotionLine } = require('../emotionPlan');
@@ -190,18 +190,36 @@ async function buildBookBible(p) {
   // artwork. Explicit illustration regeneration upgrades it to object locks.
   const storyObjects = p.legacyReviewed ? { objects: [], hash: 'legacy', version: null }
     : await resolveStoryObjects({ book: p.book, story: p.story, theme: p.theme, costTracker: p.costTracker, log })
-      .then(plan => resolveScenePresence({ ...p, plan, log })).catch(err => {
+      .then(plan => resolveScenePresence({ ...p, plan, retryNamespace: p.identityRetry || null, log })).catch(err => {
       if (err.recovery) throw err;
+      // Autoheal (2026-09-16): a stored plan that stopped validating is
+      // re-planned and seed-backed INSIDE resolveStoryObjects, so what still
+      // reaches here is the planner's own failure or a storage outage —
+      // neither is a contract an admin can repair. The contract_conflict
+      // pause is kept only with the switch off.
+      if (flags.referenceAutoheal()) throw err;
       const recovery = require('../referenceContract').pending('Story continuity plan needs review; the saved manuscript is retained.',
         { status: 'contract_conflict', reason: err.message, exhausted: true }, 'story_object_planning');
       recovery.recovery.reason = 'contract_conflict';
       recovery.recovery.nextAction = 'repair_contract';
       throw recovery;
     });
+  if (storyObjects.fallback) advisories.push({ stage: 'storyObjects', note: `story-object plan replaced by the catalog seeds (${storyObjects.fallback.kind}): ${storyObjects.fallback.reason || 'the stored plan no longer validates'}` });
+  else if (storyObjects.retry) advisories.push({ stage: 'storyObjects', note: `story-object plan re-planned under retry fold r${storyObjects.retry}: the stored election no longer validated` });
   const requiredReferences = storyObjects.objects.filter(needsReference);
+  // Degraded references (autoheal 5b): a story object that renders as a
+  // DESCRIBED object — no sheet, its design in the PROPS block — with the
+  // reason on record; `look` becomes advisory for it, presence stays blocking.
+  const degradedReferences = [];
   if (!flags.propSheetsEnabled() && requiredReferences.some(d => d.critical)) {
-    throw require('../referenceContract').pending('Critical story references are disabled; saved story retained.', { status: 'configuration', reason: 'Enable required story references' });
+    if (!flags.referenceAutoheal()) throw require('../referenceContract').pending('Critical story references are disabled; saved story retained.', { status: 'configuration', reason: 'Enable required story references' });
+    for (const d of requiredReferences.filter(x => x.critical)) {
+      const reason = 'reference sheets are disabled (CATALOG_PROP_SHEETS=0)';
+      advisories.push({ stage: 'storyObjects', note: `reference degraded: ${d.name} — ${reason}` });
+      degradedReferences.push({ value: propName(d), storyObjectId: d.id, reason });
+    }
   }
+  const authoredIds = authoredObjectIds(p.book && p.book.id);
   // An older run may have included now-unused sheets in its render keys. Keep
   // only their metadata so saved pages stay addressable; never load, verify or
   // generate those images merely to preserve a cache identity.
@@ -267,18 +285,34 @@ async function buildBookBible(p) {
           const value = propName(definition);
           if (!needsReference(definition)) return { value, sheet: null, storyObjectId: definition.id, renderIdentity: oldReferenceIdentities.get(value) || null };
           let lastWarning = null;
-          const sheet = await getPropSheet({ kind: 'prop', value, definition, theme: p.theme, costTracker: p.costTracker, log: (level, message) => {
-            if (level === 'warn') lastWarning = message;
-            log(level, message);
-          } });
-          if (!sheet && definition.critical) {
+          const outcome = await getPropSheet({ kind: 'prop', value, definition, theme: p.theme,
+            // Autoheal: where a re-plan persists, whether the design is
+            // frozen, the rounds already applied, and the explicit
+            // regeneration's namespace (fresh candidate slots).
+            planStorageKey: storyObjects.storageKey || null, authored: authoredIds.has(definition.id),
+            replans: (storyObjects.replans && storyObjects.replans[definition.id]) || null,
+            retryNamespace: p.identityRetry || null,
+            costTracker: p.costTracker, log: (level, message) => {
+              if (level === 'warn') lastWarning = message;
+              log(level, message);
+            } });
+          const sheet = outcome && outcome.base64 ? outcome : null;
+          const degradedOutcome = outcome && outcome.degraded ? outcome : null;
+          if (sheet) return { value, sheet, storyObjectId: definition.id, definition: sheet.definition || null, replan: sheet.replan || null };
+          if (definition.critical && !flags.referenceAutoheal()) {
             const err = require('../referenceContract').pending(`Critical story object has no verified reference sheet: ${definition.name}${lastWarning ? ` — ${lastWarning}` : ''}`,
               { status: 'configuration', reason: lastWarning || `No verified reference for ${definition.name}` });
             err.advisories = [{ stage: 'storyObjects', note: err.message }];
             throw err;
           }
-          if (!sheet) notes.push({ stage: 'storyObjects', note: `Reference sheet unavailable for ${definition.name}` });
-          return { value, sheet, storyObjectId: definition.id };
+          if (flags.referenceAutoheal()) {
+            const reason = (degradedOutcome && degradedOutcome.reason) || lastWarning || `no verified reference for ${definition.name}`;
+            notes.push({ stage: 'storyObjects', note: `reference degraded: ${definition.name} — ${reason}` });
+            return { value, sheet: null, storyObjectId: definition.id, degraded: true, reason,
+              definition: (degradedOutcome && degradedOutcome.definition) || null, replan: (degradedOutcome && degradedOutcome.replan) || null };
+          }
+          notes.push({ stage: 'storyObjects', note: `Reference sheet unavailable for ${definition.name}` });
+          return { value, sheet: null, storyObjectId: definition.id };
         })));
         props.push(...storyProps);
       } catch (err) {
@@ -317,6 +351,34 @@ async function buildBookBible(p) {
   const { props, companion } = propsResult;
   advisories.push(...outfitResult.notes, ...propsResult.notes);
 
+  // Autoheal: pin the plan's objects to the definitions their references were
+  // verified against (a re-planned design/contract) and flag the degraded
+  // ones — on a NEW `objects` array; the ORIGINAL objects stay on
+  // `renderObjects` (paid artwork's dependency keys never move) and the plan
+  // hash stays the election's. Prompts, QA and the callback read `objects`.
+  for (const x of props) if (x && x.degraded && x.storyObjectId) degradedReferences.push({ value: x.value, storyObjectId: x.storyObjectId, reason: x.reason });
+  const effective = new Map(props.filter(x => x && x.storyObjectId && (x.definition || x.degraded || x.replan)).map(x => [x.storyObjectId, x]));
+  for (const d of degradedReferences) if (!effective.has(d.storyObjectId)) effective.set(d.storyObjectId, { degraded: true, reason: d.reason });
+  if (effective.size > 0 && Array.isArray(storyObjects.objects)) {
+    const renderObjects = storyObjects.renderObjects || storyObjects.objects;
+    storyObjects.objects = storyObjects.objects.map(def => {
+      const e = effective.get(def.id);
+      if (!e) return def;
+      const next = e.definition && e.definition.design ? { ...def, design: { ...e.definition.design }, reference: e.definition.reference || def.reference || null } : { ...def };
+      if (e.replan) { next.replanned = e.replan.round; storyObjects.replans = { ...(storyObjects.replans || {}), [def.id]: e.replan }; }
+      if (e.degraded) next.degraded = true;
+      return next;
+    });
+    storyObjects.renderObjects = renderObjects;
+  }
+  for (const d of degradedReferences) {
+    const def = storyObjects.objects.find(o => o.id === d.storyObjectId);
+    d.specText = def ? designText(def) : null;
+    d.reference = (def && def.reference) || null;
+  }
+  // Every re-plan in force — read with the plan or made in this run — is on record.
+  for (const [id, r] of Object.entries(storyObjects.replans || {})) advisories.push({ stage: 'storyObjects', note: `reference re-planned (round ${r.round}) for ${id}${r.reason ? `: ${r.reason}` : ''}` });
+
   const manifest = {
     styleVersion: STYLE_VERSION,
     anchorHash: aHash,
@@ -330,6 +392,9 @@ async function buildBookBible(p) {
     worldPlate: worldPlate ? { hash: worldPlate.hash } : null,
     emotionPlanHash: emotion ? emotion.hash : null,
     storyObjects,
+    // Autoheal 5b: the described objects — outside `props` (and the bible
+    // hash) on purpose: a sheet-less object never re-keyed a render before.
+    ...(degradedReferences.length ? { degradedReferences } : {}),
   };
   if (props.some(x => x.renderIdentity)) {
     const active = new Map(manifest.props.map(x => [x.value, x]));
@@ -476,7 +541,12 @@ async function summarizeBible(bible) {
     anchorHash: m.anchorHash,
     characterSheet: m.characterSheet ? { url: await url(m.characterSheet.key), hash: m.characterSheet.hash, likeness: m.characterSheet.likeness, photoLikeness: m.characterSheet.photoLikeness ?? null } : null,
     outfitSpec: m.outfitSpec ? { text: m.outfitSpec.text, hash: m.outfitSpec.hash, source: m.outfitSpec.source } : null,
-    props: await Promise.all(m.props.map(async x => ({ value: x.value, storageKey: x.key, url: await url(x.key), hash: x.hash, specText: x.specText, reference: x.reference || null }))),
+    props: [
+      ...await Promise.all(m.props.map(async x => ({ value: x.value, storageKey: x.key, url: await url(x.key), hash: x.hash, specText: x.specText, reference: x.reference || null }))),
+      // Autoheal 5b: a DEGRADED story object rides the props list too — no
+      // pixels, its design as specText, `degraded: true` and the reason.
+      ...(m.degradedReferences || []).map(x => ({ value: x.value, storageKey: null, url: null, hash: null, specText: x.specText || null, reference: x.reference || null, degraded: true, reason: x.reason || null })),
+    ],
     companion: m.companion ? { name: m.companion.name, url: await url(m.companion.key), hash: m.companion.hash, specText: m.companion.specText || null, human: !!m.companion.human } : null,
     emotionPlanHash: m.emotionPlanHash,
     storyObjects: m.storyObjects || null,

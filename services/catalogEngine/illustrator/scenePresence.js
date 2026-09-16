@@ -4,8 +4,9 @@
  */
 const { judgeImage, digest } = require('../../shared/llm/visualJudge');
 const { GEMINI_QA_MODEL } = require('../../shared/illustration/config');
-const { pending } = require('./referenceContract');
-const { evidenceSources, inputsFor } = require('./storyObjects');
+const { pending, retryFold } = require('./referenceContract');
+const { evidenceSources, inputsFor, applyReplans } = require('./storyObjects');
+const flags = require('../flags');
 
 const VERSION = 'scene-presence-1';
 const VISIBILITY = ['visible', 'absent', 'off_screen', 'optional'];
@@ -59,18 +60,34 @@ DATA:
 ${JSON.stringify({ plan: { objects: plan.objects }, spreads: inputs.spreads, tasks })}`;
 }
 
-async function resolveScenePresence({ plan, book, story, theme, bookId, costTracker, log }) {
+/**
+ * @param {object} p
+ * @param {string|null} [p.retryNamespace] an EXPLICIT regeneration's key
+ *   (2026-09-16, autoheal): the content-keyed root is read first — a
+ *   verified check is reused whatever the run — and only a saved block /
+ *   exhausted budget is re-asked under `…/<VERSION>/retry-<hash>`.
+ */
+async function resolveScenePresence({ plan, book, story, theme, bookId, retryNamespace = null, costTracker, log }) {
   if (!plan.objects.length) return plan;
   // Reviewed-art manifests can already contain a previous correction. Always
-  // audit the original contract so retries use the same saved request.
+  // audit the original contract so retries use the same saved request — a
+  // persisted re-plan (autoheal 5a) is re-applied AFTER the audit, so the
+  // saved presence request never moves when a design does.
+  const replans = plan.replans && typeof plan.replans === 'object' ? plan.replans : null;
+  // A saved manifest's DEGRADED flags (autoheal 5b) survive the audit too —
+  // the audit rebuilds `objects` from the originals.
+  const degraded = new Set((plan.objects || []).filter(d => d && d.degraded).map(d => d.id));
   plan = { ...plan, objects: plan.renderObjects || plan.objects };
   const inputs = inputsFor({ book, story, theme });
   const tasks = tasksFor(plan, inputs);
-  const result = await judgeImage({
+  const root = `children-jobs/${bookId}/visual-checks/story-presence/${VERSION}`;
+  const ask = recoveryRoot => judgeImage({
     parts: [{ text: promptFor(plan, inputs, tasks) }], model: GEMINI_QA_MODEL,
     validate: json => verdictIssue(json, tasks), label: 'story-scene-presence', maxOutputTokens: 16000,
-    recoveryRoot: `children-jobs/${bookId}/visual-checks/story-presence/${VERSION}`, costTracker,
+    recoveryRoot, costTracker,
   });
+  let result = await ask(root);
+  if (result.status !== 'verified' && typeof retryNamespace === 'string' && retryNamespace && flags.referenceAutoheal()) result = await ask(`${root}/${retryFold(retryNamespace)}`);
   if (result.status !== 'verified') throw pending('Scene requirements could not be checked yet; saved manuscript and artwork are retained.', result, 'story_object_presence');
   const objects = plan.objects.map(def => ({ ...def, occurrences: def.occurrences.map(o => {
     const verdict = result.json[keyFor(def.id, o.spread)];
@@ -82,7 +99,8 @@ async function resolveScenePresence({ plan, book, story, theme, bookId, costTrac
   const spreadHashes = Object.fromEntries(inputs.spreads.map(s => [s.spread, digest({ version: VERSION,
     objects: objects.flatMap(d => d.occurrences.filter(o => o.spread === s.spread).map(o => ({ id: d.id, occurrence: o }))),
   })]));
-  return { ...plan, objects, renderObjects: plan.renderObjects || plan.objects,
+  const healed = (replans ? applyReplans(objects, replans) : objects).map(d => (degraded.has(d.id) ? { ...d, degraded: true } : d));
+  return { ...plan, objects: healed, renderObjects: plan.renderObjects || plan.objects,
     scenePresence: { version: VERSION, spreadHashes, evidenceKey: result.evidenceKey } };
 }
 

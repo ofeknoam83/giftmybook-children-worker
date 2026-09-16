@@ -64,6 +64,23 @@
  *                                   = the score elects, never rejects).
  *  - CATALOG_PROP_SHEETS=0        — (ce-9) stop building prop / companion
  *                                   reference sheets (props ride as nouns).
+ *  - CATALOG_REFERENCE_AUTOHEAL=0 — (2026-09-16) restore the story-object
+ *                                   reference PAUSES: no re-plan after a
+ *                                   confirmed reference defect, no degrade
+ *                                   to a described object, no seed fallback
+ *                                   for a stored plan that stopped
+ *                                   validating, no second judge opinion, no
+ *                                   fresh candidate namespace on an explicit
+ *                                   regeneration (visual_recovery_pending
+ *                                   exactly as before).
+ *  - CATALOG_REFERENCE_REPLAN_ROUNDS=N — re-plan rounds (design rewrite /
+ *                                   contract downgrade) a rejected reference
+ *                                   may spend before it degrades (0-2,
+ *                                   default 1).
+ *  - CATALOG_REFERENCE_JUDGE_QUORUM=N — agreeing rejections a design /
+ *                                   representation defect needs (1-2,
+ *                                   default 2; 1 = a single rejection
+ *                                   counts, the pre-2026-09-16 rule).
  *  - CATALOG_HUMAN_COMPANION_SHEET=0 — (ce-19) stop building the reference
  *                                   sheet + character spec for a PERSON-
  *                                   typed companion (Farmer Bea, Builder
@@ -296,6 +313,18 @@ module.exports = {
   // Explicit 0 keeps the pause (visual_recovery_pending) for that case too.
   sheetRefusalFallback: () => !envOff('CATALOG_SHEET_REFUSAL_FALLBACK'),
   propSheetsEnabled: () => !envOff('CATALOG_PROP_SHEETS'),
+  // 2026-09-16 — references that heal themselves: a story-object reference
+  // whose three-candidate ladder ends in a confirmed defect (or whose
+  // elected image fails re-verification) is RE-PLANNED once under a fresh
+  // key, then DEGRADED to a described object instead of pausing the book;
+  // a stored plan that no longer validates is re-planned under a retry fold
+  // and falls back to the catalog seeds; a design/representation rejection
+  // needs a second agreeing opinion; an explicit regeneration opens fresh
+  // candidate/verification namespaces. `CATALOG_REFERENCE_AUTOHEAL=0`
+  // restores every pause exactly as before.
+  referenceAutoheal: () => !envOff('CATALOG_REFERENCE_AUTOHEAL'),
+  referenceReplanRounds: () => envInt('CATALOG_REFERENCE_REPLAN_ROUNDS', 1, 0, 2),
+  referenceJudgeQuorum: () => envInt('CATALOG_REFERENCE_JUDGE_QUORUM', 2, 1, 2),
   // ce-19 — secondary characters: a person-typed companion gets a sheet too
   humanCompanionSheetEnabled: () => !envOff('CATALOG_HUMAN_COMPANION_SHEET'),
   emotionPlanEnabled: () => !envOff('CATALOG_EMOTION_PLAN'),
