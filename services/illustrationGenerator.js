@@ -6,7 +6,7 @@
  * character rendering via Gemini's image-to-image capabilities.
  */
 
-const { uploadBuffer } = require('./gcsStorage');
+const { uploadBuffer, parseGcsObjectUrl, readGcsObject } = require('./gcsStorage');
 const { withRetry } = require('./retry');
 const { resolveBookTextRules, resolveTypographyGuideRules, PIXAR_STYLE, GEMINI_IMAGE_SAFETY_SETTINGS } = require('./shared/illustration/config');
 const { qaVisionModel } = require('./shared/llm/models');
@@ -1153,14 +1153,58 @@ function renderBibleBlocks(bible, ctx = {}) {
 }
 
 /**
+ * The image type an encoded buffer declares in its first bytes (PNG, JPEG,
+ * WebP, GIF), or null — for a GCS object whose metadata carries no content
+ * type, never a guess that mislabels the inline image the model receives.
+ * @param {Buffer} buffer
+ * @returns {string|null}
+ */
+function sniffImageMimeType(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return null;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return 'image/png';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+  if (buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (buffer.toString('ascii', 0, 4) === 'GIF8') return 'image/gif';
+  return null;
+}
+
+/**
  * Download a photo from URL and return { base64, mimeType }.
+ *
+ * The identity anchor of every render (the approved cover, else the child
+ * photo) comes in as an HTTPS URL the app stores. Since 2026-09-16 the app
+ * persists that cover in CANONICAL form — `https://storage.googleapis.com/
+ * <bucket>/<object>` with NO signature — and re-signs it on every read of
+ * its own; a dispatch that sent the stored form, or a 7-day signature that
+ * expired before a retry, made this fetch a 403 and failed the whole book
+ * `missing_identity_reference` ("identity reference could not be
+ * downloaded"). A GCS object the HTTP fetch refuses is therefore read with
+ * the worker's own credentials (`readGcsObject` — the same IAM read
+ * `downloadBuffer` has always fallen back to for the print assets); only a
+ * URL that is not a GCS object, or an object IAM cannot read either, fails.
+ * @param {string} url
+ * @returns {Promise<{base64: string, mimeType: string}>}
  */
 async function downloadPhotoAsBase64(url) {
   const resp = await fetchWithTimeout(url);
-  if (!resp.ok) throw new Error(`Failed to download photo: ${resp.status} ${resp.statusText}`);
-  const contentType = resp.headers.get('content-type') || 'image/jpeg';
-  const buffer = Buffer.from(await resp.arrayBuffer());
-  return { base64: buffer.toString('base64'), mimeType: contentType };
+  if (resp.ok) {
+    const contentType = resp.headers.get('content-type') || 'image/jpeg';
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    return { base64: buffer.toString('base64'), mimeType: contentType };
+  }
+  const httpError = `Failed to download photo: ${resp.status} ${resp.statusText}`;
+  const ref = parseGcsObjectUrl(url);
+  if (!ref) throw new Error(httpError);
+  const objectName = `gs://${ref.bucket}/${ref.objectPath}`;
+  let object;
+  try {
+    object = await readGcsObject(ref);
+  } catch (sdkErr) {
+    throw new Error(`${httpError}; reading ${objectName} with the worker's own credentials failed too: ${sdkErr.message}`);
+  }
+  console.log(`[illustrationGenerator] photo fetch refused (${resp.status} ${resp.statusText}) — read ${objectName.slice(0, 120)} with the worker's own credentials instead`);
+  const mimeType = object.contentType || sniffImageMimeType(object.buffer) || 'image/jpeg';
+  return { base64: object.buffer.toString('base64'), mimeType };
 }
 
 /**

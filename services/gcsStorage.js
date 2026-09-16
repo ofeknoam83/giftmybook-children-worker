@@ -65,6 +65,59 @@ async function uploadFromUrl(url, destination) {
 }
 
 /**
+ * The GCS object an HTTPS URL names, in either of the two URL styles the
+ * app and the worker exchange — path-style
+ * `https://storage.googleapis.com/<bucket>/<object>[?…]` and virtual-hosted
+ * `https://<bucket>.storage.googleapis.com/<object>[?…]`. The query string
+ * (a signature, expired or not) is ignored and the object path is decoded
+ * once, so an encoded and a raw spelling of one object agree. Any other
+ * URL (a CDN, a legacy host, a plain key) is null.
+ * @param {string} url
+ * @returns {{bucket: string, objectPath: string}|null}
+ */
+function parseGcsObjectUrl(url) {
+  if (typeof url !== 'string') return null;
+  let parsed;
+  try { parsed = new URL(url); } catch { return null; }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+  const decode = (raw) => { try { return decodeURIComponent(raw); } catch { return raw; } };
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'storage.googleapis.com') {
+    // Path format: /bucket-name/path/to/file
+    const pathParts = parsed.pathname.split('/').filter(Boolean);
+    const bucket = pathParts[0];
+    const objectPath = decode(pathParts.slice(1).join('/'));
+    return bucket && objectPath ? { bucket, objectPath } : null;
+  }
+  const vhost = /^([a-z0-9.\-_]+)\.storage\.googleapis\.com$/i.exec(host);
+  if (vhost) {
+    const objectPath = decode(parsed.pathname.replace(/^\/+/, ''));
+    return objectPath ? { bucket: vhost[1], objectPath } : null;
+  }
+  return null;
+}
+
+/**
+ * Read one GCS object with the worker's own credentials (IAM), bytes AND
+ * content type — the read that does not depend on a URL's signature. Used
+ * where a caller-supplied HTTPS URL was refused: an approved cover the app
+ * stores WITHOUT its signature (canonical form, 2026-09-16), or a 7-day
+ * signature that expired before a retry.
+ * @param {{bucket: string, objectPath: string}} ref
+ * @returns {Promise<{buffer: Buffer, contentType: string|null}>}
+ */
+async function readGcsObject(ref) {
+  const file = storage.bucket(ref.bucket).file(ref.objectPath);
+  const [buffer] = await file.download();
+  let contentType = null;
+  try {
+    const [metadata] = await file.getMetadata();
+    contentType = metadata && typeof metadata.contentType === 'string' ? metadata.contentType : null;
+  } catch { /* the bytes are what matters; the caller sniffs the type */ }
+  return { buffer, contentType };
+}
+
+/**
  * Download a file from GCS as a buffer.
  * @param {string} source - GCS object path or gs:// URI
  * @returns {Promise<Buffer>}
@@ -72,34 +125,14 @@ async function uploadFromUrl(url, destination) {
 async function downloadBuffer(source) {
   // Prefer GCS SDK for googleapis URLs so expired/invalid signed query strings
   // (HTTP 400/403 from fetch) do not break Cloud Run jobs — IAM reads the object.
-  if (source.startsWith('https://storage.googleapis.com/')) {
+  const ref = parseGcsObjectUrl(source);
+  if (ref) {
     try {
-      const url = new URL(source);
-      // Path format: /bucket-name/path/to/file
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      const bucket = pathParts[0];
-      const filePath = pathParts.slice(1).join('/');
-      if (bucket && filePath) {
-        const objectPath = decodeURIComponent(filePath);
-        console.log(`[gcsStorage] Downloading via SDK gs://${bucket}/${objectPath.slice(0, 80)}`);
-        const [buffer] = await storage.bucket(bucket).file(objectPath).download();
-        return buffer;
-      }
-    } catch (sdkErr) {
-      console.warn(`[gcsStorage] SDK download failed, falling back to fetch: ${sdkErr.message}`);
-    }
-  }
-  // Virtual-hosted style: https://BUCKET.storage.googleapis.com/OBJECT
-  const vhost = /^https:\/\/([a-z0-9.\-_]+)\.storage\.googleapis\.com\/([^?]+)/i.exec(source);
-  if (vhost) {
-    try {
-      const [, bucket, rawPath] = vhost;
-      const objectPath = decodeURIComponent(rawPath);
-      console.log(`[gcsStorage] Downloading via SDK (vhost) gs://${bucket}/${objectPath.slice(0, 80)}`);
-      const [buffer] = await storage.bucket(bucket).file(objectPath).download();
+      console.log(`[gcsStorage] Downloading via SDK gs://${ref.bucket}/${ref.objectPath.slice(0, 80)}`);
+      const [buffer] = await storage.bucket(ref.bucket).file(ref.objectPath).download();
       return buffer;
     } catch (sdkErr) {
-      console.warn(`[gcsStorage] SDK vhost download failed, falling back to fetch: ${sdkErr.message}`);
+      console.warn(`[gcsStorage] SDK download failed, falling back to fetch: ${sdkErr.message}`);
     }
   }
   // Fallback: public URLs or other origins via fetch
@@ -173,6 +206,8 @@ module.exports = {
   uploadBufferIfAbsent,
   uploadFromUrl,
   downloadBuffer,
+  parseGcsObjectUrl,
+  readGcsObject,
   getSignedUrl,
   objectExists,
   deletePrefix,
