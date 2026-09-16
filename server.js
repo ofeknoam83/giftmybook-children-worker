@@ -825,6 +825,7 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         textInkQa: null,
         bookBible: null,
         unresolved: [],
+        aspect: null,
         costs: costTracker.getSummary(),
       };
     }
