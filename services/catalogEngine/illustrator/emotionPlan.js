@@ -38,13 +38,13 @@
  */
 
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
-const { GEMINI_QA_MODEL } = require('../../shared/illustration/config');
+const { qaVisionModel } = require('../../shared/llm/models');
 const { jsonQaGenerationConfig, responseText, parseJsonText, finishReasonOf } = require('../../shared/llm/geminiJson');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
-const CLASSIFIER_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || GEMINI_QA_MODEL;
+const CLASSIFIER_MODEL = () => qaVisionModel();
 const CLASSIFIER_TIMEOUT_MS = 45000;
 
 /** Closed emotion vocabulary — the prompt line, the QA verdict, and the

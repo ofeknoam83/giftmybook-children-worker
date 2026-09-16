@@ -56,11 +56,17 @@ const jsonResp = json => ({
 });
 const promptOf = call => JSON.parse(call[1].body).contents[0].parts[0].text;
 const isQa = call => promptOf(call).startsWith('You are checking a REFERENCE SHEET') || promptOf(call).startsWith("Check this children's-book REFERENCE");
+// Autoheal (2026-09-16): the second judge opinion on a contested design /
+// representation rejection, and the ONE re-plan call after an exhausted ladder.
+const isSecondOpinion = call => promptOf(call).startsWith("SECOND OPINION — Check this children's-book REFERENCE");
+const isReplan = call => promptOf(call).startsWith("Re-plan this children's-book REFERENCE");
 const isSpec = call => promptOf(call).startsWith('You are extracting the PROP SPEC');
 const isPersonQa = call => promptOf(call).startsWith('You are checking a SECONDARY CHARACTER REFERENCE SHEET');
 const isCharacterSpec = call => promptOf(call).startsWith('You are extracting the CHARACTER SPEC');
 const imageCalls = fetch => fetch.mock.calls.filter(c => c[0].includes('test-image-model'));
 const qaCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isQa(c));
+const secondOpinionCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isSecondOpinion(c));
+const replanCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isReplan(c));
 const specCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isSpec(c));
 const personQaCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isPersonQa(c));
 const characterSpecCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes('test-image-model') && isCharacterSpec(c));
@@ -68,13 +74,19 @@ const characterSpecCalls = fetch => fetch.mock.calls.filter(c => !c[0].includes(
 /**
  * Default transport: the image model returns LOCAL_PNG, the sheet QA a
  * clean verdict, the spec read SPEC_JSON. Each piece can be a value or a
- * function (called per request) to script sequences.
+ * function (called per request) to script sequences. The second opinion
+ * defaults to the NEXT `qa` pick (a constant agrees with the first pass; a
+ * scripted sequence hands the second opinion its own item), and the re-plan
+ * defaults to an unusable answer (`{}` — a failed round, so the ladder is
+ * not run again unless a test scripts a real re-plan).
  */
-function transport({ image, qa, personQa, spec, characterSpec } = {}) {
+function transport({ image, qa, secondOpinion, replan, personQa, spec, characterSpec } = {}) {
   const pick = (v, def) => (typeof v === 'function' ? v() : (v === undefined ? def : v));
   return async (url, opts) => {
     if (url.includes('test-image-model')) return imageResp(pick(image, LOCAL_PNG));
     const call = [url, opts];
+    if (isSecondOpinion(call)) return jsonResp(secondOpinion === undefined ? pick(qa, CLEAN_QA) : pick(secondOpinion, CLEAN_QA));
+    if (isReplan(call)) return jsonResp(pick(replan, {}));
     if (isQa(call)) return jsonResp(pick(qa, CLEAN_QA));
     if (isPersonQa(call)) return jsonResp(pick(personQa, CLEAN_PERSON_QA));
     if (isSpec(call)) return jsonResp(pick(spec, SPEC_JSON));
@@ -111,6 +123,9 @@ const quiet = () => {};
 beforeEach(() => {
   delete process.env.CATALOG_PROP_SHEETS;
   delete process.env.CATALOG_HUMAN_COMPANION_SHEET;
+  delete process.env.CATALOG_REFERENCE_AUTOHEAL;
+  delete process.env.CATALOG_REFERENCE_REPLAN_ROUNDS;
+  delete process.env.CATALOG_REFERENCE_JUDGE_QUORUM;
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 afterEach(() => {
@@ -770,37 +785,63 @@ describe('getBibleProps', () => {
 describe('fixed story-object reference designs', () => {
   const CLEAN = { readable_text: false, unrelated_people: false, design_matches: true, representation_matches: true };
   const definition = (kind = 'single') => ({ id: 'marker', name: 'route marker', reference: { kind, subject: 'object', description: 'One wooden post with one orange stripe' }, design: { shape: 'narrow post', material: 'wood', colors: 'brown and orange', scale: 'knee high', features: 'one stripe on the front only' } });
-  function setup(qa = CLEAN) {
+  const PLAN_KEY = 'catalog-assets/story-objects/so-1/abc123.json';
+  const REPLAN_R1 = `${PLAN_KEY.replace(/\.json$/, '')}.replans/marker/r1.json`;
+  function setup(qa = CLEAN, over = {}) {
     const ctx = fresh();
     const files = new Map();
     ctx.gcs.downloadBuffer.mockImplementation(async key => { if (files.has(key)) return files.get(key); throw Object.assign(new Error('not found'), { code: 404 }); });
     ctx.gcs.uploadBufferIfAbsent.mockImplementation(async (buffer, key) => { if (files.has(key)) return { created: false }; files.set(key, buffer); return { created: true }; });
     let n = 0;
-    ctx.fetch.mockImplementation(transport({ qa, image: () => Buffer.concat([LOCAL_PNG, Buffer.from(String(n++))]) }));
+    ctx.fetch.mockImplementation(transport({ qa, image: () => Buffer.concat([LOCAL_PNG, Buffer.from(String(n++))]), ...over }));
     return { ...ctx, files };
   }
-  const params = def => ({ kind: 'prop', value: `Story object: ${def.name}`, definition: def, theme: FARM, log: quiet });
+  const params = (def, extra = {}) => ({ kind: 'prop', value: `Story object: ${def.name}`, definition: def, theme: FARM, planStorageKey: PLAN_KEY, log: quiet, ...extra });
+  const electedPngs = files => [...files.keys()].filter(k => k.endsWith('.png') && !k.includes('.candidates/'));
   test('text defects recover with a simpler composition while preserving an assembly', async () => {
-    const verdicts = [{ ...CLEAN, readable_text: true }, { ...CLEAN, representation_matches: false }, CLEAN];
+    // Candidate 1: text (perception — no second opinion). Candidate 2: a
+    // representation rejection CONFIRMED by the second opinion. Candidate 3: clean.
+    const verdicts = [{ ...CLEAN, readable_text: true }, { ...CLEAN, representation_matches: false }, { ...CLEAN, representation_matches: false }, CLEAN];
     const { mod, fetch, files } = setup(() => verdicts.shift());
     const nest = { ...definition('assembly'), name: 'hidden nests', reference: { kind: 'assembly', subject: 'object', description: 'One straw nest with pale eggs' } };
     const costs = { addImageGeneration: jest.fn() };
     const sheet = await mod.getPropSheet({ ...params(nest), costTracker: costs });
     expect(sheet.reference.kind).toBe('assembly');
+    expect(sheet.definition).toMatchObject({ name: 'hidden nests', reference: { kind: 'assembly' } });
     expect(imageCalls(fetch)).toHaveLength(3);
     expect(costs.addImageGeneration).toHaveBeenCalledTimes(3);
+    expect(secondOpinionCalls(fetch)).toHaveLength(1);
     expect(promptOf(imageCalls(fetch)[2])).toContain('Components are not unwanted extra subjects');
     expect(promptOf(imageCalls(fetch)[2])).not.toContain('twice side by side');
     expect(files.has(sheet.storageKey)).toBe(true);
     expect([...files.keys()].filter(k => /candidates\/\d.png$/.test(k))).toHaveLength(3);
+    expect(replanCalls(fetch)).toHaveLength(0);
   });
-  test.each([{ readable_text: true }, { representation_matches: false }, { design_matches: false }, { unrelated_people: true }])('defective references are retained but never elected: %p', async defect => {
-    const { mod, fetch, files } = setup({ ...CLEAN, ...defect });
-    const p = params(definition());
-    await expect(mod.getPropSheet(p)).rejects.toMatchObject({ recovery: { status: 'needs_review', retryable: false } });
-    await expect(mod.getPropSheet(p)).rejects.toHaveProperty('recovery');
-    expect(imageCalls(fetch)).toHaveLength(3);
-    expect([...files.keys()].filter(k => k.endsWith('.png') && !k.includes('.candidates/'))).toHaveLength(0);
+  describe('CATALOG_REFERENCE_AUTOHEAL=0 restores the pause exactly', () => {
+    beforeEach(() => { process.env.CATALOG_REFERENCE_AUTOHEAL = '0'; });
+    test.each([{ readable_text: true }, { representation_matches: false }, { design_matches: false }, { unrelated_people: true }])('defective references are retained but never elected: %p', async defect => {
+      const { mod, fetch, files } = setup({ ...CLEAN, ...defect });
+      const p = params(definition());
+      await expect(mod.getPropSheet(p)).rejects.toMatchObject({ recovery: { status: 'needs_review', retryable: false, reason: 'confirmed_defect' } });
+      await expect(mod.getPropSheet(p)).rejects.toHaveProperty('recovery');
+      expect(imageCalls(fetch)).toHaveLength(3);
+      expect(secondOpinionCalls(fetch)).toHaveLength(0); // the quorum is an autoheal rule
+      expect(replanCalls(fetch)).toHaveLength(0);
+      expect(electedPngs(files)).toHaveLength(0);
+    });
+    test('an incomplete verdict pauses without electing or regenerating the reference', async () => {
+      const { mod, fetch, files } = setup({ ...CLEAN, design_matches: undefined });
+      await expect(mod.getPropSheet(params(definition()))).rejects.toMatchObject({ recovery: { status: 'verification_pending', retryable: false } });
+      expect(imageCalls(fetch)).toHaveLength(1);
+      expect(electedPngs(files)).toHaveLength(0);
+    });
+    test('an explicit regeneration replays the saved rejection (no fresh slots)', async () => {
+      const { mod, fetch } = setup({ ...CLEAN, readable_text: true });
+      await expect(mod.getPropSheet(params(definition()))).rejects.toHaveProperty('recovery');
+      expect(imageCalls(fetch)).toHaveLength(3);
+      await expect(mod.getPropSheet(params(definition(), { retryNamespace: 'book-1:1700000000000' }))).rejects.toHaveProperty('recovery');
+      expect(imageCalls(fetch)).toHaveLength(3);
+    });
   });
   test('malformed QA retries the same image; cached approval avoids another call', async () => {
     let call = 0;
@@ -821,12 +862,6 @@ describe('fixed story-object reference designs', () => {
     const b = await mod.getPropSheet(params(changed));
     expect(b.storageKey).not.toEqual(a.storageKey);
   });
-  test('an incomplete verdict pauses without electing or regenerating the reference', async () => {
-    const { mod, fetch, files } = setup({ ...CLEAN, design_matches: undefined });
-    await expect(mod.getPropSheet(params(definition()))).rejects.toMatchObject({ recovery: { status: 'verification_pending', retryable: false } });
-    expect(imageCalls(fetch)).toHaveLength(1);
-    expect([...files.keys()].filter(k => k.endsWith('.png') && !k.includes('.candidates/'))).toHaveLength(0);
-  });
   test('the firefly collective passes as a group without a one-subject constraint', async () => {
     const { mod, fetch } = setup();
     const swarm = { ...definition('group'), name: 'unusual firefly group', reference: { kind: 'group', subject: 'creature', description: 'One glowing firefly group with warm green lights' } };
@@ -834,5 +869,234 @@ describe('fixed story-object reference designs', () => {
     expect(promptOf(imageCalls(fetch)[0])).toContain('Multiple members are required');
     expect(promptOf(qaCalls(fetch)[0])).not.toContain('subject_count');
     expect(imageCalls(fetch)).toHaveLength(1);
+  });
+
+  describe('references that heal themselves (autoheal, 2026-09-16)', () => {
+    const REPLAN = { design: { shape: 'narrow post', material: 'wood', colors: 'plain brown with one wide orange band', scale: 'knee high', features: 'one wide orange band near the top' }, reference: { kind: 'single', subject: 'object', description: 'One wooden post with one wide orange band' } };
+    test('quorum: one rejection + one pass is a pass (the second opinion is its own durable call at LOW thinking)', async () => {
+      const { mod, fetch, files } = setup({ ...CLEAN, design_matches: false }, { secondOpinion: CLEAN });
+      const sheet = await mod.getPropSheet(params(definition()));
+      expect(sheet).not.toBeNull();
+      expect(imageCalls(fetch)).toHaveLength(1);
+      expect(qaCalls(fetch)).toHaveLength(1);
+      expect(secondOpinionCalls(fetch)).toHaveLength(1);
+      const second = JSON.parse(secondOpinionCalls(fetch)[0][1].body);
+      expect(second.contents[0].parts[0].text).toContain('REFERENCE CONTRACT (data)');
+      expect(second.contents[0].parts[0].text).toContain('"design_matches":false');
+      expect(second.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+      expect(electedPngs(files)).toHaveLength(1);
+      // Both opinions are saved under the verification root as distinct calls.
+      expect([...files.keys()].filter(k => k.includes('.verification/') && k.endsWith('request.json'))).toHaveLength(2);
+      // A replay reuses both saved verdicts: no new call of either kind.
+      const before = fetch.mock.calls.length;
+      expect(await mod.getPropSheet(params(definition()))).not.toBeNull();
+      expect(fetch.mock.calls.length).toBe(before);
+    });
+    test('quorum: two agreeing rejections are a defect; the exhausted ladder re-plans once and DEGRADES when the re-plan is unusable', async () => {
+      const { mod, fetch, files } = setup({ ...CLEAN, design_matches: false });
+      const log = jest.fn();
+      const outcome = await mod.getPropSheet(params(definition(), { log }));
+      expect(outcome).toMatchObject({ degraded: true, definition: { name: 'route marker' }, replan: null });
+      expect(outcome.reason).toContain('reference does not match the fixed design');
+      expect(outcome.reason).toContain('re-plan round 1 failed');
+      expect(outcome.recovery).toMatchObject({ reason: 'confirmed_defect', retryable: false });
+      expect(imageCalls(fetch)).toHaveLength(3);
+      expect(qaCalls(fetch)).toHaveLength(3);
+      expect(secondOpinionCalls(fetch)).toHaveLength(3);
+      expect(replanCalls(fetch).length).toBeGreaterThanOrEqual(1);
+      expect(promptOf(replanCalls(fetch)[0])).toContain('"rejectedFor":["reference does not match the fixed design"]');
+      expect(electedPngs(files)).toHaveLength(0);
+      expect(files.has(REPLAN_R1)).toBe(false);
+      expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('reference degraded: route marker'));
+      // A plain resume replays every saved rejection and the saved re-plan failure: zero new calls.
+      const before = fetch.mock.calls.length;
+      expect(await mod.getPropSheet(params(definition()))).toMatchObject({ degraded: true });
+      expect(fetch.mock.calls.length).toBe(before);
+    });
+    test('a text or people finding is definitive: no second opinion is asked, and the defect is never lost behind an unavailable one', async () => {
+      const { mod, fetch } = setup({ ...CLEAN, readable_text: true, design_matches: false });
+      const outcome = await mod.getPropSheet(params(definition()));
+      expect(outcome).toMatchObject({ degraded: true });
+      expect(outcome.reason).toContain('readable text in the reference');
+      expect(secondOpinionCalls(fetch)).toHaveLength(0);
+      expect(qaCalls(fetch)).toHaveLength(3);
+    });
+    test('a storage outage while saving the re-plan is a TRANSIENT pause the dispatcher resumes, never a failed round', async () => {
+      const { mod, gcs } = setup({ ...CLEAN, design_matches: false }, { replan: REPLAN });
+      const upload = gcs.uploadBufferIfAbsent.getMockImplementation();
+      gcs.uploadBufferIfAbsent.mockImplementation(async (buffer, key) => {
+        if (key.includes('.replans/')) throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+        return upload(buffer, key);
+      });
+      const err = await mod.getPropSheet(params(definition())).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.failureCode).toBe('visual_recovery_pending');
+      expect(err.recovery).toMatchObject({ stage: 'reference_planning', retryable: true, reason: 'verification_unavailable' });
+      expect(err.recovery.issues[0].reason).toContain('Re-plan storage unavailable');
+    });
+    test('a re-plan whose judge call is a transport outage propagates as verification_unavailable at the planning stage, never a degrade', async () => {
+      const { mod, fetch } = setup({ ...CLEAN, design_matches: false });
+      const base = fetch.getMockImplementation();
+      fetch.mockImplementation(async (url, opts) => {
+        if (!url.includes('test-image-model') && isReplan([url, opts])) return { ok: false, status: 503, text: async () => 'overloaded' };
+        return base(url, opts);
+      });
+      const err = await mod.getPropSheet(params(definition())).catch(e => e);
+      expect(err.failureCode).toBe('visual_recovery_pending');
+      expect(err.recovery).toMatchObject({ stage: 'reference_planning', reason: 'verification_unavailable' });
+      expect(err.degraded).toBeUndefined();
+    });
+    test('a provider 503 on the reference render is a TRANSIENT pause, never a configuration hold the autoheal would degrade', async () => {
+      const { mod, fetch } = setup();
+      const base = fetch.getMockImplementation();
+      fetch.mockImplementation(async (url, opts) => (url.includes('test-image-model') ? { ok: false, status: 503, text: async () => 'overloaded' } : base(url, opts)));
+      const err = await mod.getPropSheet(params(definition())).catch(e => e);
+      expect(err.failureCode).toBe('visual_recovery_pending');
+      expect(err.recovery).toMatchObject({ retryable: true, reason: 'verification_unavailable' });
+      expect(err.recovery.issues[0].reason).toContain('transport unavailable');
+      expect(err.recovery.issues[0].reason).toContain('HTTP 503');
+    });
+    test('CATALOG_REFERENCE_JUDGE_QUORUM=1: a single rejection counts (no second opinion)', async () => {
+      process.env.CATALOG_REFERENCE_JUDGE_QUORUM = '1';
+      const { mod, fetch } = setup({ ...CLEAN, representation_matches: false }, { secondOpinion: CLEAN });
+      expect(await mod.getPropSheet(params(definition('group')))).toMatchObject({ degraded: true });
+      expect(secondOpinionCalls(fetch)).toHaveLength(0);
+      expect(imageCalls(fetch)).toHaveLength(3);
+    });
+    test('re-plan re-keys and elects: a rewritten design opens a fresh ladder under a new key, the record persists beside the plan, and a later run reads it', async () => {
+      const marker = definition();
+      let ladder = 0;
+      const { mod, fetch, files } = setup(() => (++ladder <= 6 ? { ...CLEAN, design_matches: false } : CLEAN), { replan: REPLAN });
+      const costs = { addImageGeneration: jest.fn() };
+      const sheet = await mod.getPropSheet({ ...params(marker), costTracker: costs });
+      expect(sheet).toMatchObject({ kind: 'prop', reference: REPLAN.reference, replan: { round: 1, design: REPLAN.design, reference: REPLAN.reference } });
+      expect(sheet.definition.design).toEqual(REPLAN.design);
+      expect(sheet.specText).toContain('one wide orange band');
+      // 3 rejected candidates under the old key, then ONE clean candidate under the fresh key.
+      expect(imageCalls(fetch)).toHaveLength(4);
+      expect(promptOf(imageCalls(fetch)[3])).toContain('one wide orange band');
+      expect(costs.addImageGeneration).toHaveBeenCalledTimes(4);
+      expect(replanCalls(fetch)).toHaveLength(1);
+      const replanBody = JSON.parse(replanCalls(fetch)[0][1].body);
+      expect(replanBody.contents[0].parts[0].text).toContain('"designFrozen":false');
+      expect(replanBody.contents[0].parts[0].text).toContain('REFERENCE CONTRACT (data)');
+      expect([...files.keys()].filter(k => k.startsWith('catalog-assets/reference-replans/v1/') && k.endsWith('request.json'))).toHaveLength(1);
+      // The elected key belongs to the re-planned design, not the original.
+      const { fnv1a } = require('../../../services/catalogEngine/selection');
+      expect(sheet.storageKey).not.toContain(fnv1a('Story object: route marker').toString(36));
+      expect(electedPngs(files)).toEqual([sheet.storageKey]);
+      const candidateDirs = new Set([...files.keys()].filter(k => k.includes('.candidates/')).map(k => k.split('.candidates/')[0]));
+      expect(candidateDirs.size).toBe(2);
+      // The re-plan record is persisted beside the elected plan for every later run.
+      const record = JSON.parse(files.get(REPLAN_R1).toString());
+      expect(record).toMatchObject({ version: 1, objectId: 'marker', round: 1, reason: 'reference does not match the fixed design', from: { design: marker.design, reference: marker.reference }, to: REPLAN });
+      // A later run (the plan read applied r1) resolves the elected sheet with no new call.
+      const before = fetch.mock.calls.length;
+      const again = await mod.getPropSheet(params({ ...marker, ...REPLAN }, { replans: { round: 1, ...REPLAN } }));
+      expect(again.storageKey).toBe(sheet.storageKey);
+      expect(fetch.mock.calls.length).toBe(before);
+    });
+    test('a catalog-authored object may only downgrade its contract — a design rewrite is a failed round', async () => {
+      const group = definition('group');
+      const { mod, fetch, files } = setup({ ...CLEAN, representation_matches: false }, { replan: REPLAN });
+      const outcome = await mod.getPropSheet(params(group, { authored: true }));
+      expect(outcome).toMatchObject({ degraded: true });
+      expect(outcome.reason).toContain('re-plan round 1 failed');
+      expect(promptOf(replanCalls(fetch)[0])).toContain('"designFrozen":true');
+      expect(files.has(REPLAN_R1)).toBe(false);
+      expect(imageCalls(fetch)).toHaveLength(3);
+      // The same object with a contract-only re-plan elects under the downgraded contract.
+      let ladder = 0;
+      const ctx = setup(() => (++ladder <= 6 ? { ...CLEAN, representation_matches: false } : CLEAN), { replan: { design: group.design, reference: { kind: 'single', subject: 'object', description: 'One representative route post' } } });
+      const sheet = await ctx.mod.getPropSheet(params(group, { authored: true }));
+      expect(sheet.reference).toEqual({ kind: 'single', subject: 'object', description: 'One representative route post' });
+      expect(sheet.definition.design).toEqual(group.design);
+      expect(JSON.parse(ctx.files.get(REPLAN_R1).toString()).to.reference.kind).toBe('single');
+      expect(imageCalls(ctx.fetch)).toHaveLength(4);
+    });
+    test('the re-plan budget is spent across runs: a persisted round is never re-run, and CATALOG_REFERENCE_REPLAN_ROUNDS=0 degrades at once', async () => {
+      const { mod, fetch } = setup({ ...CLEAN, design_matches: false }, { replan: REPLAN });
+      const outcome = await mod.getPropSheet(params({ ...definition(), ...REPLAN }, { replans: { round: 1, ...REPLAN } }));
+      expect(outcome).toMatchObject({ degraded: true });
+      expect(outcome.reason).toContain('re-plan budget 1 spent');
+      expect(replanCalls(fetch)).toHaveLength(0);
+      expect(imageCalls(fetch)).toHaveLength(3);
+      process.env.CATALOG_REFERENCE_REPLAN_ROUNDS = '0';
+      const ctx = setup({ ...CLEAN, design_matches: false }, { replan: REPLAN });
+      expect(await ctx.mod.getPropSheet(params(definition()))).toMatchObject({ degraded: true });
+      expect(replanCalls(ctx.fetch)).toHaveLength(0);
+    });
+    test('a losing re-plan election adopts the winning record', async () => {
+      let ladder = 0;
+      const { mod, fetch, files } = setup(() => (++ladder <= 6 ? { ...CLEAN, design_matches: false } : CLEAN), { replan: REPLAN });
+      const winner = { ...REPLAN, design: { ...REPLAN.design, colors: 'the winning colours' } };
+      files.set(REPLAN_R1, Buffer.from(JSON.stringify({ version: 1, objectId: 'marker', round: 1, to: winner })));
+      const sheet = await mod.getPropSheet(params(definition()));
+      expect(sheet.definition.design.colors).toBe('the winning colours');
+      expect(promptOf(imageCalls(fetch)[3])).toContain('the winning colours');
+    });
+    test('an incomplete verdict (malformed, exhausted) degrades instead of pausing; a blocked verifier degrades too', async () => {
+      const { mod, fetch, files } = setup({ ...CLEAN, design_matches: undefined });
+      const outcome = await mod.getPropSheet(params(definition()));
+      expect(outcome).toMatchObject({ degraded: true, recovery: { reason: 'verification_unavailable', retryable: false } });
+      expect(imageCalls(fetch)).toHaveLength(1);
+      expect(electedPngs(files)).toHaveLength(0);
+      const blocked = setup();
+      blocked.fetch.mockImplementation(async (url, opts) => {
+        if (url.includes('test-image-model')) return imageResp(LOCAL_PNG);
+        if (isQa([url, opts])) return { ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) };
+        throw new Error('unexpected');
+      });
+      expect(await blocked.mod.getPropSheet(params(definition()))).toMatchObject({ degraded: true, recovery: { reason: 'provider_blocked' } });
+    });
+    test('a retryable transient still throws — the app dispatcher resumes it, nothing degrades', async () => {
+      const { mod, fetch } = setup();
+      fetch.mockImplementation(async (url, opts) => {
+        if (url.includes('test-image-model')) return imageResp(LOCAL_PNG);
+        if (isQa([url, opts])) return { ok: false, status: 503 };
+        throw new Error('unexpected');
+      });
+      await expect(mod.getPropSheet(params(definition()))).rejects.toMatchObject({ recovery: { retryable: true, reason: 'verification_unavailable' } });
+    });
+    test('retryNamespace opens fresh candidate slots and a fresh verification root; a plain resume still replays', async () => {
+      const { mod, fetch, files } = setup({ ...CLEAN, readable_text: true });
+      expect(await mod.getPropSheet(params(definition()))).toMatchObject({ degraded: true });
+      expect(imageCalls(fetch)).toHaveLength(3);
+      const plain = [...files.keys()].filter(k => /\.candidates\/\d\.png$/.test(k));
+      expect(plain).toHaveLength(3);
+      // Plain resume: every saved candidate + verdict replays, no new image.
+      expect(await mod.getPropSheet(params(definition()))).toMatchObject({ degraded: true });
+      expect(imageCalls(fetch)).toHaveLength(3);
+      // Explicit regeneration: three FRESH candidates under the retry fold.
+      expect(await mod.getPropSheet(params(definition(), { retryNamespace: 'book-1:1700000000000' }))).toMatchObject({ degraded: true });
+      expect(imageCalls(fetch)).toHaveLength(6);
+      const fresh = [...files.keys()].filter(k => /\.candidates\/retry-[0-9a-z]+\/\d\.png$/.test(k));
+      expect(fresh).toHaveLength(3);
+      expect([...files.keys()].some(k => /\.verification\/retry-[0-9a-z]+\//.test(k))).toBe(true);
+      // The same namespace replays its own slots; a different one opens more.
+      expect(await mod.getPropSheet(params(definition(), { retryNamespace: 'book-1:1700000000000' }))).toMatchObject({ degraded: true });
+      expect(imageCalls(fetch)).toHaveLength(6);
+    });
+    test('an elected reference that fails re-verification is re-planned, then degrades — never paused', async () => {
+      const { mod, fetch, files } = setup();
+      const sheet = await mod.getPropSheet(params(definition()));
+      expect(imageCalls(fetch)).toHaveLength(1);
+      // A stricter checker later rejects the ELECTED image on every look (its own fingerprint).
+      const ctx = fresh();
+      ctx.gcs.downloadBuffer.mockImplementation(async key => { if (files.has(key)) return files.get(key); throw Object.assign(new Error('not found'), { code: 404 }); });
+      ctx.gcs.uploadBufferIfAbsent.mockImplementation(async (buffer, key) => { if (files.has(key)) return { created: false }; files.set(key, buffer); return { created: true }; });
+      for (const key of [...files.keys()]) if (key.includes('.verification/')) files.delete(key);
+      ctx.fetch.mockImplementation(transport({ qa: { ...CLEAN, design_matches: false }, image: WINNER_PNG }));
+      const outcome = await ctx.mod.getPropSheet(params(definition()));
+      expect(outcome).toMatchObject({ degraded: true });
+      expect(outcome.reason).toContain('reference does not match the fixed design');
+      expect(files.has(sheet.storageKey)).toBe(true); // the elected image is never deleted
+      process.env.CATALOG_REFERENCE_AUTOHEAL = '0';
+      const paused = fresh();
+      paused.gcs.downloadBuffer.mockImplementation(async key => { if (files.has(key)) return files.get(key); throw Object.assign(new Error('not found'), { code: 404 }); });
+      paused.gcs.uploadBufferIfAbsent.mockImplementation(async (buffer, key) => { if (files.has(key)) return { created: false }; files.set(key, buffer); return { created: true }; });
+      paused.fetch.mockImplementation(transport({ qa: { ...CLEAN, design_matches: false } }));
+      await expect(paused.mod.getPropSheet(params(definition()))).rejects.toMatchObject({ recovery: { status: 'needs_review', reason: 'confirmed_defect' } });
+    });
   });
 });

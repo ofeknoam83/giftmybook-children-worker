@@ -34,10 +34,13 @@ const { SHOT_TYPE_QA_DESCRIPTIONS } = require('./shotPlan');
 const metrics = require('./metrics');
 const flags = require('../flags');
 
-const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
-// Every strict-JSON judge call shares ONE generationConfig: thinking OFF on
-// the 2.5 flash family and a ≥2048-token ceiling (the model counts its
-// reasoning against maxOutputTokens — a small cap clips the JSON).
+const { qaVisionModel } = require('../../shared/llm/models');
+
+const QA_MODEL = () => qaVisionModel();
+// Every strict-JSON judge call shares ONE generationConfig: thinking held to
+// its minimum (a MINIMAL level on the 3.x family, budget 0 on 2.5 flash) and
+// a ≥2048-token ceiling (the model counts its reasoning against
+// maxOutputTokens — a small cap clips the JSON).
 const { jsonQaGenerationConfig, parseJsonText, unparseableDetail } = require('../../shared/llm/geminiJson');
 const { judgeImage, responseOutcome } = require('../../shared/llm/visualJudge');
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -1081,7 +1084,7 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
     props: (Array.isArray(opts.props) ? opts.props : [])
       .filter(p => p && p.name)
       .map(p => ({ name: qaData(p.name, 80), specText: p.specText ? qaData(p.specText, p.storyObject ? 1100 : 300) : null, sheet: p.sheet && p.sheet.base64 ? p.sheet : null, expected: p.storyObject && p.expected === 'absent' ? 'absent' : p.expected === 'required' ? 'required' : (p.expected === 'carried' ? 'carried' : 'optional'), ref: null,
-        reference: p.reference || null, storyObject: !!p.storyObject, state: p.state ? qaData(p.state, 500) : null, multiplicity: p.multiplicity === 'group' ? 'group' : 'single' })),
+        reference: p.reference || null, storyObject: !!p.storyObject, degraded: !!p.degraded, state: p.state ? qaData(p.state, 500) : null, multiplicity: p.multiplicity === 'group' ? 'group' : 'single' })),
     companion: opts.companion && opts.companion.name
       ? { name: qaData(opts.companion.name, 60), type: opts.companion.type ? qaData(opts.companion.type, 80) : null, specText: opts.companion.specText ? qaData(opts.companion.specText, 450) : null, human: !!opts.companion.human, sheet: opts.companion.sheet && opts.companion.sheet.base64 ? opts.companion.sheet : null, ref: null }
       : null,
@@ -1207,6 +1210,10 @@ async function checkSpreadRenderV2(imageBuffer, opts = {}) {
             return;
           }
           if (p.sheet && v.look === 'wrong_look') defects.push(`prop differs from its reference sheet: "${p.name}"`);
+          // Autoheal 5b: a DEGRADED story object has no reference sheet —
+          // its judged look against the described design is ADVISORY (not a
+          // BLOCKING_PREFIXES string); presence/state/lettering stay blocking.
+          else if (p.storyObject && p.degraded && v.look === 'wrong_look') defects.push(`described story object look differs: "${p.name}"`);
           if (v.as_text === true) defects.push(`prop rendered as text: "${p.name}"`);
           if (v.duplicated === true) defects.push(`prop duplicated: "${p.name}"`);
           if (p.storyObject && !v.state_match) defects.push(`prop state mismatch: "${p.name}"`);

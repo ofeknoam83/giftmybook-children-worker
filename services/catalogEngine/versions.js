@@ -338,7 +338,16 @@ const SCENE_INTEGRATION_VERSION = 'si-1';
  * re-check (lenience only: a page rejected under qa-16 was rejected under
  * qa-15 too).
  */
-const QA_VERSION = 'qa-16';
+/**
+ * qa-17 (2026-09-16): the JUDGE MODEL changed. Every strict-JSON vision
+ * verdict (spread QA v1/v2, the world/contact/ink gates, the still judge,
+ * the sheet judges) now runs on the registry's CATALOG_QA_VISION_MODEL —
+ * `gemini-3.5-flash` at thinking level MINIMAL — because `gemini-2.5-flash`
+ * shuts down on 2026-10-16. Markers written under qa-16 hold a different
+ * model's verdicts — replays re-check (no prompt or pixel change: a page the
+ * new judge accepts replays its own bytes).
+ */
+const QA_VERSION = 'qa-17';
 
 /**
  * Gift-video version (docs/GIFT_VIDEO_PLAN.md §4.7) — owns the film + clip
@@ -392,7 +401,10 @@ const COLORING_VERSION = 'cb-1';
  * thresholds). A replay whose marker predates it re-checks the cached
  * page instead of trusting an older checker's verdict.
  */
-const COLORING_QA_VERSION = 'cq-1';
+// cq-2 (2026-09-16): the page judge's MODEL changed (CATALOG_QA_VISION_MODEL
+// → `gemini-3.5-flash`; the 2.5 flash judge shuts down 2026-10-16) — cq-1
+// markers re-check, pages themselves are untouched.
+const COLORING_QA_VERSION = 'cq-2';
 
 /**
  * Audiobook version (ab-1 — docs/AUDIOBOOK_V2_PLAN.md §5.3) — owns the
@@ -403,7 +415,12 @@ const COLORING_QA_VERSION = 'cq-1';
  * or sound-cue prompt, the music-plan or placement invariants, the timeline
  * gaps, or the mix graph: ab-(N-1) takes and mixes must never replay as ab-N.
  */
-const AUDIO_VERSION = 'ab-1';
+// ab-2 (2026-09-16): the cast file's Gemini TTS voices moved from the retired
+// `gemini-2.5-pro-preview-tts` to `gemini-3.1-flash-tts-preview` and the
+// transcript/listen judge (CATALOG_AUDIO_STT_MODEL) to `gemini-3.5-flash` — a
+// different voice model on every Gemini take, so ab-1 takes and mixes must
+// never replay as ab-2.
+const AUDIO_VERSION = 'ab-2';
 
 /**
  * Take-QA verdict version — written into every take's `.qa.json` marker

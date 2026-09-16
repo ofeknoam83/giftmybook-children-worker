@@ -1,6 +1,9 @@
 const { createHmac, timingSafeEqual } = require('crypto');
 const storage = require('../../gcsStorage');
-const destination = () => process.env.CATALOG_QA_SECONDARY_MODEL === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : null;
+const { secondaryReviewModel } = require('./models');
+// The reviewed-fallback judge is whatever CATALOG_QA_SECONDARY_MODEL names
+// (exact-matched against the approval's claim); unset/blank disables review.
+const destination = () => secondaryReviewModel();
 function verifyApproval(token, { expired = false } = {}) {
   const secret = process.env.VISUAL_REVIEW_SECRET;
   if (!secret || secret.length < 32 || !destination()) throw new Error('Visual review is not configured');

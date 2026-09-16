@@ -127,6 +127,7 @@ beforeEach(() => {
   delete process.env.CATALOG_CHARACTER_SHEET;
   delete process.env.CATALOG_SPREAD_QA_MAX_REPAIRS;
   delete process.env.CATALOG_DRIFT_MAX_REPAIRS;
+  delete process.env.CATALOG_REFERENCE_AUTOHEAL;
   getCharacterSheet.mockResolvedValue({ ...SHEET });
   getOutfitLock.mockResolvedValue({ ...OUTFIT });
   getBibleProps.mockResolvedValue({ props: [], companion: null, advisories: [] });
@@ -879,7 +880,7 @@ describe('recurring story objects across the production render path', () => {
       defects: expect.arrayContaining(['Critical story object differs or has wrong state: route marker']),
     })]));
   });
-  test('disabled reference generation allows off-screen families but still blocks visible critical objects', async () => {
+  test('disabled reference generation allows off-screen families; a visible critical object pauses with autoheal off and DEGRADES by default', async () => {
     const plan = markerPlan();
     plan.objects[0].occurrences.forEach(o => { o.required = false; o.visibility = 'off_screen'; });
     resolveStoryObjects.mockResolvedValue(plan);
@@ -891,8 +892,24 @@ describe('recurring story objects across the production render path', () => {
       expect(getPropSheet).not.toHaveBeenCalled();
       resolveStoryObjects.mockResolvedValue(markerPlan());
       generateIllustration.mockClear();
+      process.env.CATALOG_REFERENCE_AUTOHEAL = '0';
       await expect(renderStorySpreads(baseParams())).rejects.toThrow('Critical story references are disabled');
       expect(generateIllustration).not.toHaveBeenCalled();
+      // Autoheal (the default): the critical object renders as a DESCRIBED
+      // object with the reason on record; presence stays blocking, look is advisory.
+      delete process.env.CATALOG_REFERENCE_AUTOHEAL;
+      checkSpreadRenderV2.mockClear();
+      checkSpreadRenderV2.mockResolvedValue(markerQa({ look: 'n/a' }));
+      const degraded = await renderStorySpreads(baseParams());
+      expect(degraded.results).toHaveLength(2);
+      expect(degraded.objectFailures).toEqual([]);
+      expect(degraded.advisories).toContainEqual({ stage: 'storyObjects', note: 'reference degraded: route marker — reference sheets are disabled (CATALOG_PROP_SHEETS=0)' });
+      expect(degraded.bookBible.props).toEqual([expect.objectContaining({ value: 'Story object: route marker', degraded: true, url: null, specText: expect.stringContaining('shape: narrow post'), reason: expect.stringContaining('CATALOG_PROP_SHEETS=0') })]);
+      expect(degraded.bookBible.storyObjects.objects[0].degraded).toBe(true);
+      expect(checkSpreadRenderV2.mock.calls.every(c => c[1].props[0].degraded === true)).toBe(true);
+      expect(degraded.results[0].advisories).toContainEqual(expect.objectContaining({ stage: 'spreadQa', note: expect.stringContaining('renders as a described object (no verified reference): its look could not be compared') }));
+      checkSpreadRenderV2.mockResolvedValue(markerQa({ presence: 'absent' }));
+      expect((await renderStorySpreads(baseParams())).objectFailures).toEqual(expect.arrayContaining([expect.objectContaining({ defects: ['Critical story object differs or has wrong state: route marker'] })]));
     } finally { delete process.env.CATALOG_PROP_SHEETS; }
   });
   test('unavailable storage cannot discard historical reference identities and regenerate saved pages', async () => {
@@ -987,18 +1004,101 @@ describe('recurring story objects across the production render path', () => {
       expect(check.recoveryRoot).toContain('/visual-checks/object-set-route_marker');
     }
   });
-  test('a missing critical sheet stops before any spreads render', async () => {
+  test('CATALOG_REFERENCE_AUTOHEAL=0: a missing critical sheet stops before any spreads render, naming the underlying rejection', async () => {
+    process.env.CATALOG_REFERENCE_AUTOHEAL = '0';
     getPropSheet.mockResolvedValue(null);
     await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'visual_recovery_pending', recovery: { retryable: false } });
     expect(generateIllustration).not.toHaveBeenCalled();
-  });
-  test('critical sheet failure exposes the underlying rejection in the generation error', async () => {
     getPropSheet.mockImplementation(async ({ log }) => {
       log('warn', 'reference still fails: readable text in the sheet');
       return null;
     });
     await expect(renderStorySpreads(baseParams())).rejects.toThrow('route marker — reference still fails: readable text in the sheet');
     expect(generateIllustration).not.toHaveBeenCalled();
+  });
+  test('autoheal (the default): a critical object with no sheet DEGRADES — the book renders, the advisory names the rejection, look is advisory and presence stays blocking', async () => {
+    getPropSheet.mockImplementation(async ({ log }) => {
+      log('warn', 'reference still fails: readable text in the sheet');
+      return null;
+    });
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ look: 'wrong_look' }));
+    const result = await renderStorySpreads(baseParams());
+    expect(generateIllustration).toHaveBeenCalledTimes(2);
+    expect(result.advisories).toContainEqual({ stage: 'storyObjects', note: 'reference degraded: route marker — reference still fails: readable text in the sheet' });
+    expect(result.bookBible.props).toEqual([expect.objectContaining({ value: 'Story object: route marker', degraded: true, storageKey: null, hash: null, reason: 'reference still fails: readable text in the sheet' })]);
+    expect(result.bookBible.storyObjects.objects[0]).toMatchObject({ id: 'route_marker', degraded: true });
+    // The prompt still carries the design as a DESCRIBED object (no reference index).
+    const opts = generateIllustration.mock.calls[0][3];
+    expect(opts.referencePack.some(r => r.kind === 'prop')).toBe(false);
+    expect(opts.bible.props[0]).toMatchObject({ name: 'Story object: route marker', ref: null, specText: expect.stringContaining('shape: narrow post') });
+    // QA sees the flag; a wrong look is an ADVISORY, never a critical failure; the set gate has nothing to tile.
+    expect(checkSpreadRenderV2.mock.calls[0][1].props[0]).toMatchObject({ storyObject: true, degraded: true, sheet: null });
+    expect(result.objectFailures).toEqual([]);
+    expect(result.unresolved).toEqual([]);
+    expect(result.results[0].advisories).toContainEqual(expect.objectContaining({ stage: 'spreadQa', spread: 1, note: expect.stringContaining('its look differs from the described design — advisory only') }));
+    expect(checkPropContactSheet).not.toHaveBeenCalled();
+    // Presence is still the contract.
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ presence: 'absent' }));
+    expect((await renderStorySpreads(baseParams())).objectFailures).toEqual(expect.arrayContaining([expect.objectContaining({ defects: ['Critical story object differs or has wrong state: route marker'] })]));
+  });
+  test('autoheal: a degraded outcome pins the re-planned definition on the plan (objects), keeps the originals on renderObjects, and the plan hash stays', async () => {
+    const original = markerPlan();
+    const replanDesign = { ...original.objects[0].design, colors: 'plain brown with one wide orange band' };
+    const reference = { kind: 'single', subject: 'object', description: 'One representative post' };
+    getPropSheet.mockResolvedValue({ degraded: true, reason: 'three candidates rejected; re-plan round 1 failed', recovery: { reason: 'confirmed_defect' },
+      definition: { ...original.objects[0], design: replanDesign, reference }, replan: { round: 1, design: replanDesign, reference, reason: 'reference does not match the fixed design', at: 'now' } });
+    checkSpreadRenderV2.mockResolvedValue(markerQa({ look: 'n/a' }));
+    const result = await renderStorySpreads(baseParams());
+    expect(getPropSheet).toHaveBeenCalledWith(expect.objectContaining({ definition: expect.objectContaining({ id: 'route_marker' }), planStorageKey: null, authored: false, replans: null, retryNamespace: null }));
+    const plan = result.bookBible.storyObjects;
+    expect(plan.hash).toBe('marker-plan-a');
+    expect(plan.objects[0]).toMatchObject({ design: replanDesign, reference, replanned: 1, degraded: true });
+    expect(plan.renderObjects[0].design).toEqual(original.objects[0].design);
+    expect(plan.replans).toEqual({ route_marker: expect.objectContaining({ round: 1, design: replanDesign }) });
+    expect(result.advisories).toContainEqual({ stage: 'storyObjects', note: 'reference degraded: route marker — three candidates rejected; re-plan round 1 failed' });
+    expect(generateIllustration.mock.calls[0][3].bible.props[0].specText).toContain('one wide orange band');
+    expect(result.objectFailures).toEqual([]);
+  });
+  test('autoheal: a sheet elected under a re-planned definition pins that definition without a degrade', async () => {
+    const original = markerPlan();
+    const reference = { kind: 'single', subject: 'object', description: 'One representative post' };
+    const replanDesign = { ...original.objects[0].design, features: 'one wide band' };
+    getPropSheet.mockResolvedValue({ ...PROP_SHEET, key: 'story object: route marker', reference, specText: 'narrow wood post, one wide band',
+      definition: { ...original.objects[0], design: replanDesign, reference }, replan: { round: 1, design: replanDesign, reference, reason: 'x', at: 'now' } });
+    const result = await renderStorySpreads(baseParams());
+    expect(result.bookBible.storyObjects.objects[0]).toMatchObject({ design: replanDesign, reference, replanned: 1 });
+    expect(result.bookBible.storyObjects.objects[0].degraded).toBeUndefined();
+    expect(result.bookBible.props[0]).toMatchObject({ value: 'Story object: route marker', hash: 'prophash' });
+    expect(result.advisories).toContainEqual({ stage: 'storyObjects', note: expect.stringContaining('reference re-planned (round 1) for route_marker') });
+    expect(result.advisories.some(a => a.note.startsWith('reference degraded'))).toBe(false);
+    expect(result.objectFailures).toEqual([]);
+  });
+  test('an explicit regeneration threads identityRetry into the prop roots and the presence check; a plain run passes none', async () => {
+    const { resolveScenePresence } = require('../../../services/catalogEngine/illustrator/scenePresence');
+    resolveStoryObjects.mockResolvedValue({ ...markerPlan(), storageKey: 'catalog-assets/story-objects/so-1/deadbeef.json', replans: { route_marker: { round: 1 } } });
+    await renderStorySpreads(baseParams());
+    expect(getPropSheet.mock.calls[0][0]).toMatchObject({ retryNamespace: null, planStorageKey: 'catalog-assets/story-objects/so-1/deadbeef.json', replans: { round: 1 } });
+    expect(resolveScenePresence.mock.calls[0][0].retryNamespace).toBeNull();
+    await renderStorySpreads(baseParams({ forceNew: true }));
+    expect(getPropSheet.mock.calls[1][0].retryNamespace).toMatch(/^bible-book-1:\d+$/);
+    expect(resolveScenePresence.mock.calls[1][0].retryNamespace).toMatch(/^bible-book-1:\d+$/);
+    await renderStorySpreads(baseParams({ forceRerender: true }));
+    expect(getPropSheet.mock.calls[2][0].retryNamespace).toMatch(/^bible-book-1:\d+$/);
+  });
+  test('a plan-level failure keeps the contract_conflict pause only with autoheal off; a seed fallback rides as an advisory', async () => {
+    const planning = Object.assign(new Error('Story-object continuity could not be established: Catalog object omitted: route_marker'), { failureCode: 'identity_kit_failed', advisories: [{ stage: 'storyObjects', note: 'x' }] });
+    resolveStoryObjects.mockRejectedValue(planning);
+    process.env.CATALOG_REFERENCE_AUTOHEAL = '0';
+    await expect(renderStorySpreads(baseParams())).rejects.toMatchObject({ failureCode: 'visual_recovery_pending', recovery: { reason: 'contract_conflict', nextAction: 'repair_contract', retryable: false } });
+    delete process.env.CATALOG_REFERENCE_AUTOHEAL;
+    await expect(renderStorySpreads(baseParams())).rejects.toBe(planning);
+    expect(generateIllustration).not.toHaveBeenCalled();
+    resolveStoryObjects.mockResolvedValue({ ...markerPlan(), retry: 1, fallback: { kind: 'catalog_seeds', reason: 'Invalid story-object plan: stale; re-plan: Catalog object omitted' } });
+    const result = await renderStorySpreads(baseParams());
+    expect(result.advisories).toContainEqual({ stage: 'storyObjects', note: 'story-object plan replaced by the catalog seeds (catalog_seeds): Invalid story-object plan: stale; re-plan: Catalog object omitted' });
+    expect(result.results).toHaveLength(2);
+    resolveStoryObjects.mockResolvedValue({ ...markerPlan(), retry: 1 });
+    expect((await renderStorySpreads(baseParams())).advisories).toContainEqual({ stage: 'storyObjects', note: 'story-object plan re-planned under retry fold r1: the stored election no longer validated' });
   });
   test('plan changes rekey rendered artwork', async () => {
     const a = await renderStorySpreads(baseParams());

@@ -1,6 +1,8 @@
 /**
  * Gemini TTS adapter (ab-1 — the second narrator; docs/AUDIOBOOK_V2_PLAN.md
- * §4.3): `gemini-2.5-pro-preview-tts` / `-flash-preview-tts` follow a
+ * §4.3): the Gemini TTS models (`gemini-3.1-flash-tts-preview` since the
+ * 2026-09-16 migration — CATALOG_AUDIO_TTS_MODEL when a cast voice names
+ * none; the retired `gemini-2.5-*-preview-tts` ids before it) follow a
  * natural-language STYLE PROMPT that precedes the text. The direction
  * words and pace ride that prefix; the text is the manuscript verbatim.
  * The model answers with raw 16-bit PCM at 24 kHz (base64 inline data),
@@ -11,6 +13,7 @@
 const { wrapPcm16 } = require('../wav');
 const { providerError, fetchWithTimeout } = require('./index');
 const { getNextApiKey } = require('../../../illustrationGenerator');
+const { ttsModel } = require('../../../shared/llm/models');
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const SAMPLE_RATE = 24000;
@@ -39,7 +42,7 @@ function composeText(lines, rung = 'full', opts = {}) {
 async function synthesize({ lines, directionWords, paceWords, rung = 'full', voice, language = 'en', tuning = null, credentials, signal, timeoutMs = DEFAULT_TIMEOUT_MS }) {
   const apiKey = (credentials && credentials.apiKey) || getNextApiKey();
   if (!apiKey) throw Object.assign(new Error('no Gemini API key is configured for the narrator'), { failureCode: 'audiobook_provider_unavailable' });
-  const model = voice.model || 'gemini-2.5-pro-preview-tts';
+  const model = voice.model || ttsModel();
   const { text } = composeText(lines, rung, { directionWords, paceWords, tuning, language });
   const resp = await fetchWithTimeout(`${API}/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',

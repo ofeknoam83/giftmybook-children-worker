@@ -9,6 +9,7 @@
 const crypto = require('crypto');
 const { saveJson, loadJson } = require('../gcsStorage');
 const { withRetry } = require('../retry');
+const { qaVisionModel } = require('../shared/llm/models');
 
 /** GCS prefix for cached detection results */
 const DETECT_CACHE_PREFIX = 'comics/detect-cache';
@@ -146,7 +147,7 @@ Do not include partial/background blurred faces below confidence 0.3. No prose.`
   };
 
   const geminiStart = Date.now();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${qaVisionModel()}:generateContent?key=${apiKey}`;
 
   const resp = await withRetry(
     async () => {

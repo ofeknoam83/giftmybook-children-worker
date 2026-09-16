@@ -7,8 +7,12 @@
  */
 
 // ── Gemini models ──
+const { qaVisionModel } = require('../llm/models');
 const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
-const GEMINI_QA_MODEL = 'gemini-2.5-flash';
+// The strict-JSON judge model, resolved ONCE at load from the registry
+// (CATALOG_QA_VISION_MODEL, default gemini-3.5-flash) so existing importers
+// keep a string; new code asks `qaVisionModel()` at call time instead.
+const GEMINI_QA_MODEL = qaVisionModel();
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**

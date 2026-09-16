@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const { fetchWithTimeout } = require('../../../services/illustrationGenerator');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
+const { qaVisionModel } = require('../../../services/shared/llm/models');
 const {
   EMOTIONS,
   INTENSITIES,
@@ -336,14 +337,14 @@ describe('classifier', () => {
     for (const s of spreads12.filter(s => s !== 3 && s !== 7)) expect(result.plan[s].source).toBe(table[s].source);
     expectValidPlan(result.plan, spreads12, SAMPLE.ageBand);
     expect(result.hash).toBe(hashEmotionPlan(result.plan));
-    expect(costTracker.addTextUsage).toHaveBeenCalledWith('gemini-2.5-flash', 120, 40);
+    expect(costTracker.addTextUsage).toHaveBeenCalledWith(qaVisionModel(), 120, 40);
 
     // Request shape: the QA text model, temperature 0, JSON mime + schema,
     // the pairs as a JSON DATA block, no image parts.
     const [url, init] = fetchWithTimeout.mock.calls[0];
-    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-key');
+    expect(url).toBe(`https://generativelanguage.googleapis.com/v1beta/models/${qaVisionModel()}:generateContent?key=test-key`);
     const body = JSON.parse(init.body);
-    expect(body.generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json', maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } });
+    expect(body.generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json', maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'MINIMAL' } });
     expect(body.generationConfig.responseSchema.properties.spreads.items.properties.emotion.enum).toEqual(EMOTIONS);
     expect(body.contents[0].parts).toHaveLength(1);
     const prompt = body.contents[0].parts[0].text;
@@ -388,8 +389,8 @@ describe('classifier', () => {
     expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
   });
 
-  test('model overrides that do not support zero thinking omit that setting', async () => {
-    process.env.CATALOG_QA_VISION_MODEL = 'gemini-2.5-pro';
+  test('model overrides outside the thinking families send no thinkingConfig', async () => {
+    process.env.CATALOG_QA_VISION_MODEL = 'gemini-2.0-flash';
     fetchWithTimeout.mockResolvedValue(classifierJson([{ spread: 1, emotion: 'joy', intensity: 'big' }]));
     await classifyEmotions({ book: SAMPLE.book, story: sampleStory() });
     expect(JSON.parse(fetchWithTimeout.mock.calls[0][1].body).generationConfig.thinkingConfig).toBeUndefined();

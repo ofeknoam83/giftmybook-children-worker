@@ -157,15 +157,174 @@ test('recovers a sole individual instance without inventing another identity', a
   expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
 });
 
-test('empty instance lists remain invalid in elected manifests', async () => {
-  const { p, complete } = bellsFixture();
-  complete.objects[0].occurrences[0].instanceIds = [];
-  expect(() => validatePlan(complete, inputsFor(p))).toThrow('Missing object instance on spread 1: forest_bells');
-  const inputHash = hash(inputsFor(p));
-  storage.set(`catalog-assets/story-objects/so-1/${inputHash}.json`, Buffer.from(JSON.stringify({ inputHash, plan: complete })));
-  await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
-  expect(fetchWithTimeout).not.toHaveBeenCalled();
-  expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+test('empty instance lists remain invalid in elected manifests (CATALOG_REFERENCE_AUTOHEAL=0 keeps the hard failure)', async () => {
+  process.env.CATALOG_REFERENCE_AUTOHEAL = '0';
+  try {
+    const { p, complete } = bellsFixture();
+    complete.objects[0].occurrences[0].instanceIds = [];
+    expect(() => validatePlan(complete, inputsFor(p))).toThrow('Missing object instance on spread 1: forest_bells');
+    const inputHash = hash(inputsFor(p));
+    storage.set(`catalog-assets/story-objects/so-1/${inputHash}.json`, Buffer.from(JSON.stringify({ inputHash, plan: complete })));
+    await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+    expect(uploadBufferIfAbsent).not.toHaveBeenCalled();
+  } finally { delete process.env.CATALOG_REFERENCE_AUTOHEAL; }
+});
+
+describe('references that heal themselves (autoheal, 2026-09-16)', () => {
+  const { validateReplan, applyReplans, replanKey, seedPlan, authoredObjectIds, MAX_REPLAN_ROUNDS } = require('../../../services/catalogEngine/illustrator/storyObjects');
+  const electionKey = p => `catalog-assets/story-objects/so-1/${hash(inputsFor(p))}.json`;
+  const foldKey = (p, n) => `catalog-assets/story-objects/so-1/${hash(inputsFor(p))}-r${n}.json`;
+  const storeInvalid = () => {
+    const { p, complete } = bellsFixture();
+    const invalid = JSON.parse(JSON.stringify(complete));
+    invalid.objects[0].occurrences[0].instanceIds = [];
+    storage.set(electionKey(p), Buffer.from(JSON.stringify({ inputHash: hash(inputsFor(p)), plan: invalid })));
+    return { p, complete };
+  };
+
+  test('a stored plan that stopped validating is re-planned under the retry fold and the fold is elected', async () => {
+    const { p, complete } = storeInvalid();
+    fetchWithTimeout.mockResolvedValue(response(complete));
+    const log = jest.fn();
+    const result = await resolveStoryObjects({ ...p, log });
+    expect(result).toMatchObject({ retry: 1, storageKey: foldKey(p, 1), version: 'so-1' });
+    expect(result.fallback).toBeUndefined();
+    expect(result.objects).toEqual(complete.objects);
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
+    expect(storage.has(foldKey(p, 1))).toBe(true);
+    expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('Stored story-object plan no longer validates'));
+    // The election is durable: a later run adopts the fold with no model call.
+    fetchWithTimeout.mockClear();
+    const again = await resolveStoryObjects(p);
+    expect(again.hash).toBe(result.hash);
+    expect(again.retry).toBe(1);
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  test('when re-planning still fails, the catalog seeds become the plan — elected at the fold with the reason, so no later run spends again', async () => {
+    const p = params();
+    const invalid = plan();
+    invalid.objects[0].occurrences[3].instanceIds = ['fourth'];
+    storage.set(electionKey(p), Buffer.from(JSON.stringify({ inputHash: hash(inputsFor(p)), plan: invalid })));
+    fetchWithTimeout.mockResolvedValue(response({ objects: [], conflicts: [] })); // the planner keeps omitting the catalog object
+    const result = await resolveStoryObjects(p);
+    expect(result).toMatchObject({ retry: 1, storageKey: foldKey(p, 1), fallback: { kind: 'catalog_seeds', reason: expect.stringContaining('Invalid object instance on spread 4: route_marker') } });
+    expect(result.fallback.reason).toContain('re-plan: Catalog object omitted: route_marker');
+    expect(result.objects).toHaveLength(1);
+    expect(result.objects[0]).toMatchObject({ id: 'route_marker', name: 'route marker', critical: true, design: seed.design, instances: [{ id: 'route_marker' }] });
+    // Every spread that names the family gets one grounded, required occurrence.
+    expect(result.objects[0].occurrences.map(o => o.spread)).toEqual([1, 3, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(result.objects[0].occurrences[0]).toMatchObject({ instanceIds: ['route_marker'], multiplicity: 'single', required: true, evidence: texts[0] });
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(2);
+    const saved = JSON.parse(storage.get(foldKey(p, 1)).toString());
+    expect(saved.fallback.kind).toBe('catalog_seeds');
+    fetchWithTimeout.mockClear();
+    const again = await resolveStoryObjects(p);
+    expect(again.fallback).toEqual(result.fallback);
+    expect(again.hash).toBe(result.hash);
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  test('a genuine contradiction on the re-plan also falls back to the seeds; a planner outage never invents a plan', async () => {
+    const p = params();
+    const invalid = plan();
+    invalid.objects[0].occurrences[3].instanceIds = ['fourth'];
+    storage.set(electionKey(p), Buffer.from(JSON.stringify({ inputHash: hash(inputsFor(p)), plan: invalid })));
+    const conflicted = plan(); conflicted.conflicts = ['Two incompatible shapes'];
+    fetchWithTimeout.mockResolvedValue(response(conflicted));
+    expect((await resolveStoryObjects(p)).fallback.reason).toContain('Story-object contradiction');
+    storage.delete(foldKey(p, 1));
+    fetchWithTimeout.mockResolvedValue({ ok: false, status: 503 });
+    await expect(resolveStoryObjects(p)).rejects.toMatchObject({ failureCode: 'identity_kit_failed' });
+    expect(storage.has(foldKey(p, 1))).toBe(false);
+  });
+
+  test('a fold that is itself invalid is skipped; when every fold is unusable the seeds serve unelected', async () => {
+    const p = params();
+    const invalid = plan();
+    invalid.objects[0].occurrences[3].instanceIds = ['fourth'];
+    const blob = Buffer.from(JSON.stringify({ inputHash: hash(inputsFor(p)), plan: invalid }));
+    storage.set(electionKey(p), blob);
+    storage.set(foldKey(p, 1), blob);
+    fetchWithTimeout.mockResolvedValue(response(plan()));
+    expect(await resolveStoryObjects(p)).toMatchObject({ retry: 2, storageKey: foldKey(p, 2) });
+    storage.set(foldKey(p, 2), blob);
+    fetchWithTimeout.mockClear();
+    const seeds = await resolveStoryObjects(p);
+    expect(seeds).toMatchObject({ retry: 2, fallback: { kind: 'catalog_seeds' }, storageKey: expect.stringMatching(/-seeds\.json$/) });
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  test('seedPlan is a valid minimal plan for the authored book and the explicit no-object plan elsewhere', () => {
+    expect(() => validatePlan(seedPlan(inputsFor(params())), inputsFor(params()))).not.toThrow();
+    const other = inputsFor({ ...params(), book: { id: 'other', beats: [] } });
+    expect(seedPlan(other)).toEqual({ objects: [], conflicts: [] });
+    expect(authoredObjectIds('safari_6_7_watering_hole_map')).toEqual(new Set(['route_marker']));
+    expect(authoredObjectIds('other')).toEqual(new Set());
+  });
+
+  test('persisted re-plans are applied to objects on read — the originals stay on renderObjects, the hash and inputs never move', async () => {
+    const p = params();
+    const key = electionKey(p);
+    storage.set(key, Buffer.from(JSON.stringify({ inputHash: hash(inputsFor(p)), plan: plan() })));
+    const reference = { kind: 'single', subject: 'object', description: 'One representative route post' };
+    storage.set(replanKey(key, 'route_marker', 1), Buffer.from(JSON.stringify({ version: 1, objectId: 'route_marker', round: 1, at: 't', reason: 'reference does not match its group, assembly or scene contract', to: { design: seed.design, reference } })));
+    expect(replanKey(key, 'route_marker', 1)).toBe(`${key.replace(/\.json$/, '')}.replans/route_marker/r1.json`);
+    const result = await resolveStoryObjects(p);
+    expect(result.hash).toBe(hash(plan()));
+    expect(result.objects[0]).toMatchObject({ reference, replanned: 1, design: seed.design });
+    expect(result.renderObjects[0].reference).toBeUndefined();
+    expect(result.replans).toEqual({ route_marker: { round: 1, design: seed.design, reference, reason: 'reference does not match its group, assembly or scene contract', at: 't' } });
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+    // A design rewrite of the catalog-authored marker is ignored (its design is authoritative).
+    storage.set(replanKey(key, 'route_marker', 2), Buffer.from(JSON.stringify({ to: { design: { ...seed.design, colors: 'blue' }, reference } })));
+    const log = jest.fn();
+    const ignored = await resolveStoryObjects({ ...p, log });
+    expect(ignored.replans.route_marker.round).toBe(1);
+    expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('re-plan r2 for route_marker is unusable'));
+    expect(MAX_REPLAN_ROUNDS).toBe(2);
+  });
+
+  test('a generic object may have its design rewritten by a re-plan; a stale second round chains from the first', async () => {
+    const p = { ...params(), book: { id: 'other', beats: [] } };
+    const generic = plan(); generic.objects[0].id = 'key'; generic.objects[0].name = 'key'; generic.objects[0].aliases = ['keys'];
+    generic.objects[0].occurrences = [{ spread: 1, instanceIds: ['third'], multiplicity: 'single', state: 'Held.', evidence: texts[0], required: true }];
+    p.story = { ...p.story, spreads: [{ spread: 1, text: `${texts[0]} The key shone.` }] };
+    const key = electionKey(p);
+    storage.set(key, Buffer.from(JSON.stringify({ inputHash: hash(inputsFor(p)), plan: generic })));
+    const r1 = { design: { ...seed.design, colors: 'brass' }, reference: { kind: 'single', subject: 'object', description: 'One brass key' } };
+    storage.set(replanKey(key, 'key', 1), Buffer.from(JSON.stringify({ to: r1 })));
+    storage.set(replanKey(key, 'key', 2), Buffer.from(JSON.stringify({ to: { design: { ...r1.design, features: 'two teeth' }, reference: r1.reference } })));
+    const result = await resolveStoryObjects(p);
+    expect(result.objects[0].design).toEqual({ ...seed.design, colors: 'brass', features: 'two teeth' });
+    expect(result.replans.key.round).toBe(2);
+    expect(result.renderObjects[0].design).toEqual(seed.design);
+    expect(applyReplans(result.renderObjects, result.replans)[0].design.features).toBe('two teeth');
+    expect(applyReplans(result.renderObjects, null)).toBe(result.renderObjects);
+  });
+
+  test.each([
+    ['missing reference', { design: seed.design }, /reference needs kind/],
+    ['an extra design key', { design: { ...seed.design, extra: 'x' }, reference: { kind: 'single', subject: 'object', description: 'x' } }, /exactly shape, material/],
+    ['an over-long field', { design: { ...seed.design, shape: 'x'.repeat(181) }, reference: { kind: 'single', subject: 'object', description: 'x' } }, /1-180 characters/],
+    ['a changed subject', { design: seed.design, reference: { kind: 'single', subject: 'creature', description: 'x' } }, /subject never changes/],
+    ['an upgrade to group', { design: seed.design, reference: { kind: 'group', subject: 'object', description: 'x' } }, /only be downgraded/],
+    ['no change at all', { design: seed.design, reference: { kind: 'single', subject: 'object', description: 'The post' } }, /changed neither/],
+    ['a design rewrite of an authored object', { design: { ...seed.design, colors: 'blue' }, reference: { kind: 'single', subject: 'object', description: 'The post' } }, /catalog-authored/],
+    ['a hostile __proto__ answer', JSON.parse('{"__proto__": {"design": {}}, "reference": {"kind": "single", "subject": "object", "description": "x"}}'), /design must be an object/],
+  ])('validateReplan rejects %s', (_, to, issue) => {
+    const from = { ...seed, reference: { kind: 'single', subject: 'object', description: 'The post' } };
+    expect(validateReplan(to, from, { authored: true }).issue).toMatch(issue);
+  });
+  test('validateReplan accepts a downgrade to single and a rewritten generic design, inertly', () => {
+    const from = { ...seed, reference: { kind: 'group', subject: 'object', description: 'A line of posts' } };
+    const downgraded = validateReplan({ design: seed.design, reference: { kind: 'single', subject: 'object', description: ' One "post"  ' } }, from, { authored: true });
+    expect(downgraded).toEqual({ issue: null, design: seed.design, reference: { kind: 'single', subject: 'object', description: 'One post' } });
+    const rewritten = validateReplan({ design: { ...seed.design, colors: 'plain `brown`' }, reference: from.reference }, from, { authored: false });
+    expect(rewritten.issue).toBeNull();
+    expect(rewritten.design.colors).toBe('plain brown');
+  });
 });
 
 // Repair responses only contain requested fields keyed by family and spread.

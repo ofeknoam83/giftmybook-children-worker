@@ -64,6 +64,23 @@
  *                                   = the score elects, never rejects).
  *  - CATALOG_PROP_SHEETS=0        — (ce-9) stop building prop / companion
  *                                   reference sheets (props ride as nouns).
+ *  - CATALOG_REFERENCE_AUTOHEAL=0 — (2026-09-16) restore the story-object
+ *                                   reference PAUSES: no re-plan after a
+ *                                   confirmed reference defect, no degrade
+ *                                   to a described object, no seed fallback
+ *                                   for a stored plan that stopped
+ *                                   validating, no second judge opinion, no
+ *                                   fresh candidate namespace on an explicit
+ *                                   regeneration (visual_recovery_pending
+ *                                   exactly as before).
+ *  - CATALOG_REFERENCE_REPLAN_ROUNDS=N — re-plan rounds (design rewrite /
+ *                                   contract downgrade) a rejected reference
+ *                                   may spend before it degrades (0-2,
+ *                                   default 1).
+ *  - CATALOG_REFERENCE_JUDGE_QUORUM=N — agreeing rejections a design /
+ *                                   representation defect needs (1-2,
+ *                                   default 2; 1 = a single rejection
+ *                                   counts, the pre-2026-09-16 rule).
  *  - CATALOG_HUMAN_COMPANION_SHEET=0 — (ce-19) stop building the reference
  *                                   sheet + character spec for a PERSON-
  *                                   typed companion (Farmer Bea, Builder
@@ -296,6 +313,18 @@ module.exports = {
   // Explicit 0 keeps the pause (visual_recovery_pending) for that case too.
   sheetRefusalFallback: () => !envOff('CATALOG_SHEET_REFUSAL_FALLBACK'),
   propSheetsEnabled: () => !envOff('CATALOG_PROP_SHEETS'),
+  // 2026-09-16 — references that heal themselves: a story-object reference
+  // whose three-candidate ladder ends in a confirmed defect (or whose
+  // elected image fails re-verification) is RE-PLANNED once under a fresh
+  // key, then DEGRADED to a described object instead of pausing the book;
+  // a stored plan that no longer validates is re-planned under a retry fold
+  // and falls back to the catalog seeds; a design/representation rejection
+  // needs a second agreeing opinion; an explicit regeneration opens fresh
+  // candidate/verification namespaces. `CATALOG_REFERENCE_AUTOHEAL=0`
+  // restores every pause exactly as before.
+  referenceAutoheal: () => !envOff('CATALOG_REFERENCE_AUTOHEAL'),
+  referenceReplanRounds: () => envInt('CATALOG_REFERENCE_REPLAN_ROUNDS', 1, 0, 2),
+  referenceJudgeQuorum: () => envInt('CATALOG_REFERENCE_JUDGE_QUORUM', 2, 1, 2),
   // ce-19 — secondary characters: a person-typed companion gets a sheet too
   humanCompanionSheetEnabled: () => !envOff('CATALOG_HUMAN_COMPANION_SHEET'),
   emotionPlanEnabled: () => !envOff('CATALOG_EMOTION_PLAN'),
@@ -312,6 +341,14 @@ module.exports = {
 
   identityMetricsEnabled: () => envOn('CATALOG_IDENTITY_METRICS'),
   renderCandidates: () => envInt('CATALOG_RENDER_CANDIDATES', 1, 1, 3),
+  // 2026-09-16: character-sheet candidates rendered + judged CONCURRENTLY in
+  // the first round (clamped to the total budget at run time); the rest of
+  // the budget runs today's sequential repair loop. Time over cost: one
+  // extra image when the first candidate would have passed.
+  sheetFirstRound: () => envInt('CATALOG_SHEET_FIRST_ROUND', 2, 1, 4),
+  // How often a run waiting on another instance's live sheet claim re-reads
+  // the slot (tests shorten it).
+  sheetClaimPollMs: () => envInt('CATALOG_SHEET_CLAIM_POLL_MS', 5000, 10, 60000),
   driftMaxRepairs: () => envInt('CATALOG_DRIFT_MAX_REPAIRS', 0, 0, 4),
   renderBudgetPerSpread: () => envInt('CATALOG_RENDER_BUDGET_PER_SPREAD', 3, 1, 12),
   renderConcurrency: () => envInt('CATALOG_RENDER_CONCURRENCY', 6, 1, 8),
@@ -443,7 +480,7 @@ module.exports = {
   audioCharacterVoicesEnabled: () => !envOff('CATALOG_AUDIO_CHARACTER_VOICES'),
   audioDirectorEnabled: () => !envOff('CATALOG_AUDIO_DIRECTOR'),
   audioTranscriptQaEnabled: () => !envOff('CATALOG_AUDIO_TRANSCRIPT_QA'),
-  audioSttModel: () => String(process.env.CATALOG_AUDIO_STT_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash',
+  audioSttModel: () => require('../shared/llm/models').audioModel(),
   audioMusicEnabled: () => !envOff('CATALOG_AUDIO_MUSIC'),
   audioMusicProvider: () => String(process.env.CATALOG_AUDIO_MUSIC_PROVIDER || 'lyria').trim().toLowerCase() || 'lyria',
   audioSfxEnabled: () => !envOff('CATALOG_AUDIO_SFX'),

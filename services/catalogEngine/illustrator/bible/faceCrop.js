@@ -24,12 +24,12 @@
 
 const sharp = require('sharp');
 const { getNextApiKey, fetchWithTimeout } = require('../../../illustrationGenerator');
-const { GEMINI_QA_MODEL } = require('../../../shared/illustration/config');
+const { qaVisionModel } = require('../../../shared/llm/models');
 const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../../shared/llm/geminiJson');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 /** The locator honours the same knob as spread QA (CATALOG_QA_VISION_MODEL). */
-const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || GEMINI_QA_MODEL;
+const QA_MODEL = () => qaVisionModel();
 const LOCATE_TIMEOUT_MS = 30000;
 
 /** Long edge of the upright photo sent to the model (px). */

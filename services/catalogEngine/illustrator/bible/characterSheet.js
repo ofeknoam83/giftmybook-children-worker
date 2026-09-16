@@ -70,7 +70,7 @@ const flags = require('../../flags');
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 /** The vision judge honors the same knob as spread QA (CATALOG_QA_VISION_MODEL). */
-const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || GEMINI_QA_MODEL;
+const QA_MODEL = () => require('../../../shared/llm/models').qaVisionModel();
 const SHEET_TIMEOUT_MS = 180000;
 const SHEET_ASPECT = '16:9';
 const FAILURE_CODE = 'identity_kit_failed';
@@ -543,87 +543,177 @@ async function readRenderRecord(key) {
   } catch { return null; }
 }
 
-/** One initial candidate, then repairs guided by actual findings, up to the
- * persisted limit (default three TOTAL images, not three per retry). An
- * explicit regeneration (`retryNamespace`) gets its own root — and budget —
- * beside the content-keyed one; a plain resume replays the latter. */
+/** @param {number} ms */
+const sleep = ms => new Promise((resolve) => { const t = setTimeout(resolve, ms); if (typeof t.unref === 'function') t.unref(); });
+
+/**
+ * Wait for the outcome of a slot ANOTHER process holds the claim on
+ * (2026-09-16). Two callers building the same anchor — the app's preview
+ * render and its identity prep used to start in the same instant — collided
+ * here: the loser threw "A character sheet is already being generated" and
+ * the caller's retry, inside the same lease, failed identically. The loser
+ * now polls (bounded by the lease) for the slot's PNG or error record, or
+ * for the elected sheet itself, and adopts what the winner produced.
+ * @param {string} key the slot key (no extension)
+ * @param {string} electedPath the anchor's elected sheet path
+ * @param {number} claimedAt the claim's timestamp
+ * @returns {Promise<{buffer?: Buffer, renderFailure?: object, elected?: Buffer}|null>} null on timeout
+ */
+async function waitForClaimedSlot(key, electedPath, claimedAt) {
+  const deadline = claimedAt + RENDER_LEASE_MS;
+  while (Date.now() < deadline) {
+    await sleep(Math.min(flags.sheetClaimPollMs(), Math.max(10, deadline - Date.now())));
+    const elected = await readSaved(electedPath);
+    if (elected) return { elected };
+    const buffer = await readSaved(`${key}.png`);
+    if (buffer) return { buffer };
+    const failure = await readSaved(`${key}.error.json`);
+    if (failure) return { renderFailure: JSON.parse(failure.toString()) };
+  }
+  return null;
+}
+
+/** The election shape for a sheet another process elected while this one waited. */
+function adoptedElection(buffer, root) {
+  return { winner: { buffer }, likeness: null, photoLikeness: null, advisories: [advisory('adopted the sheet another process elected while this one waited')], count: 0, root };
+}
+
+/** A FIRST ROUND of candidates rendered and judged concurrently, then
+ * repairs guided by actual findings, up to the persisted limit (default
+ * three TOTAL images, not three per retry; `CATALOG_SHEET_FIRST_ROUND`,
+ * default 2, sets the concurrent slots — 1 is the pre-2026-09-16 strictly
+ * sequential ladder). An explicit regeneration (`retryNamespace`) gets its
+ * own root — and budget — beside the content-keyed one; a plain resume
+ * replays the latter. */
 async function resolveCandidates({ path, ladder, refPhoto, childPhoto, retryNamespace = null, costTracker, log }) {
   const image = { mimeType: refPhoto.mimeType || 'image/png', data: refPhoto.base64 };
   const root = `${path}.${digest({ version: RECOVERY_VERSION, model: GEMINI_MODEL, prompts: ladder.map(r => r.prompt), image, ...(retryNamespace ? { retry: retryNamespace } : {}) })}.recovery-v1`;
   if (retryNamespace) log('info', `character sheet: explicit regeneration (${retryNamespace}) — a fresh attempt budget at ${root}`);
   const results = [];
   let repair = null;
+  const considerRepair = (buffer, verdict) => {
+    // Repair the best verified candidate seen so far. The cover is still
+    // authoritative; correct inferred garments are preserved from this source.
+    if (!repair || verdict.defects.length < repair.defects.length ||
+      (verdict.defects.length === repair.defects.length && verdict.likeness > repair.likeness)) {
+      repair = { buffer, defects: verdict.defects, likeness: verdict.likeness };
+    }
+  };
+  /**
+   * ONE slot: a saved outcome, the outcome of another process's live claim,
+   * or a fresh render. Returns the slot's buffer / render record / failure,
+   * or `elected` when the anchor's sheet was elected meanwhile.
+   */
+  const resolveSlot = async (index, repairFor) => {
+    const key = `${root}/candidate-${index}`;
+    let buffer = await readSaved(`${key}.png`);
+    let renderFailure = await readSaved(`${key}.error.json`);
+    let render = buffer ? await readRenderRecord(key) : null;
+    if (renderFailure) {
+      renderFailure = JSON.parse(renderFailure.toString());
+    } else if (!buffer) {
+      const claimed = await saveJson(`${key}.claim.json`, { at: Date.now() });
+      if (!claimed.created) {
+        // The other process may have completed between our read and claim.
+        buffer = await readSaved(`${key}.png`);
+        if (!buffer) {
+          const failure = await readSaved(`${key}.error.json`);
+          const claim = JSON.parse((await readSaved(`${key}.claim.json`)).toString());
+          if (!Number.isFinite(claim.at)) throw new Error('Invalid character-sheet reservation');
+          if (failure) renderFailure = JSON.parse(failure.toString());
+          else if (Date.now() - claim.at < RENDER_LEASE_MS) {
+            log('info', `character sheet candidate ${index + 1}: another process is rendering it — waiting for its outcome`);
+            const outcome = await waitForClaimedSlot(key, path, claim.at);
+            if (!outcome) throw sheetPending({ status: 'transient', reason: 'A character sheet is already being generated', evidenceKey: root }, results);
+            if (outcome.elected) return { index, key, elected: outcome.elected };
+            if (outcome.buffer) { buffer = outcome.buffer; render = await readRenderRecord(key); }
+            else renderFailure = outcome.renderFailure;
+          } else renderFailure = { status: 'transient', reason: 'Previous character-sheet generation was interrupted' };
+        } else render = await readRenderRecord(key);
+      } else {
+        log('info', `character sheet candidate ${index + 1}: ${repairFor ? 'repairing verified defects' : 'generating'} (${root})`);
+        try {
+          const rendered = await renderSheetCandidate(ladder, refPhoto, repairFor);
+          buffer = rendered.buffer;
+          if (rendered.rung !== 'original') {
+            render = { rung: rendered.rung, attempts: rendered.attempts };
+            log('warn', `character sheet candidate ${index + 1}: rendered on the ${rendered.rung} prompt after the image provider blocked ${describeBlocks(rendered.attempts)}`);
+          }
+          costTracker?.addImageGeneration?.(GEMINI_MODEL, 1);
+        } catch (err) {
+          renderFailure = err.verification || { status: 'transient', reason: 'Character-sheet render transport interrupted' };
+          await saveJson(`${key}.error.json`, renderFailure);
+        }
+        // Save before QA. A storage failure must not be recast as a visual
+        // defect or cause more image purchases in this run. The render
+        // sidecar goes FIRST: the PNG is the completion signal a waiting
+        // process polls for, and it reads the sidecar once — a PNG published
+        // before its sidecar would elect a below-original-rung render with
+        // no record of the block, and drop the advisory.
+        if (buffer) {
+          if (render) await saveJson(`${key}.render.json`, render);
+          await uploadBufferIfAbsent(buffer, `${key}.png`, 'image/png');
+        }
+      }
+    } else costTracker?.recordReuse?.('image');
+    return { index, key, buffer, render, renderFailure };
+  };
+  /** Record a slot's render failure; throws for a durable (non-transient) one. */
+  const recordFailure = (slot) => {
+    const outcome = { ...slot.renderFailure, evidenceKey: root };
+    results.push({ index: slot.index, verification: outcome, error: outcome.reason });
+    if (outcome.status !== 'transient') {
+      const err = sheetPending(outcome, results);
+      // The provider refused to draw the sheet on every rung of the
+      // ladder: no retry can route around it, so the bible may render
+      // the book on the cover alone instead of pausing it for good.
+      if (outcome.status === 'provider_blocked') err.providerRefusedRender = true;
+      throw err;
+    }
+  };
+  /** Judge a rendered slot; records the verdict; returns the judged record. */
+  const judgeSlot = async (slot) => {
+    const judged = await judgeSheetCandidate(slot.buffer, refPhoto, childPhoto, root, costTracker);
+    if (judged.photoDropped) log('warn', `character sheet candidate ${slot.index + 1}: the verifier blocked the check with the child's photo attached (${judged.photoDropped.reason}) — re-asked against the approved cover alone`);
+    return { index: slot.index, buffer: slot.buffer, render: slot.render, ...judged };
+  };
   try {
     await saveJson(`${root}/budget.json`, { limit: sheetCandidateCount() });
     const budget = JSON.parse((await readSaved(`${root}/budget.json`)).toString());
     if (!Number.isInteger(budget.limit) || budget.limit < CANDIDATES_MIN || budget.limit > CANDIDATES_MAX) throw new Error('Invalid saved sheet budget');
-    for (let index = 0; index < budget.limit; index++) {
-      const key = `${root}/candidate-${index}`;
-      let buffer = await readSaved(`${key}.png`);
-      let renderFailure = await readSaved(`${key}.error.json`);
-      let render = buffer ? await readRenderRecord(key) : null;
-      if (renderFailure) {
-        renderFailure = JSON.parse(renderFailure.toString());
-      } else if (!buffer) {
-        const claimed = await saveJson(`${key}.claim.json`, { at: Date.now() });
-        if (!claimed.created) {
-          // The other process may have completed between our read and claim.
-          buffer = await readSaved(`${key}.png`);
-          if (!buffer) {
-            const failure = await readSaved(`${key}.error.json`);
-            const claim = JSON.parse((await readSaved(`${key}.claim.json`)).toString());
-            if (!Number.isFinite(claim.at)) throw new Error('Invalid character-sheet reservation');
-            if (failure) renderFailure = JSON.parse(failure.toString());
-            else if (Date.now() - claim.at < RENDER_LEASE_MS) throw sheetPending({ status: 'transient', reason: 'A character sheet is already being generated', evidenceKey: root }, results);
-            else renderFailure = { status: 'transient', reason: 'Previous character-sheet generation was interrupted' };
-          }
-        } else {
-          log('info', `character sheet candidate ${index + 1}: ${repair ? 'repairing verified defects' : 'generating'} (${root})`);
-          try {
-            const rendered = await renderSheetCandidate(ladder, refPhoto, repair);
-            buffer = rendered.buffer;
-            if (rendered.rung !== 'original') {
-              render = { rung: rendered.rung, attempts: rendered.attempts };
-              log('warn', `character sheet candidate ${index + 1}: rendered on the ${rendered.rung} prompt after the image provider blocked ${describeBlocks(rendered.attempts)}`);
-            }
-            costTracker?.addImageGeneration?.(GEMINI_MODEL, 1);
-          } catch (err) {
-            renderFailure = err.verification || { status: 'transient', reason: 'Character-sheet render transport interrupted' };
-            await saveJson(`${key}.error.json`, renderFailure);
-          }
-          // Save before QA. A storage failure must not be recast as a visual
-          // defect or cause more image purchases in this run.
-          if (buffer) {
-            await uploadBufferIfAbsent(buffer, `${key}.png`, 'image/png');
-            if (render) await saveJson(`${key}.render.json`, render);
-          }
-        }
-      } else costTracker?.recordReuse?.('image');
-      if (renderFailure) {
-        const outcome = { ...renderFailure, evidenceKey: root };
-        results.push({ index, verification: outcome, error: outcome.reason });
-        if (outcome.status !== 'transient') {
-          const err = sheetPending(outcome, results);
-          // The provider refused to draw the sheet on every rung of the
-          // ladder: no retry can route around it, so the bible may render
-          // the book on the cover alone instead of pausing it for good.
-          if (outcome.status === 'provider_blocked') err.providerRefusedRender = true;
-          throw err;
-        }
+    const firstRound = Math.max(1, Math.min(budget.limit, flags.sheetFirstRound()));
+
+    // Round 1: the first slots concurrently — render, then judge — and
+    // elect the best passing one of the round.
+    const slots = await Promise.all(Array.from({ length: firstRound }, (_, i) => resolveSlot(i, null)));
+    const adopted = slots.find(s => s.elected);
+    if (adopted) return adoptedElection(adopted.elected, root);
+    for (const slot of slots) if (slot.renderFailure) recordFailure(slot);
+    const judgedSlots = await Promise.all(slots.filter(s => s.buffer).map(judgeSlot));
+    for (const judged of judgedSlots) {
+      results.push(judged);
+      if (!judged.verdict) throw sheetPending(judged.verification, results);
+      await saveJson(`${root}/candidate-${judged.index}.verdict.json`, judged.verdict);
+      if (!judged.verdict.pass) considerRepair(judged.buffer, judged.verdict);
+    }
+    results.sort((a, b) => a.index - b.index);
+    if (results.some(r => r.verdict?.pass)) return { ...electCandidate(results, log), count: firstRound, root };
+
+    // Then the sequential repair loop over the remaining slots, each
+    // guided by the best verified candidate so far.
+    for (let index = firstRound; index < budget.limit; index++) {
+      const slot = await resolveSlot(index, repair);
+      if (slot.elected) return adoptedElection(slot.elected, root);
+      if (slot.renderFailure) {
+        recordFailure(slot);
         continue; // known failed call: next bounded slot can run immediately
       }
-      const judged = await judgeSheetCandidate(buffer, refPhoto, childPhoto, root, costTracker);
-      if (judged.photoDropped) log('warn', `character sheet candidate ${index + 1}: the verifier blocked the check with the child's photo attached (${judged.photoDropped.reason}) — re-asked against the approved cover alone`);
-      results.push({ index, buffer, render, ...judged });
+      const judged = await judgeSlot(slot);
+      results.push(judged);
       if (!judged.verdict) throw sheetPending(judged.verification, results);
-      await saveJson(`${key}.verdict.json`, judged.verdict);
+      await saveJson(`${slot.key}.verdict.json`, judged.verdict);
       if (judged.verdict.pass) return { ...electCandidate(results, log), count: index + 1, root };
-      // Repair the best verified candidate seen so far. The cover is still
-      // authoritative; correct inferred garments are preserved from this source.
-      if (!repair || judged.verdict.defects.length < repair.defects.length ||
-        (judged.verdict.defects.length === repair.defects.length && judged.verdict.likeness > repair.likeness)) {
-        repair = { buffer, defects: judged.verdict.defects, likeness: judged.verdict.likeness };
-      }
+      considerRepair(judged.buffer, judged.verdict);
     }
     electCandidate(results, log);
     const last = results.filter(r => r.verdict).at(-1);
@@ -895,6 +985,7 @@ module.exports = {
   electCandidate,
   sheetCandidateCount,
   anchorHash,
+  RENDER_LEASE_MS,
   FAILURE_CODE,
   PHOTO_LIKENESS_ADVISORY,
   COVER_LIKENESS_MIN,

@@ -15,6 +15,7 @@ const { fetchWithTimeout } = require('../../../services/illustrationGenerator');
 const {
   prepareLikenessReferences, locateFace, normalizeFaceBox, faceCropRect, LOCATE_PROMPT, CROP_PAD,
 } = require('../../../services/catalogEngine/illustrator/bible/faceCrop');
+const { qaVisionModel } = require('../../../services/shared/llm/models');
 
 const jsonResponse = obj => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }) });
 const decode = b64 => sharp(Buffer.from(b64, 'base64')).metadata();
@@ -73,7 +74,7 @@ describe('prepareLikenessReferences', () => {
     const out = await prepareLikenessReferences(PHOTO, { log });
     expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
     const [url, init, timeout] = fetchWithTimeout.mock.calls[0];
-    expect(url).toContain('gemini-2.5-flash');
+    expect(url).toContain(`/${qaVisionModel()}:generateContent`);
     expect(timeout).toBe(30000);
     const body = JSON.parse(init.body);
     expect(body.contents[0].parts[0].text).toBe(LOCATE_PROMPT);

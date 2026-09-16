@@ -6,6 +6,7 @@ const { EMOTIONS } = require('../illustrator/emotionPlan');
 const { getNextApiKey } = require('../../illustrationGenerator');
 const { fetchWithTimeout } = require('../audio/providers');
 const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../shared/llm/geminiJson');
+const { qaVisionModel } = require('../../shared/llm/models');
 const { FULL_STORY_VIDEO_VERSION, FILM_CAST_VERSION } = require('../versions');
 const flags = require('../flags');
 
@@ -149,7 +150,7 @@ function validateDirection(raw, units, provider, ageBand) {
 
 /** Strict JSON direction/QA call, with bounded retries and no manuscript instructions. */
 async function directorJson(prompt, parts = [], { signal, costTracker, touch = () => {} } = {}) {
-  const model = process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+  const model = qaVisionModel();
   let last;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (signal?.aborted) throw filmError('Film generation cancelled.', 'cancelled');

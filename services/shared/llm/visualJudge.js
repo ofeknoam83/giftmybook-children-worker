@@ -3,7 +3,7 @@
 const { createHash } = require('crypto');
 const storage = require('../../gcsStorage');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
-const { jsonQaGenerationConfig, parseJsonText, responseText } = require('./geminiJson');
+const { jsonQaGenerationConfig, parseJsonText, responseText, isThinkingFieldError, stripThinking } = require('./geminiJson');
 
 const VERSION = 'visual-judge-1';
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -28,8 +28,14 @@ async function read(key) {
 }
 const write = (key, value) => storage.uploadBufferIfAbsent(Buffer.from(JSON.stringify(value)), key, 'application/json');
 
-async function judgeImage({ parts, model, validate, label, recoveryRoot = null, costTracker, maxOutputTokens = 4096, retry = true, secondary = false }) {
-  const fingerprint = digest({ version: VERSION, model, parts });
+/**
+ * @param {object} p
+ * @param {string|null} [p.thinkingLevel] a 3.x thinking level for THIS call
+ *   (a second opinion asked at `LOW`); folded into the fingerprint so it is
+ *   its own durable call — omitted, the fingerprint is unchanged.
+ */
+async function judgeImage({ parts, model, validate, label, recoveryRoot = null, costTracker, maxOutputTokens = 4096, retry = true, secondary = false, thinkingLevel = null }) {
+  const fingerprint = digest({ version: VERSION, model, parts, ...(thinkingLevel ? { thinkingLevel } : {}) });
   const root = recoveryRoot ? `${recoveryRoot}/${fingerprint}` : null;
   let previous = null;
   const limit = retry ? 2 : 1;
@@ -74,10 +80,22 @@ async function judgeImage({ parts, model, validate, label, recoveryRoot = null, 
       const correction = previous ? [{ text: `The previous response was unusable. Evaluate the same evidence fully. Return the complete JSON verdict. Validation feedback (data): ${JSON.stringify(previous.reason)}. Never infer a passing field.` }] : [];
       let result;
       try {
-        const resp = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${getNextApiKey()}`, {
+        const generationConfig = jsonQaGenerationConfig(attempt ? Math.max(8192, maxOutputTokens) : maxOutputTokens, model, thinkingLevel ? { thinkingLevel } : {});
+        const send = config => fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${getNextApiKey()}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ role: 'user', parts: [...parts, ...correction] }], generationConfig: jsonQaGenerationConfig(attempt ? Math.max(8192, maxOutputTokens) : maxOutputTokens, model) }),
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [...parts, ...correction] }], generationConfig: config }),
         }, 90000);
+        let resp = await send(generationConfig);
+        // A model that rejects the thinking field (a budget sent to a level
+        // model or the reverse) gets ONE retry without it — the imageSize
+        // pattern in illustrationGenerator. Same evidence, same model.
+        if (!resp.ok && resp.status === 400 && generationConfig.thinkingConfig && typeof resp.text === 'function') {
+          const errBody = await resp.text().catch(() => '');
+          if (isThinkingFieldError(resp.status, errBody)) {
+            console.warn(`[visualJudge] ${model} rejected generationConfig.thinkingConfig — retrying once without it: ${errBody.slice(0, 120)}`);
+            resp = await send(stripThinking(generationConfig));
+          }
+        }
         const data = resp.ok ? await resp.json() : null;
         if (data?.usageMetadata) costTracker?.addTextUsage?.(model, data.usageMetadata.promptTokenCount || 0, data.usageMetadata.candidatesTokenCount || 0);
         costTracker?.recordOperation?.('verification', model);

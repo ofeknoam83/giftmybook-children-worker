@@ -74,6 +74,7 @@ const catalogEngine = require('./services/catalogEngine');
 const { runBookPipeline, resolveStory } = require('./services/catalogEngine/pipeline');
 const { deliverBookCompletion } = require('./services/deliverBookCompletion');
 const { renderStorySpreads } = require('./services/catalogEngine/illustrator');
+const { qaVisionModel } = require('./services/shared/llm/models');
 
 
 const app = express();
@@ -388,7 +389,7 @@ app.get('/v13/coverage', authenticate, (req, res) => {
     },
     models: {
       writer: WRITER_MODEL(),
-      qaVision: process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash',
+      qaVision: qaVisionModel(),
     },
   });
 });
@@ -810,6 +811,10 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         ...(dispatchId ? { dispatchId } : {}),
         renders: [],
         failures: [{ message: err.message, failureCode: err.failureCode || null }],
+        // The typed recovery record (2026-09-16): the app's preview spread
+        // retries an identity-typed failure under a fresh sheet namespace
+        // and shows the stage/reason on its admin card.
+        ...(err.recovery ? { recovery: err.recovery } : {}),
         illustrationTuningUsed: 'none',
         outfitLockUsed: 'none',
         typographyAnchorUsed: 'none',

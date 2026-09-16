@@ -16,9 +16,10 @@ const { downloadBuffer } = require('../../gcsStorage');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../shared/llm/geminiJson');
 const { fnv1a } = require('../selection');
+const { qaVisionModel } = require('../../shared/llm/models');
 
 const RENDER_KEY_RE = /^children-jobs\/([A-Za-z0-9_-]{1,128})\/ce-renders\/[^/]+\/[^/]+\/spread-(\d{1,2})\.(square|wide|wide-plain)\.png$/;
-const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+const QA_MODEL = () => qaVisionModel();
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001f\\u007f]+', 'g');
 

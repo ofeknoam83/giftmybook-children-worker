@@ -407,9 +407,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   (`catalog-assets/character-sheets/{STYLE_VERSION}/{anchorHash}.png` +
   `.json`). Every strict-JSON judge call in the illustrator (sheet, prop,
   spread, world, plate, contact, outfit) builds its generationConfig with
-  `shared/llm/geminiJson.js` `jsonQaGenerationConfig` — thinking OFF on
-  the 2.5 flash family and a ≥2048-token ceiling — because
-  `gemini-2.5-flash` counts its reasoning tokens against `maxOutputTokens`
+  `shared/llm/geminiJson.js` `jsonQaGenerationConfig` — thinking level
+  MINIMAL on the 3.x family (budget 0 on 2.5 flash) and a ≥2048-token
+  ceiling — because the flash judges count their reasoning tokens against `maxOutputTokens`
   (2026-09-02: a 256-token cap clipped every sheet verdict and failed every
   book `identity_kit_failed`); `parseJsonText` tolerates fences/prose and
   an unparseable answer names its `finishReason`. REQUIRED by default: a book that cannot build one fails
@@ -989,6 +989,65 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   STYLE_VERSION and COLORING_VERSION stay — the sheet prompts only govern
   anchors with no elected sheet, and an elected sheet passed the stricter
   check.
+  **References that heal themselves (2026-09-16 —
+  `docs/CHILDREN_VISUAL_RECOVERY.md`, `docs/STORY_OBJECT_CONTINUITY.md`)**:
+  a story object whose three durable reference candidates all failed the
+  prop-reference judge paused the book for an admin, and — every root on
+  that path being content-fingerprinted — a regeneration replayed the
+  saved rejection for ever. Behind ONE kill-switch
+  (`CATALOG_REFERENCE_AUTOHEAL`, on by default) the path now heals in a
+  fixed order: a `design_matches` / `representation_matches` rejection
+  is re-asked ONCE at thinking level `LOW` with the contract restated
+  (`prop-reference-second-opinion`, its own durable call — `judgeImage`
+  takes a `thinkingLevel` that folds into the fingerprint) and only two
+  agreeing rejections are a defect (`CATALOG_REFERENCE_JUDGE_QUORUM`);
+  an exhausted ladder — or an elected reference failing re-verification
+  — gets ONE re-plan (`CATALOG_REFERENCE_REPLAN_ROUNDS`; label
+  `reference-replan`, root `catalog-assets/reference-replans/v1`) that may
+  only rewrite the design within the closed vocabulary (never a
+  catalog-authored one) and/or downgrade the contract to `single`
+  (`validateReplan`), re-keying `valueHash` so the ladder runs fresh, the
+  round persisted at `<election>.replans/<id>/r<n>.json` and applied to
+  `objects` on every later read (`renderObjects` keep the originals, the
+  plan `hash` stays, the presence audit runs on the original contract);
+  when that fails too, or the judge is blocked / exhausted / a
+  configuration hold, the object DEGRADES to a described object — no
+  sheet, its design in the PROPS block, a `storyObjects` advisory
+  `reference degraded: <name> — <reason>`, `degraded: true` on
+  `bookBible.props[]` (via `manifest.degradedReferences`, outside the
+  bible hash) and on the plan object; a critical degraded object keeps
+  presence/count/lettering/state blocking with its `look` advisory
+  (`degradedObjectAdvisories`; the set gate skips it), and
+  `CATALOG_PROP_SHEETS=0` degrades the same way. A STORED plan that no
+  longer validates is re-planned under a retry fold
+  (`<inputHash>-r<n>.json`) and, failing that, the catalog seeds become
+  the plan (`seedPlan`, `fallback: {kind: 'catalog_seeds'}` elected at
+  the fold, an advisory) — `contract_conflict` only with the switch off,
+  and a planner outage still throws. `forceNew` / `forceRerender`
+  (`identityRetry`) reach the prop roots as `retryNamespace`: fresh
+  candidate slots (`.candidates/retry-<hash>/N.png`), a fresh
+  verification root, and the contract / presence calls re-ask a saved
+  block under `…/retry-<hash>`; a plain resume replays.
+  **Gemini model migration (2026-09-16 — `qa-17` / `cq-2` / `ab-2`)**:
+  `gemini-2.5-flash` / `-flash-lite` shut down on 2026-10-16, so every
+  text / vision / audio / TTS model id now comes from ONE registry,
+  `shared/llm/models.js` (`qaVisionModel()` → `gemini-3.5-flash`,
+  `proModel()` → `gemini-3.1-pro-preview`, `textFallbackModel()` →
+  `gemini-3.5-flash`, `audioModel()` → `gemini-3.5-flash`, `ttsModel()` →
+  `gemini-3.1-flash-tts-preview`, `secondaryReviewModel()` — no default,
+  blank disables the reviewed fallback — and `qaThinkingLevel()`), each
+  behind its `CATALOG_*` env (the tuning list below); `GEMINI_QA_MODEL` in
+  `shared/illustration/config.js` equals `qaVisionModel()` at load.
+  `jsonQaGenerationConfig` sends `thinkingLevel` on 3.x (never a budget
+  beside it — the pair is a 400) and `thinkingBudget: 0` on 2.5 flash, and
+  the two judge transports (`visualJudge`, `geminiAudio`) retry ONCE
+  without `thinkingConfig` on a 400 naming the field (the `imageSize`
+  pattern). The judge model change bumps `QA_VERSION` → `qa-17` and
+  `COLORING_QA_VERSION` → `cq-2` (markers re-check; pixels and prompts are
+  untouched, so `STYLE_VERSION` stays), and the cast's Gemini TTS voices
+  (`cast.json`) bump `AUDIO_VERSION` → `ab-2`. Image generation stays
+  `gemini-3.1-flash-image`; `scripts/listImageModels.js --all` lists every
+  provisioned id with its generation methods before a revision pins one.
 
 - `coloring/` — **the coloring book (`cb-1`, 2026-09-07 —
   `docs/COLORING_BOOK_V2_PLAN.md`)**: companion scenes from the story world,
@@ -1002,7 +1061,7 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   20 otherwise; `CATALOG_COLORING_PAGES` overrides), seeded gap selection
   (story fingerprint), no adjacent kind repeats, a rotated shot/placement,
   and ajv + invariant validation. `moments.js` phrases each slot: ONE
-  strict-JSON writer call (`gemini-2.5-flash`, kill-switch
+  strict-JSON writer call (the QA vision model, kill-switch
   `CATALOG_COLORING_MOMENT_WRITER=0`) behind the deterministic
   **duplication gate** (shared content-word 4-gram, Jaccard > 0.45, or
   Levenshtein ratio > 0.6 against ANY beat or spread text; invented proper
@@ -1050,8 +1109,8 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   plan hash folds the story fingerprint, the bible hash, every sheet hash,
   the LINE_RULES hash, the image size and the moments, so a re-dispatch
   without `forceNew` replays finished pages and rebuilds the PDFs for free.
-  `COLORING_VERSION` (`cb-1`) / `COLORING_QA_VERSION` (`cq-1`) in
-  versions.js.
+  `COLORING_VERSION` (`cb-1`) / `COLORING_QA_VERSION` (`cq-2` since
+  2026-09-16 — the page judge's model changed) in versions.js.
 
 - `audio/` — **the audiobook (`ab-1`, 2026-09-07 —
   `docs/AUDIOBOOK_V2_PLAN.md`)**: the performed read-aloud of one finished
@@ -1151,7 +1210,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   app-owned `audioTuning` overlay (`{versionLabel, hash, text}`, ≤ 8 KB,
   `CATALOG_AUDIO_TUNING_LAYER=0`) is framed scope-subordinate — binding on
   delivery, never on a word — and echoed as `audioTuningUsed`.
-  `AUDIO_VERSION` (`ab-1`) / `AUDIO_QA_VERSION` (`aq-1`) in versions.js:
+  `AUDIO_VERSION` (`ab-2` since 2026-09-16 — the cast's Gemini TTS voices
+  and the transcript judge moved to the 3.x models) / `AUDIO_QA_VERSION`
+  (`aq-1`) in versions.js:
   bump `AUDIO_VERSION` on any change to the script grammar, the cast
   file, a prompt, the timeline rules or the mix graph (every elected asset
   and every take re-keys), `AUDIO_QA_VERSION` when the take judge changes
@@ -1253,6 +1314,16 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   likeness >= 0.8. Photo likeness is advisory only at this stage.
 - `CATALOG_PROP_SHEETS=0` — (ce-9) no prop / companion sheets (props ride
   as quoted nouns only).
+- `CATALOG_REFERENCE_AUTOHEAL=0` — (2026-09-16) restore the story-object
+  reference PAUSES: no re-plan after a confirmed reference defect, no
+  degrade to a described object, no seed fallback for a stored plan that
+  stopped validating, no second judge opinion, no fresh candidate
+  namespace on an explicit regeneration (`visual_recovery_pending` /
+  `contract_conflict` exactly as before). `CATALOG_REFERENCE_REPLAN_ROUNDS`
+  (default 1, 0–2) — re-plan rounds a rejected reference may spend before
+  it degrades. `CATALOG_REFERENCE_JUDGE_QUORUM` (default 2, 1–2) —
+  agreeing rejections a design / representation defect needs (`1` = a
+  single rejection counts, the pre-autoheal rule).
 - `CATALOG_HUMAN_COMPANION_SHEET=0` — (ce-19) no SECONDARY CHARACTER sheet
   / character spec for a PERSON-typed companion (Farmer Bea, Builder Sam
   ride as nouns again, unchecked, as before ce-19); creature companion
@@ -1300,7 +1371,7 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_AUDIO_CHARACTER_VOICES=0` (the narrator reads the companion's
   lines too), `CATALOG_AUDIO_DIRECTOR=0` (the direction table only),
   `CATALOG_AUDIO_TRANSCRIPT_QA=0` (takes ship on measurement alone, marked
-  unchecked), `CATALOG_AUDIO_STT_MODEL` (`gemini-2.5-flash`),
+  unchecked), `CATALOG_AUDIO_STT_MODEL` (`gemini-3.5-flash`),
   `CATALOG_AUDIO_MUSIC=0` (the CC0 library only) / `CATALOG_AUDIO_MUSIC_
   PROVIDER` (`lyria` | `elevenlabs`) / `CATALOG_AUDIO_MUSIC_MODEL` /
   `CATALOG_AUDIO_MUSIC_LOCATION`, `CATALOG_AUDIO_SFX=0` (no sound cues) /
@@ -1309,7 +1380,7 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `CATALOG_AUDIO_TARGET_LUFS` (−16, −30…−8), `CATALOG_AUDIO_ASSET_
   CANDIDATES` (2, 1-3), `CATALOG_AUDIO_TIMEOUT_MINUTES` (20, 5-90),
   `CATALOG_AUDIO_TUNING_LAYER=0`, `CATALOG_AUDIO_SHIP_ON_EXHAUSTION=1`
-  (OPT-IN). Bump `AUDIO_VERSION` (versions.js, `ab-1`) on any change to
+  (OPT-IN). Bump `AUDIO_VERSION` (versions.js, `ab-2`) on any change to
   the script grammar, the cast file, a prompt, the timeline rules or the
   mix graph; `AUDIO_QA_VERSION` (`aq-1`) when the take judge changes.
 - `CATALOG_GIFT_VIDEO=0` — (gv-1) disable `/v13/generate-video` and
@@ -1385,6 +1456,17 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   change to the brief, the shot packing, the judge or the soundtrack
   rules; `FILM_CAST_VERSION` pins the voice takes so a film bump never
   re-records speech.
+- `CATALOG_SHEET_FIRST_ROUND=N` — (2026-09-16) character-sheet candidates
+  rendered AND judged concurrently in the first round (default 2, clamped
+  1-4 and to `CATALOG_SHEET_CANDIDATES`; `1` is the old strictly sequential
+  ladder); the rest of the budget runs the sequential repair loop from the
+  best verified candidate. Time over cost: one extra image when the first
+  would have passed. `CATALOG_SHEET_CLAIM_POLL_MS` (5000) is how often a run
+  that finds ANOTHER instance's live claim on a slot re-reads it — since the
+  same day a live claim is WAITED on (bounded by the 210 s lease) and its
+  render, or the sheet the other instance elected meanwhile, is adopted,
+  instead of failing the run "A character sheet is already being generated"
+  (the app's preview-spread render and its identity prep collided there).
 - Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 1, clamped 1-3),
   `CATALOG_DRIFT_MAX_REPAIRS` (default 0, clamped 0-4),
   `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3, clamped 1-12 — every
@@ -1400,7 +1482,16 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
-  `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`),
+  `CATALOG_QA_VISION_MODEL` (default `gemini-3.5-flash` — every
+  strict-JSON vision/text judge), `CATALOG_QA_PRO_MODEL` (default
+  `gemini-3.1-pro-preview`), `CATALOG_TEXT_FALLBACK_MODEL` (default
+  `gemini-3.5-flash` — openaiClient's Gemini fallback + the back-cover
+  blurb), `CATALOG_AUDIO_TTS_MODEL` (default `gemini-3.1-flash-tts-preview`
+  — a cast voice that names no model), `CATALOG_QA_THINKING_LEVEL`
+  (`MINIMAL` default; `LOW` | `MEDIUM` | `HIGH` — the 3.x judges'
+  `thinkingLevel`), `CATALOG_QA_SECONDARY_MODEL` (no default — the
+  reviewed-fallback judge; blank disables it) — all read at call time from
+  `shared/llm/models.js` (2026-09-16),
   `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3),
   `CATALOG_SPREAD_QA_MAX_REPAIRS` (default 1 since #295, clamped 0-4).
 
@@ -1584,7 +1675,8 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `contactQa`; failure callbacks may carry `failureCode:
   'consistency_unresolved'` + `unresolved[]` + `qaAdvisories` + `bookBible`,
   or `identity_kit_failed`. `/v13/render-spreads` callbacks carry
-  `bookBible`, `contactQa`, `unresolved[]`, and the request accepts
+  `bookBible`, `contactQa`, `unresolved[]` (and, on a thrown run, the typed
+  `recovery` record beside `failures[]` since 2026-09-16), and the request accepts
   `identityKeyed:false` (customer-key per-spread re-render).
 - `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
   flip + pre-print overlay preview (entries from the request). Text layouts:

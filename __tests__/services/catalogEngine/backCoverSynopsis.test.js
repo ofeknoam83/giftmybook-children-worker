@@ -1,6 +1,7 @@
 jest.mock('../../../services/gcsStorage', () => ({ downloadBuffer: jest.fn(), uploadBuffer: jest.fn() }));
 const storage = require('../../../services/gcsStorage');
 const { createBackCoverSynopsis, shortExcerpt } = require('../../../services/catalogEngine/backCoverSynopsis');
+const { textFallbackModel } = require('../../../services/shared/llm/models');
 const story = { title: 'Amit and the Moonflower Festival', spreads: [
   { text: 'Amit stepped into Whispering Wood as Lumi zipped close. Three jobs waited ahead: hang ribbons, place glow markers, and open the flower shades.' },
   { text: 'He looked from one job to the next. Which should he start first?' },
@@ -13,12 +14,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   storage.downloadBuffer.mockRejectedValue(new Error('missing'));
   storage.uploadBuffer.mockResolvedValue(undefined);
-  opts.callText.mockResolvedValue({ json: { synopsis: blurb }, model: 'gemini-2.5-flash', usage: {} });
+  opts.callText.mockResolvedValue({ json: { synopsis: blurb }, model: textFallbackModel(), usage: {} });
 });
 test('replaces a known opening excerpt with one bounded blurb call, without exposing the ending', async () => {
   expect(await createBackCoverSynopsis(story, { ...opts, cached: shortExcerpt(story) })).toBe(blurb);
   expect(opts.callText).toHaveBeenCalledTimes(1);
-  expect(opts.callText.mock.calls[0][0]).toMatchObject({ maxAttempts: 1, timeoutMs: 20000, allowGeminiFallback: false });
+  expect(opts.callText.mock.calls[0][0]).toMatchObject({ model: textFallbackModel(), maxAttempts: 1, timeoutMs: 20000, allowGeminiFallback: false });
   expect(opts.callText.mock.calls[0][0].userPrompt).not.toContain('ENDING SECRET');
   expect(storage.uploadBuffer).toHaveBeenCalledTimes(1);
 });

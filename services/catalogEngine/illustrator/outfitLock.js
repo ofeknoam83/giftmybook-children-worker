@@ -32,7 +32,8 @@ const { downloadBuffer, uploadBufferIfAbsent } = require('../../gcsStorage');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
 
-const OUTFIT_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
+const { qaVisionModel } = require('../../shared/llm/models');
+const OUTFIT_MODEL = () => qaVisionModel();
 const { jsonQaGenerationConfig, responseText, parseJsonText } = require('../../shared/llm/geminiJson');
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const OUTFIT_TIMEOUT_MS = 60000;
