@@ -40,7 +40,9 @@ async function judgeImage({ parts, model, validate, label, recoveryRoot = null, 
   let previous = null;
   const limit = retry ? 2 : 1;
   try {
-    if (root) await write(`${root}/request.json`, { version: VERSION, model, parts, label, fingerprint });
+    // The evidence carries everything the fingerprint hashes — the level
+    // included — so `review-visual-check` can recompute and match it.
+    if (root) await write(`${root}/request.json`, { version: VERSION, model, parts, label, fingerprint, ...(thinkingLevel ? { thinkingLevel } : {}) });
     for (let attempt = 0; attempt < limit; attempt++) {
       const resultKey = root && `${root}/attempt-${attempt}.result.json`;
       if (root) {
@@ -60,7 +62,7 @@ async function judgeImage({ parts, model, validate, label, recoveryRoot = null, 
               try { approval = require('./visualReview').verifyApproval(review, { expired: true }); } catch { /* invalid or disabled approval cannot route evidence */ }
             }
             if (approval?.fingerprint === fingerprint && approval.evidenceKey === `${root}/request.json` && approval.decision === 'benign_verification' && approval.model !== model) {
-              return judgeImage({ parts, model: approval.model, validate, label, recoveryRoot: `${root}/reviewed`, costTracker, maxOutputTokens: 8192, secondary: true });
+              return judgeImage({ parts, model: approval.model, validate, label, recoveryRoot: `${root}/reviewed`, costTracker, maxOutputTokens: 8192, secondary: true, thinkingLevel });
             }
           }
           if (!['transient', 'truncated', 'malformed'].includes(saved.status)) return { ...saved, cached: true };

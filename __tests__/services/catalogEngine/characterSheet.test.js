@@ -684,6 +684,27 @@ test('an active cross-process render reservation is WAITED on and its render ado
   expect(judgeCalls()).toHaveLength(1);
 });
 
+test('an active cross-process JUDGE reservation is WAITED on and its verdict adopted, never a pause', async () => {
+  // 2026-09-16: the render claim was waited on but the judge claim was
+  // not — the loser got "Verification is already running", no verdict, and
+  // paused the book. It now polls the durable verdict like the render.
+  installTransport([CLEAN_VERDICT]);
+  const upload = uploadBufferIfAbsent.getMockImplementation();
+  uploadBufferIfAbsent.mockImplementation(async (b, k, type) => {
+    if (k.includes('/checks/') && k.endsWith('attempt-0.claim.json')) {
+      objects.set(k, Buffer.from(JSON.stringify({ at: new Date().toISOString() })));
+      const resultKey = k.replace('.claim.json', '.result.json');
+      setTimeout(() => objects.set(resultKey, Buffer.from(JSON.stringify({ status: 'verified', json: CLEAN_VERDICT, model: 'other', fingerprint: 'x', evidenceKey: k }))), 30);
+      return { created: false };
+    }
+    return upload(b, k, type);
+  });
+  const sheet = await run();
+  expect(sheet.base64).toBe(bytes());
+  expect(imageCalls()).toHaveLength(1);
+  expect(judgeCalls()).toHaveLength(0);
+});
+
 test('a caller waiting on a reservation adopts the sheet the other process elects meanwhile', async () => {
   const anchorUrl = freshAnchor();
   const upload = uploadBufferIfAbsent.getMockImplementation();

@@ -999,7 +999,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   fixed order: a `design_matches` / `representation_matches` rejection
   is re-asked ONCE at thinking level `LOW` with the contract restated
   (`prop-reference-second-opinion`, its own durable call — `judgeImage`
-  takes a `thinkingLevel` that folds into the fingerprint) and only two
+  takes a `thinkingLevel` that folds into the fingerprint AND rides the
+  call's `request.json`, so the reviewed recheck verifies that evidence
+  too and re-asks at the same level) and only two
   agreeing rejections are a defect (`CATALOG_REFERENCE_JUDGE_QUORUM`);
   an exhausted ladder — or an elected reference failing re-verification
   — gets ONE re-plan (`CATALOG_REFERENCE_REPLAN_ROUNDS`; label
@@ -1467,6 +1469,9 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   render, or the sheet the other instance elected meanwhile, is adopted,
   instead of failing the run "A character sheet is already being generated"
   (the app's preview-spread render and its identity prep collided there).
+  The JUDGE claim is waited on the same way (the verifier's own 180 s
+  lease): a check another instance is running yields its durable verdict
+  to the waiter instead of a `visual_recovery_pending` pause.
 - Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 1, clamped 1-3),
   `CATALOG_DRIFT_MAX_REPAIRS` (default 0, clamped 0-4),
   `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3, clamped 1-12 — every

@@ -573,6 +573,13 @@ async function waitForClaimedSlot(key, electedPath, claimedAt) {
   return null;
 }
 
+/** The verifier's own claim lease (visualJudge, 180 s) plus a margin: how long a judge collision is waited on. */
+const JUDGE_CLAIM_WAIT_MS = 180000 + 30000;
+/** Whether a verification outcome says another process holds the judge claim right now. */
+function judgeRunningElsewhere(verification) {
+  return !!verification && verification.status === 'transient' && /already running/i.test(String(verification.reason || ''));
+}
+
 /** The election shape for a sheet another process elected while this one waited. */
 function adoptedElection(buffer, root) {
   return { winner: { buffer }, likeness: null, photoLikeness: null, advisories: [advisory('adopted the sheet another process elected while this one waited')], count: 0, root };
@@ -671,9 +678,24 @@ async function resolveCandidates({ path, ladder, refPhoto, childPhoto, retryName
       throw err;
     }
   };
-  /** Judge a rendered slot; records the verdict; returns the judged record. */
+  /**
+   * Judge a rendered slot; records the verdict; returns the judged record.
+   * A check another instance is running at this moment (the app's preview
+   * render and its identity prep land on two instances) is WAITED on, the
+   * render-claim rule applied to the judge: the durable verdict is re-read
+   * until the winner's result lands or its claim lease runs out; only the
+   * timeout is the pause it always was (2026-09-16).
+   */
   const judgeSlot = async (slot) => {
-    const judged = await judgeSheetCandidate(slot.buffer, refPhoto, childPhoto, root, costTracker);
+    let judged = await judgeSheetCandidate(slot.buffer, refPhoto, childPhoto, root, costTracker);
+    const deadline = Date.now() + JUDGE_CLAIM_WAIT_MS;
+    let waited = false;
+    while (!judged.verdict && judgeRunningElsewhere(judged.verification) && Date.now() < deadline) {
+      if (!waited) log('info', `character sheet candidate ${slot.index + 1}: another process is checking it — waiting for its verdict`);
+      waited = true;
+      await sleep(Math.min(flags.sheetClaimPollMs(), Math.max(10, deadline - Date.now())));
+      judged = await judgeSheetCandidate(slot.buffer, refPhoto, childPhoto, root, costTracker);
+    }
     if (judged.photoDropped) log('warn', `character sheet candidate ${slot.index + 1}: the verifier blocked the check with the child's photo attached (${judged.photoDropped.reason}) — re-asked against the approved cover alone`);
     return { index: slot.index, buffer: slot.buffer, render: slot.render, ...judged };
   };

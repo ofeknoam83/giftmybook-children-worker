@@ -103,7 +103,24 @@ test('a thinkingLevel is its own durable call: a distinct fingerprint, the level
   expect(JSON.parse(fetch.mock.calls[1][1].body).generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
   expect(await judgeImage({ ...p, thinkingLevel: 'LOW' })).toMatchObject({ status: 'verified', cached: true, fingerprint: second.fingerprint });
   expect(fetch).toHaveBeenCalledTimes(2);
-  expect(JSON.parse(files.get(second.evidenceKey))).toMatchObject({ label: 'second-opinion' });
+  expect(JSON.parse(files.get(second.evidenceKey))).toMatchObject({ label: 'second-opinion', thinkingLevel: 'LOW' });
+});
+test('a provider-blocked second opinion can be reviewed: the level rides the evidence, the digest matches, the recheck keeps the level', async () => {
+  process.env.VISUAL_REVIEW_SECRET = 's'.repeat(40); process.env.CATALOG_QA_SECONDARY_MODEL = SECONDARY;
+  const p = { ...opts(), model: 'gemini-3.5-flash', recoveryRoot: 'children-jobs/6979a16e-d8c9-42af-a09e-f8874c3f7e97/qa', thinkingLevel: 'LOW', label: 'second-opinion' };
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] }) }).mockResolvedValue(ok({ pass: true }));
+  const blocked = await judgeImage(p);
+  expect(blocked).toMatchObject({ status: 'provider_blocked' });
+  await expect(handleReview(approval(blocked, { decision: 'inspect' }))).resolves.toMatchObject({ thinkingLevel: 'LOW', parts: p.parts });
+  await expect(handleReview(approval(blocked))).resolves.toMatchObject({ approved: true, model: SECONDARY });
+  const result = await judgeImage(p);
+  expect(result).toMatchObject({ status: 'verified', model: SECONDARY });
+  expect(fetch.mock.calls[1][0]).toContain(`/${SECONDARY}:generateContent`);
+  expect(JSON.parse(fetch.mock.calls[1][1].body).generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+  // Evidence whose recorded level no longer matches its fingerprint is changed evidence.
+  const evidence = JSON.parse(files.get(blocked.evidenceKey)); delete evidence.thinkingLevel;
+  files.set(blocked.evidenceKey, Buffer.from(JSON.stringify(evidence)));
+  await expect(handleReview(approval(blocked))).rejects.toThrow(/Evidence changed/);
 });
 test('confirmed defects and changed evidence cannot reuse a passing judgment', async () => {
   fetch.mockResolvedValueOnce(ok({ pass: false })).mockResolvedValue(ok({ pass: true }));
