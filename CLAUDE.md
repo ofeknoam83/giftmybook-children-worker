@@ -1783,7 +1783,18 @@ depicts a book — `coverArtworkGuard.js` there),
 `shared/illustration/config.js`. `illustrationGenerator.js` is the shared
 Gemini image client + key pool + photo utils (cover, coloring, comics, and
 the slim illustrator all sit on it) — `opts.gcsPath` pins a deterministic
-upload path for the render cache.
+upload path for the render cache. Its `downloadPhotoAsBase64` (every
+identity anchor — the approved cover, the child photo — for the
+illustrator, prepare-identity, the coloring book and the video) reads a
+GCS object with the worker's OWN credentials when the HTTP fetch is
+refused (`gcsStorage.parseGcsObjectUrl` / `readGcsObject`, the IAM read
+`downloadBuffer` always fell back to): since 2026-09-16 the app stores the
+approved cover WITHOUT its signature (canonical form) and re-signs it on
+every read of its own, and a dispatch that sent the stored form — or a
+7-day signature that expired before a retry — was a 403 here that failed
+every book `missing_identity_reference` ("identity reference could not be
+downloaded") before a spread rendered. A non-GCS URL, or an object IAM
+cannot read either, keeps the HTTP verdict (both refusals named).
 
 ## Sidecar authoring (COMPLETE — all 228 approved)
 
