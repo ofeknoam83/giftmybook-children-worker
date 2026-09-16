@@ -25,7 +25,7 @@ const { STYLE_VERSION } = require('../../../services/catalogEngine/versions');
 const { fnv1a } = require('../../../services/catalogEngine/selection');
 const {
   getCharacterSheet, characterSheetPath, characterSheetSidecarPath, buildSheetPrompt, buildGenericSafeSheetPrompt, sheetPromptLadder, buildSheetQaPrompt,
-  cleanDescription, parseSheetVerdict, sheetCandidateCount, anchorHash, FAILURE_CODE, PHOTO_LIKENESS_ADVISORY, COVER_LIKENESS_MIN,
+  cleanDescription, parseSheetVerdict, sheetCandidateCount, anchorHash, FAILURE_CODE, PHOTO_LIKENESS_ADVISORY, COVER_LIKENESS_MIN, RENDER_LEASE_MS,
 } = require('../../../services/catalogEngine/illustrator/bible/characterSheet');
 
 const REF = { base64: 'YW5jaG9y', mimeType: 'image/png' };
@@ -109,6 +109,14 @@ beforeEach(() => {
   delete process.env.CATALOG_CHARACTER_SHEET;
   delete process.env.CATALOG_SHEET_CANDIDATES;
   delete process.env.CATALOG_SHEET_PHOTO_LIKENESS_MIN;
+  // The suite below describes the sequential ladder (one candidate, then
+  // repairs); the concurrent first round has its own describe at the end.
+  process.env.CATALOG_SHEET_FIRST_ROUND = '1';
+  process.env.CATALOG_SHEET_CLAIM_POLL_MS = '10';
+});
+afterAll(() => {
+  delete process.env.CATALOG_SHEET_FIRST_ROUND;
+  delete process.env.CATALOG_SHEET_CLAIM_POLL_MS;
 });
 
 
@@ -652,16 +660,101 @@ test('a simultaneous election adopts the other verified winner and its metadata'
   expect(await run(anchorUrl)).toMatchObject({ base64: bytes(2), likeness: 0.94 });
 });
 
-test('an active cross-process render reservation is not mistaken for a completed failure', async () => {
+test('an active cross-process render reservation is WAITED on and its render adopted, never mistaken for a failure', async () => {
+  // 2026-09-16: the app's preview render and its identity prep used to
+  // collide here; the loser now polls the slot and judges what the winner
+  // rendered instead of failing inside the lease.
+  installTransport([CLEAN_VERDICT]);
   const upload = uploadBufferIfAbsent.getMockImplementation();
   uploadBufferIfAbsent.mockImplementation(async (b, k, type) => {
     if (k.endsWith('candidate-0.claim.json')) {
-      objects.set(k, b); return { created: false };
+      objects.set(k, b);
+      setTimeout(() => objects.set(k.replace('.claim.json', '.png'), CANDIDATE_PNGS[0]), 30);
+      return { created: false };
+    }
+    return upload(b, k, type);
+  });
+  const sheet = await run();
+  expect(sheet.base64).toBe(bytes());
+  expect(imageCalls()).toHaveLength(0);
+  expect(judgeCalls()).toHaveLength(1);
+});
+
+test('a caller waiting on a reservation adopts the sheet the other process elects meanwhile', async () => {
+  const anchorUrl = freshAnchor();
+  const upload = uploadBufferIfAbsent.getMockImplementation();
+  uploadBufferIfAbsent.mockImplementation(async (b, k, type) => {
+    if (k.endsWith('candidate-0.claim.json')) {
+      objects.set(k, b);
+      setTimeout(() => objects.set(characterSheetPath(anchorHash(anchorUrl)), CANDIDATE_PNGS[2]), 30);
+      return { created: false };
+    }
+    return upload(b, k, type);
+  });
+  const sheet = await run(anchorUrl);
+  expect(sheet.base64).toBe(bytes(2));
+  expect(sheet.advisories).toEqual(expect.arrayContaining([expect.objectContaining({ note: expect.stringContaining('adopted') })]));
+  expect(fetchWithTimeout).not.toHaveBeenCalled();
+});
+
+test('a reservation that outlives its lease while nothing lands is the transient pause, not a wait forever', async () => {
+  const upload = uploadBufferIfAbsent.getMockImplementation();
+  uploadBufferIfAbsent.mockImplementation(async (b, k, type) => {
+    if (k.endsWith('candidate-0.claim.json')) {
+      // The other process claimed it almost a full lease ago and never finished.
+      objects.set(k, Buffer.from(JSON.stringify({ at: Date.now() - RENDER_LEASE_MS + 60 })));
+      return { created: false };
     }
     return upload(b, k, type);
   });
   await expect(run()).rejects.toMatchObject({ recovery: { issues: [expect.objectContaining({ reason: 'A character sheet is already being generated' })] } });
   expect(fetchWithTimeout).not.toHaveBeenCalled();
+});
+
+describe('concurrent first round (CATALOG_SHEET_FIRST_ROUND, 2026-09-16)', () => {
+  beforeEach(() => { process.env.CATALOG_SHEET_FIRST_ROUND = '2'; });
+
+  test('renders and judges two candidates at once and elects the higher cover likeness', async () => {
+    installTransport([{ ...CLEAN_VERDICT, likeness: 0.85 }, { ...CLEAN_VERDICT, likeness: 0.95 }]);
+    const costTracker = { addImageGeneration: jest.fn() };
+    const sheet = await run(freshAnchor(), { costTracker });
+    expect(imageCalls()).toHaveLength(2);
+    expect(judgeCalls()).toHaveLength(2);
+    expect(costTracker.addImageGeneration).toHaveBeenCalledTimes(2);
+    expect(sheet).toMatchObject({ base64: bytes(1), likeness: 0.95, candidates: 2 });
+    expect(pngKeys()).toHaveLength(2);
+  });
+
+  test('when neither passes, the repair loop continues sequentially from the best verified candidate', async () => {
+    installTransport([outfitMismatch, { ...outfitMismatch, likeness: 0.6 }, { ...CLEAN_VERDICT, likeness: 0.9 }]);
+    const sheet = await run();
+    expect(imageCalls()).toHaveLength(3);
+    expect(sheet).toMatchObject({ base64: bytes(2), candidates: 3 });
+    const repairParts = JSON.parse(imageCalls()[2][1].body).contents[0].parts;
+    expect(repairParts.filter(p => p.inline_data).map(p => p.inline_data.data)).toContain(bytes(0));
+  });
+
+  test('the round never exceeds the total candidate budget', async () => {
+    process.env.CATALOG_SHEET_CANDIDATES = '1';
+    process.env.CATALOG_SHEET_FIRST_ROUND = '4';
+    installTransport([CLEAN_VERDICT]);
+    await run();
+    expect(imageCalls()).toHaveLength(1);
+  });
+
+  test('a durable provider block in the round still pauses with the block on record', async () => {
+    installTransport([CLEAN_VERDICT, CLEAN_VERDICT], { imageFailures: [] });
+    const upload = uploadBufferIfAbsent.getMockImplementation();
+    uploadBufferIfAbsent.mockImplementation(async (b, k, type) => {
+      if (k.endsWith('candidate-1.claim.json')) {
+        objects.set(k, b);
+        setTimeout(() => objects.set(k.replace('.claim.json', '.error.json'), Buffer.from(JSON.stringify({ status: 'provider_blocked', reason: 'PROHIBITED_CONTENT' }))), 30);
+        return { created: false };
+      }
+      return upload(b, k, type);
+    });
+    await expect(run()).rejects.toMatchObject({ providerRefusedRender: true });
+  });
 });
 
 test('same-process concurrent callers share a sheet and re-signed URLs reuse the elected reference', async () => {

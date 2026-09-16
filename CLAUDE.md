@@ -1407,6 +1407,17 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   change to the brief, the shot packing, the judge or the soundtrack
   rules; `FILM_CAST_VERSION` pins the voice takes so a film bump never
   re-records speech.
+- `CATALOG_SHEET_FIRST_ROUND=N` — (2026-09-16) character-sheet candidates
+  rendered AND judged concurrently in the first round (default 2, clamped
+  1-4 and to `CATALOG_SHEET_CANDIDATES`; `1` is the old strictly sequential
+  ladder); the rest of the budget runs the sequential repair loop from the
+  best verified candidate. Time over cost: one extra image when the first
+  would have passed. `CATALOG_SHEET_CLAIM_POLL_MS` (5000) is how often a run
+  that finds ANOTHER instance's live claim on a slot re-reads it — since the
+  same day a live claim is WAITED on (bounded by the 210 s lease) and its
+  render, or the sheet the other instance elected meanwhile, is adopted,
+  instead of failing the run "A character sheet is already being generated"
+  (the app's preview-spread render and its identity prep collided there).
 - Tuning (ce-9): `CATALOG_RENDER_CANDIDATES` (default 1, clamped 1-3),
   `CATALOG_DRIFT_MAX_REPAIRS` (default 0, clamped 0-4),
   `CATALOG_RENDER_BUDGET_PER_SPREAD` (default 3, clamped 1-12 — every
@@ -1615,7 +1626,8 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `contactQa`; failure callbacks may carry `failureCode:
   'consistency_unresolved'` + `unresolved[]` + `qaAdvisories` + `bookBible`,
   or `identity_kit_failed`. `/v13/render-spreads` callbacks carry
-  `bookBible`, `contactQa`, `unresolved[]`, and the request accepts
+  `bookBible`, `contactQa`, `unresolved[]` (and, on a thrown run, the typed
+  `recovery` record beside `failures[]` since 2026-09-16), and the request accepts
   `identityKeyed:false` (customer-key per-spread re-render).
 - `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
   flip + pre-print overlay preview (entries from the request). Text layouts:
