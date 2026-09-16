@@ -27,7 +27,9 @@ async function handleReview(token) {
   const root = claim.evidenceKey.slice(0, -'/request.json'.length);
   const request = JSON.parse((await storage.downloadBuffer(claim.evidenceKey)).toString());
   const { digest, VERSION } = require('./visualJudge');
-  if (request.version !== VERSION || request.fingerprint !== claim.fingerprint || digest({ version: VERSION, model: request.model, parts: request.parts }) !== claim.fingerprint || request.model === claim.model) throw new Error('Evidence changed or destination is not secondary');
+  // The judge hashes an explicit thinking level into the fingerprint and persists it on the evidence; recompute from the same fields.
+  const expected = digest({ version: VERSION, model: request.model, parts: request.parts, ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}) });
+  if (request.version !== VERSION || request.fingerprint !== claim.fingerprint || expected !== claim.fingerprint || request.model === claim.model) throw new Error('Evidence changed or destination is not secondary');
   let blocked = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     const bytes = await storage.downloadBuffer(`${root}/attempt-${attempt}.result.json`).catch(err => {
@@ -37,7 +39,7 @@ async function handleReview(token) {
     if (bytes && JSON.parse(bytes.toString()).status === 'provider_blocked') blocked = true;
   }
   if (!blocked) throw new Error('Only a saved provider block can be reviewed');
-  if (claim.decision === 'inspect') return { fingerprint: claim.fingerprint, provider: claim.provider, model: claim.model, parts: request.parts };
+  if (claim.decision === 'inspect') return { fingerprint: claim.fingerprint, provider: claim.provider, model: claim.model, parts: request.parts, thinkingLevel: request.thinkingLevel || null };
   await storage.uploadBuffer(Buffer.from(JSON.stringify(token)), `${root}/review.json`, 'application/json');
   return { approved: true, fingerprint: claim.fingerprint, provider: claim.provider, model: claim.model };
 }
