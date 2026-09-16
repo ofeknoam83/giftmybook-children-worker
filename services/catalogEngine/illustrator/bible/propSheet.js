@@ -424,6 +424,24 @@ function buildCompanionSheetPrompt(companion, theme) {
  * @param {string} prompt
  * @returns {Promise<Buffer>}
  */
+/**
+ * Whether an error is a transport / capacity failure (a provider 429 or
+ * 5xx, a timeout, a network error, a storage outage) rather than a
+ * configuration or content problem. Transport failures are retried by the
+ * app's dispatcher; nothing here may turn them into a permanent outcome.
+ * @param {Error|null} err
+ * @returns {boolean}
+ */
+function isTransportError(err) {
+  if (!err) return false;
+  const msg = String(err.message || err);
+  if (err.name === 'AbortError') return true;
+  const code = err.code;
+  if (Number.isInteger(code) && (code === 408 || code === 429 || code >= 500)) return true;
+  if (typeof code === 'string' && /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|ECONNABORTED|UND_ERR)/i.test(code)) return true;
+  return /HTTP (408|429|5\d\d)\b|socket hang up|fetch failed|network|timed? ?out|aborted|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|overloaded|unavailable|rate limit/i.test(msg);
+}
+
 async function renderSheetImage(prompt) {
   let lastErr;
   for (let attempt = 1; attempt <= SHEET_ATTEMPTS; attempt++) {
@@ -549,7 +567,11 @@ Return JSON booleans: readable_text, unrelated_people, design_matches, represent
       // rejections are a defect (CATALOG_REFERENCE_JUDGE_QUORUM; 1 = the
       // first opinion alone, the pre-autoheal rule). Text and people
       // findings are perception, not judgement, and never get a second ask.
-      const contested = !j.design_matches || !j.representation_matches;
+      // A text or people finding is definitive on its own: the reference
+      // fails whatever the second opinion says, so it is never asked — an
+      // unavailable second opinion must not discard a definitive defect.
+      const definitive = j.readable_text || j.unrelated_people;
+      const contested = !definitive && (!j.design_matches || !j.representation_matches);
       if (contested && flags.referenceAutoheal() && flags.referenceJudgeQuorum() >= 2) {
         const second = await judgeImage({ parts: [{ text: `SECOND OPINION — ${prompt}\nA first pass rejected this reference (data): ${JSON.stringify({ design_matches: j.design_matches, representation_matches: j.representation_matches })}. Judge it again independently and carefully against the contract rules restated above: ${referenceRules(contract)} A field is false ONLY when a specific design field or a required member, part or spatial relationship is visibly wrong or missing; do not reject for pose, angle, background, count when unspecified, or rendering style.` }, image],
           model: VISION_MODEL(), label: 'prop-reference-second-opinion', recoveryRoot: opts.recoveryRoot, costTracker: opts.costTracker, validate, thinkingLevel: 'LOW' });
@@ -1061,7 +1083,14 @@ function resolveSheet({ cacheKey, kind, key, pngPath, prompt, identity, definiti
       return sheet;
     } catch (err) {
       if (err.recovery) throw err;
-      if (definition?.reference) throw pending(`Reference recovery needs attention for ${definition.name}; saved work retained.`, { status: 'configuration', reason: 'Reference storage or generation unavailable' });
+      if (definition?.reference) {
+        // A provider 429/5xx, a network error or a storage outage is
+        // TRANSIENT — the app's dispatcher resumes it — never a
+        // configuration hold (which autoheal would degrade for good).
+        throw pending(`Reference recovery needs attention for ${definition.name}; saved work retained.`, isTransportError(err)
+          ? { status: 'transient', reason: `Reference generation or storage transport unavailable: ${String(err.message || err).slice(0, 200)}` }
+          : { status: 'configuration', reason: 'Reference storage or generation unavailable' });
+      }
       log('warn', `${label} unavailable (${err.message}) — rendering without it`);
       recordFailure(cacheKey);
       return null;
@@ -1106,6 +1135,10 @@ DATA: ${JSON.stringify({ name: definition.name, design: definition.design, refer
   const result = await judgeImage({ parts: [{ text: prompt }], model: VISION_MODEL(), label: 'reference-replan', recoveryRoot: REPLAN_ROOT, costTracker,
     validate: j => validateReplan(j, definition, { authored }).issue });
   if (result.status !== 'verified') {
+    // A judge transport outage is not a failed round: it is the transient
+    // pause the app's dispatcher resumes. Every other outcome (a refused,
+    // truncated, malformed or exhausted re-plan) is the failed round.
+    if (result.status === 'transient') throw pending(`Reference re-plan for ${definition.name} could not run; saved work retained.`, result, 'reference_planning');
     log('warn', `reference re-plan r${round} for ${definition.name} failed (${result.reason})`);
     return null;
   }
@@ -1202,9 +1235,13 @@ async function resolveStoryObjectReference({ themeId, theme, inert, normalized, 
         round += 1;
         const defects = String(detail).split('; ').map(s => s.trim()).filter(Boolean);
         log('warn', `reference ladder exhausted for ${definition.name} (${detail}) — re-plan round ${round}/${budget}`);
+        // A storage outage while persisting or adopting the re-plan (or a
+        // judge transport outage inside it) is transient infrastructure,
+        // not evidence the reference is unhealable: it propagates for the
+        // dispatcher to retry instead of counting as the failed round.
         const replanned = await replanReference({ definition: current, defects, authored, round, planStorageKey, costTracker, log }).catch(e => {
-          log('warn', `reference re-plan r${round} for ${definition.name} errored (${e.message})`);
-          return null;
+          if (e.recovery) throw e;
+          throw pending(`Reference re-plan for ${definition.name} could not be saved; saved work retained.`, { status: 'transient', reason: `Re-plan storage unavailable: ${String(e.message || e).slice(0, 200)}` }, 'reference_planning');
         });
         if (replanned) {
           current = replanned.definition;

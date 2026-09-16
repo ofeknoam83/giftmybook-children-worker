@@ -517,6 +517,10 @@ describe('the render climbs the prompt-variant safety ladder on a provider block
     // root would replay the advisory and the evidence panel can show it.
     const renderKey = [...objects.keys()].find(k => k.endsWith('/candidate-0.render.json'));
     expect(JSON.parse(objects.get(renderKey).toString())).toEqual({ rung: 'sanitized', attempts: [{ rung: 'original', status: 'provider_blocked', reason: 'PROHIBITED_CONTENT', promptBlock: null, finishReason: 'PROHIBITED_CONTENT' }] });
+    // The sidecar lands BEFORE the PNG: the PNG is the completion signal a
+    // waiting process polls for, and it reads the sidecar once (2026-09-16).
+    const keys = [...objects.keys()];
+    expect(keys.indexOf(renderKey)).toBeLessThan(keys.indexOf(keys.find(k => k.endsWith('/candidate-0.png'))));
     expect(objects.has(characterSheetPath(anchorHash(anchorUrl)))).toBe(true);
   });
 

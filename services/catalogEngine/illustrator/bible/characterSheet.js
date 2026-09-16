@@ -645,10 +645,14 @@ async function resolveCandidates({ path, ladder, refPhoto, childPhoto, retryName
           await saveJson(`${key}.error.json`, renderFailure);
         }
         // Save before QA. A storage failure must not be recast as a visual
-        // defect or cause more image purchases in this run.
+        // defect or cause more image purchases in this run. The render
+        // sidecar goes FIRST: the PNG is the completion signal a waiting
+        // process polls for, and it reads the sidecar once — a PNG published
+        // before its sidecar would elect a below-original-rung render with
+        // no record of the block, and drop the advisory.
         if (buffer) {
-          await uploadBufferIfAbsent(buffer, `${key}.png`, 'image/png');
           if (render) await saveJson(`${key}.render.json`, render);
+          await uploadBufferIfAbsent(buffer, `${key}.png`, 'image/png');
         }
       }
     } else costTracker?.recordReuse?.('image');

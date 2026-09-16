@@ -913,6 +913,49 @@ describe('fixed story-object reference designs', () => {
       expect(await mod.getPropSheet(params(definition()))).toMatchObject({ degraded: true });
       expect(fetch.mock.calls.length).toBe(before);
     });
+    test('a text or people finding is definitive: no second opinion is asked, and the defect is never lost behind an unavailable one', async () => {
+      const { mod, fetch } = setup({ ...CLEAN, readable_text: true, design_matches: false });
+      const outcome = await mod.getPropSheet(params(definition()));
+      expect(outcome).toMatchObject({ degraded: true });
+      expect(outcome.reason).toContain('readable text in the reference');
+      expect(secondOpinionCalls(fetch)).toHaveLength(0);
+      expect(qaCalls(fetch)).toHaveLength(3);
+    });
+    test('a storage outage while saving the re-plan is a TRANSIENT pause the dispatcher resumes, never a failed round', async () => {
+      const { mod, gcs } = setup({ ...CLEAN, design_matches: false }, { replan: REPLAN });
+      const upload = gcs.uploadBufferIfAbsent.getMockImplementation();
+      gcs.uploadBufferIfAbsent.mockImplementation(async (buffer, key) => {
+        if (key.includes('.replans/')) throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+        return upload(buffer, key);
+      });
+      const err = await mod.getPropSheet(params(definition())).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.failureCode).toBe('visual_recovery_pending');
+      expect(err.recovery).toMatchObject({ stage: 'reference_planning', retryable: true, reason: 'verification_unavailable' });
+      expect(err.recovery.issues[0].reason).toContain('Re-plan storage unavailable');
+    });
+    test('a re-plan whose judge call is a transport outage propagates as verification_unavailable at the planning stage, never a degrade', async () => {
+      const { mod, fetch } = setup({ ...CLEAN, design_matches: false });
+      const base = fetch.getMockImplementation();
+      fetch.mockImplementation(async (url, opts) => {
+        if (!url.includes('test-image-model') && isReplan([url, opts])) return { ok: false, status: 503, text: async () => 'overloaded' };
+        return base(url, opts);
+      });
+      const err = await mod.getPropSheet(params(definition())).catch(e => e);
+      expect(err.failureCode).toBe('visual_recovery_pending');
+      expect(err.recovery).toMatchObject({ stage: 'reference_planning', reason: 'verification_unavailable' });
+      expect(err.degraded).toBeUndefined();
+    });
+    test('a provider 503 on the reference render is a TRANSIENT pause, never a configuration hold the autoheal would degrade', async () => {
+      const { mod, fetch } = setup();
+      const base = fetch.getMockImplementation();
+      fetch.mockImplementation(async (url, opts) => (url.includes('test-image-model') ? { ok: false, status: 503, text: async () => 'overloaded' } : base(url, opts)));
+      const err = await mod.getPropSheet(params(definition())).catch(e => e);
+      expect(err.failureCode).toBe('visual_recovery_pending');
+      expect(err.recovery).toMatchObject({ retryable: true, reason: 'verification_unavailable' });
+      expect(err.recovery.issues[0].reason).toContain('transport unavailable');
+      expect(err.recovery.issues[0].reason).toContain('HTTP 503');
+    });
     test('CATALOG_REFERENCE_JUDGE_QUORUM=1: a single rejection counts (no second opinion)', async () => {
       process.env.CATALOG_REFERENCE_JUDGE_QUORUM = '1';
       const { mod, fetch } = setup({ ...CLEAN, representation_matches: false }, { secondOpinion: CLEAN });
