@@ -36,6 +36,7 @@
 const { generateIllustration, verifyImageText, downloadPhotoAsBase64, isModestBathWaterScene } = require('../../illustrationGenerator');
 const { downloadBuffer, uploadBuffer, getSignedUrl, deletePrefix } = require('../../gcsStorage');
 const { durableCandidate } = require('./durableCandidate');
+const { retryFold } = require('./referenceContract');
 const { buildScenePrompt, hasCarryThroughProps, visualPropsForSpread, continuityPropsForSpread, companionOnSpread, inertPropValue } = require('./scenes');
 const { checkSpreadRenderV2, repairNoteV2, checkWorldConsistency, worldRepairNote, classifyDefects } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
@@ -243,7 +244,7 @@ async function runMetrics({ buffer, qa, bible, shotType, aspect, textLayout, age
  * gates' corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean, blocking: string[], candidates: object[], qa: object|null, bbox: object|null}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, retryRound = 0, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, bible, shotEntry, worldNote, seed, costTracker, forceRerender, reviewedOnly = false, automaticTextRecovery = false, retryUnresolved = false, reviewedStorageKey = null, legacyUnanchoredKey = null, ageBand, typographyAnchor = null, candidateCount = null, preferTypographyAnchor = false, renderBudget, retryRound = 0, retryNamespace = null, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -671,6 +672,21 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const candidateLog = [];
   let best = null;
 
+  // The durable candidate slots (retryUnresolved — the full-book path under
+  // visual recovery) are CONTENT-keyed: the same scene text + reference
+  // pack + slot returns the pixels an earlier run bought, across restarts
+  // and retries, so a lost renderer never gets an unlimited fresh budget.
+  // An EXPLICIT re-render (2026-09-24: the admin's full regeneration sends
+  // forceNew + forceRerender) must not be served those saved pixels — before
+  // this fold it dropped the marker, skipped the canonical replay, and then
+  // re-adopted the very same candidate bytes from the slot store, so a
+  // "regenerated" book shipped with its old illustrations on every spread
+  // whose inputs had not changed. The run's retry namespace (the same key
+  // the character-sheet and prop roots fold — `retryFold`) opens fresh
+  // slots for a forced render; a plain resume keeps replaying the
+  // content-keyed root and its budget.
+  const durableRoot = `${storageKey}.recovery-v1${forceRerender && retryNamespace ? `/${retryFold(retryNamespace)}` : ''}`;
+  if (retryUnresolved && forceRerender && retryNamespace) log('info', `Spread ${spread}: explicit re-render (${retryNamespace}) — fresh candidate slots at ${durableRoot}`);
   const renderCandidates = async (sceneText, passLabel, pass = 0) => {
     const available = renderBudget ? Math.max(0, renderBudget.limit - (renderBudget.used.get(spread) || 0)) : nCandidates;
     const count = Math.min(nCandidates, available);
@@ -681,7 +697,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       let cUrl = null;
       try {
         if (retryUnresolved) {
-          const buffer = await durableCandidate({ root: `${storageKey}.recovery-v1`, identity: { sceneText, k, pass, references: renderOpts.referenceImages },
+          const buffer = await durableCandidate({ root: durableRoot, identity: { sceneText, k, pass, references: renderOpts.referenceImages },
             // A missing-render round (renderStorySpreads) widens the durable
             // slot cap in step with its fresh budget: a spread with no art
             // has bought nothing usable, so earlier failed slots never cap it.
@@ -1352,6 +1368,14 @@ async function renderStorySpreads(params) {
   const { book, theme } = bookDef;
   const renderBudget = { limit: flags.renderBudgetPerSpread(), used: new Map() };
   const { identityKeyed = false, seed = null } = params;
+  // An EXPLICIT regeneration's key (the admin's full regeneration sends
+  // forceNew; a re-render sends forceRerender): ONE namespace per run that
+  // the character sheet, the prop roots AND (2026-09-24) every forced
+  // spread render fold into their durable candidate roots, so the run
+  // really calls the provider again instead of replaying a saved refusal,
+  // an exhausted budget, or — the spread case — the pixels an earlier run
+  // bought for the same scene. A plain resume (neither flag) replays.
+  const retryNamespace = forceNew || forceRerender ? `${bookId}:${Date.now()}` : null;
   const tuning = normalizeArtTuning(params.tuning || null);
   // 'embedded' and 'half' both render FULL-SPREAD wide compositions; only
   // caption renders square. Half renders are text-FREE wide art, so their
@@ -1415,11 +1439,10 @@ async function renderStorySpreads(params) {
       bookId, theme, book, story, profile, ageBand: bookDef.ageBand,
       legacyReviewed: reviewedOnly,
       anchorUrl: characterRefUrl, refPhoto, childPhoto, characterDescription: characterDescription || null,
-      // An EXPLICIT regeneration (the admin's full regeneration sends
-      // forceNew; a re-render sends forceRerender) retries the character
-      // sheet under its own key instead of replaying a saved refusal or an
-      // exhausted budget; a plain resume (neither flag) replays.
-      identityRetry: forceNew || forceRerender ? `${bookId}:${Date.now()}` : null,
+      // The explicit regeneration's namespace (above): the character sheet
+      // and the prop roots retry under their own key instead of replaying
+      // a saved refusal or an exhausted budget.
+      identityRetry: retryNamespace,
       costTracker, log,
     });
     if (reviewedManifest && bible.storyObjects?.objects?.length) {
@@ -1607,6 +1630,9 @@ async function renderStorySpreads(params) {
     bookId, book, theme, profile, story, storyHash: hashFor(spread),
     spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
     reviewedOnly, automaticTextRecovery, retryUnresolved, renderBudget, tuning, bible, shotEntry: shotPlan ? shotPlan[spread] : null, seed, costTracker, ageBand: bookDef.ageBand, log,
+    // Only a FORCED render folds it (renderSpread) — a forceNew-only run
+    // keeps replaying the render cache and its saved candidate slots.
+    retryNamespace,
     reviewedStorageKey: reviewedManifest?.renderKeys[spread] || null,
     legacyUnanchoredKey: legacyKeysFor(spread),
     ...(typographyAnchor ? { typographyAnchor } : {}),

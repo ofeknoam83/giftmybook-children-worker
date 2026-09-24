@@ -1029,7 +1029,16 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   (`identityRetry`) reach the prop roots as `retryNamespace`: fresh
   candidate slots (`.candidates/retry-<hash>/N.png`), a fresh
   verification root, and the contract / presence calls re-ask a saved
-  block under `…/retry-<hash>`; a plain resume replays.
+  block under `…/retry-<hash>`; a plain resume replays. Since 2026-09-24
+  a FORCED spread render folds the same key into its durable candidate
+  root (`<renderKey>.recovery-v1/retry-<hash>/candidate-N`): the
+  full-book path buys every candidate through that content-keyed slot
+  store (`retryUnresolved`), and the admin's full regeneration
+  (`forceNew` + `forceRerender`) was dropping the marker, skipping the
+  canonical replay, then re-adopting the SAME saved candidate bytes — a
+  "regenerated" book kept its old illustrations on every spread whose
+  inputs had not changed. `forceNew` alone still replays the cache and
+  its slots.
   **Gemini model migration (2026-09-16 — `qa-17` / `cq-2` / `ab-2`)**:
   `gemini-2.5-flash` / `-flash-lite` shut down on 2026-10-16, so every
   text / vision / audio / TTS model id now comes from ONE registry,
