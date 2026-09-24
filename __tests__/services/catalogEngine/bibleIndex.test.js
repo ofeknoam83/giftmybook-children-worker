@@ -436,6 +436,71 @@ test('film recovery repairs only the failed cached scene even when automatic boo
   expect(recovered.results[1].fresh).toBe(false);
 });
 
+test('an explicit re-render (forceNew + forceRerender) buys fresh pixels instead of the durable candidate slot an earlier run saved; forceNew alone still replays it', async () => {
+  // The admin's full regeneration: the full-book path runs under visual
+  // recovery (retryUnresolved), whose candidate slots are CONTENT-keyed —
+  // the same scene + reference pack + slot returned the saved PNG, so a
+  // "regenerated" book shipped with its old illustrations (2026-09-24).
+  process.env.CATALOG_RENDER_CANDIDATES = '1';
+  const { uploadBufferIfAbsent } = require('../../../services/gcsStorage');
+  const store = new Map();
+  const isMissing = key => Object.assign(new Error(`not found: ${key}`), { code: 404 });
+  downloadBuffer.mockImplementation(async (key) => {
+    if (store.has(key)) return store.get(key);
+    if (key.includes('.recovery-v1/') && key.endsWith('.png')) return Buffer.from(`png:${key}`);
+    throw isMissing(key);
+  });
+  uploadBufferIfAbsent.mockImplementation(async (buffer, key) => {
+    if (store.has(key)) return { created: false };
+    store.set(key, buffer);
+    return { created: true };
+  });
+  uploadBuffer.mockImplementation(async (buffer, key) => { store.set(key, buffer); });
+  const params = baseParams({ spreadNos: [1], spreads: [1], textLayout: 'half', retryUnresolved: true });
+  try { await scenario(); } finally {
+    uploadBufferIfAbsent.mockReset().mockResolvedValue({ created: true });
+    uploadBuffer.mockReset().mockResolvedValue(undefined);
+  }
+
+  async function scenario() {
+  const first = await renderStorySpreads(params);
+  expect(generateIllustration).toHaveBeenCalledTimes(1);
+  expect(first.results[0].buffer).not.toBeNull();
+  expect(first.results[0].fresh).toBe(true);
+  const firstSlot = generateIllustration.mock.calls[0][3].gcsPath;
+  expect(firstSlot).toMatch(/\.recovery-v1\/candidate-0\.png$/);
+  expect(store.has(firstSlot.replace(/\.png$/, '.json'))).toBe(true);
+  // The run promoted its render to the canonical key; a later forced run
+  // must never read it back (drop it so a replay would be visible as a
+  // slot reuse, the bug's shape, rather than a cache hit).
+  for (const key of [...store.keys()]) if (!key.includes('.recovery-v1/')) store.delete(key);
+
+  // forceNew ALONE is "clear the checkpoint": the render cache — and its
+  // saved candidate slot — replays; no new image is bought.
+  const resumed = await renderStorySpreads({ ...params, forceNew: true });
+  expect(generateIllustration).toHaveBeenCalledTimes(1);
+  expect(resumed.results[0].buffer).not.toBeNull();
+  expect(resumed.results[0].buffer).toEqual(first.results[0].buffer);
+  for (const key of [...store.keys()]) if (!key.includes('.recovery-v1/')) store.delete(key);
+
+  // forceNew + forceRerender (the admin's full regeneration) opens FRESH
+  // slots under the run's retry namespace: the provider is called again
+  // and the shipped pixels are the new candidate's.
+  const regenerated = await renderStorySpreads({ ...params, forceNew: true, forceRerender: true });
+  expect(generateIllustration).toHaveBeenCalledTimes(2);
+  const retrySlot = generateIllustration.mock.calls[1][3].gcsPath;
+  expect(retrySlot).toMatch(/\.recovery-v1\/retry-[0-9a-z]+\/candidate-0\.png$/);
+  expect(retrySlot).not.toBe(firstSlot);
+  expect(regenerated.results[0].fresh).toBe(true);
+  expect(regenerated.results[0].buffer).toEqual(Buffer.from(`png:${retrySlot}`));
+  expect(regenerated.results[0].buffer).not.toEqual(first.results[0].buffer);
+  // The old slot is untouched — a plain resume of the OLD namespace would
+  // still find it, and the fresh run charged one render, not a replay.
+  expect(store.has(firstSlot)).toBe(true);
+  expect(store.has(retrySlot)).toBe(true);
+  }
+});
+
 test('film rechecking a cached image without a verdict keeps its pixels during a persistent checker outage', async () => {
   const cached = Buffer.from('existing-scene');
   downloadBuffer.mockImplementation(async key => {
