@@ -830,7 +830,13 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
       };
     }
     try {
-      await postWithRetry(callbackUrl, payload);
+      // A longer delivery window than the default 3 tries / ~6 s: this is
+      // the app's pre-purchase PREVIEW spread too, and a render already paid
+      // for was dropped for good whenever the app was restarting or
+      // deploying at that moment — the parent's page then waited out the
+      // app's 10-minute stale mark and bought the render again
+      // (2026-09-30). 7 tries, 5 s apart and growing: ~1¾ minutes.
+      await postWithRetry(callbackUrl, payload, { attempts: 7, retryDelayMs: 5000 });
     } finally {
       removeBookContext(probeKey);
     }
