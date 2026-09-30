@@ -1692,6 +1692,14 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   `bookBible`, `contactQa`, `unresolved[]` (and, on a thrown run, the typed
   `recovery` record beside `failures[]` since 2026-09-16), and the request accepts
   `identityKeyed:false` (customer-key per-spread re-render).
+  `preview: true` (2026-09-30, `illustrator/previewSpread.js`) is the app's
+  DISPLAY-ONLY pre-purchase preview: ONE text-free 16:9 render anchored on
+  the approved cover (the renderer's safety ladder, the model's default
+  size), no Book Bible, QA or repairs, stored under
+  `children-jobs/{bookId}/preview-spread/` — never the `ce-renders` cache,
+  so `/generate-book` always renders every spread through the full path.
+  The app sets the story text over the art. The callback adds `preview:
+  true` and `timings`; `progressCallbackUrl` works as for any probe.
 - `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
   flip + pre-print overlay preview (entries from the request). Text layouts:
   `caption` (art page + white text page), `half` (FULL-SPREAD wide
