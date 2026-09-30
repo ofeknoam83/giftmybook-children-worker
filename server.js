@@ -37,6 +37,7 @@ process.on('SIGTERM', async () => {
         const { reportProgressForce } = require('./services/progressReporter');
         reportProgressForce(ctx.progressCallbackUrl, {
           bookId: ctx.bookId,
+          ...(ctx.dispatchId ? { dispatchId: ctx.dispatchId } : {}),
           stage: 'failed',
           progress: 0,
           message: 'Worker instance was shut down mid-generation (Cloud Run SIGTERM). Will be retried.',
@@ -708,8 +709,38 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
   // ce-9 run takes well over 10 minutes; the bench then stalls out at its
   // 45-minute reconcile with nothing in the logs but a clean exit).
   const probeKey = `probe:${bookId}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const probeContext = createBookContext(bookId, { mapKey: probeKey, callbackUrl });
+  const progressCallbackUrl = typeof body.progressCallbackUrl === 'string' && body.progressCallbackUrl ? body.progressCallbackUrl : null;
+  const probeContext = createBookContext(bookId, { mapKey: probeKey, callbackUrl, progressCallbackUrl });
+  // The SIGTERM hook reports a shutdown mid-render with this dispatch id, so
+  // the caller can tell "the instance was recycled" from "no answer yet".
+  if (dispatchId) probeContext.dispatchId = dispatchId;
   const costTracker = new CostTracker();
+  // Optional progress relay (2026-09-30): the app's pre-purchase preview
+  // shows staff WHERE a render is — started, building the book bible,
+  // illustrating, checking — instead of only "waiting". Throttled to one
+  // post per 10 s (the latest message wins), one attempt each, never awaited.
+  const relayStarted = Date.now();
+  let relayLast = 0;
+  let relayTimer = null;
+  let relayPending = null;
+  const relayProgress = (fraction, message, force = false) => {
+    if (!progressCallbackUrl) return;
+    relayPending = {
+      bookId, ...(dispatchId ? { dispatchId } : {}), stage: 'rendering',
+      progress: Number.isFinite(fraction) ? fraction : null, message: String(message || '').slice(0, 200),
+      elapsedMs: Date.now() - relayStarted,
+    };
+    const send = () => {
+      relayTimer = null;
+      relayLast = Date.now();
+      const payload = relayPending;
+      relayPending = null;
+      if (payload) reportProgressForce(progressCallbackUrl, payload).catch(() => {});
+    };
+    const wait = force ? 0 : Math.max(0, 10000 - (Date.now() - relayLast));
+    if (wait === 0) { if (relayTimer) clearTimeout(relayTimer); send(); } else if (!relayTimer) relayTimer = setTimeout(send, wait);
+  };
+  relayProgress(0, 'Worker started the render', true);
   (async () => {
     const started = Date.now();
     let payload;
@@ -741,7 +772,7 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         // both set gates) land here and keep the per-book watchdog's idle
         // clock at zero for a healthy run — the same wiring /generate-book
         // has always had.
-        onProgress: () => probeContext.touchActivity(),
+        onProgress: (fraction, message) => { probeContext.touchActivity(); relayProgress(fraction, message); },
         log: (level, msg) => console.log(`[renderSpreads:${bookId}] ${msg}`),
       });
       const renders = art.results.filter(r => r.buffer).map(r => ({
@@ -829,6 +860,7 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         costs: costTracker.getSummary(),
       };
     }
+    if (relayTimer) clearTimeout(relayTimer);
     try {
       // A longer delivery window than the default 3 tries / ~6 s: this is
       // the app's pre-purchase PREVIEW spread too, and a render already paid

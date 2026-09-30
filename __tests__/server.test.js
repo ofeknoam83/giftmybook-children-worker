@@ -623,7 +623,39 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     // Delivered — the probe deregisters so the instance may go idle again.
     expect(await activeCount()).toBe(before);
   });
+  test('relays the illustrator\'s progress to progressCallbackUrl — started at once, then throttled — with the dispatch id', async () => {
+    let release;
+    let onProgress;
+    renderStorySpreads.mockReset().mockImplementation((args) => new Promise((resolve) => {
+      onProgress = args.onProgress;
+      release = () => resolve({ results: [], aspect: 'square', storyHash: 'h', tuningTag: 'none' });
+    }));
+    const { reportProgressForce } = require('../services/progressReporter');
+    reportProgressForce.mockClear();
+    const progressUrl = 'https://app.example/api/children/preview-spread-progress';
+    expect((await post({ ...validBody(), progressCallbackUrl: progressUrl })).status).toBe(202);
+    await settle();
+    const progressPosts = () => reportProgressForce.mock.calls.filter(([url]) => url === progressUrl).map(([, payload]) => payload);
+    expect(progressPosts()).toEqual([expect.objectContaining({ bookId: 'probe-book-1', dispatchId: 'art_d_test', stage: 'rendering', message: 'Worker started the render' })]);
+    // Inside the 10 s window a step is held, not posted; the final result
+    // cancels the held one.
+    onProgress(0, 'Building the book bible...');
+    await settle();
+    expect(progressPosts()).toHaveLength(1);
+    release();
+    await settle();
+    expect(progressPosts()).toHaveLength(1);
+  });
+
+  test('no progressCallbackUrl, no progress posts', async () => {
+    const { reportProgressForce } = require('../services/progressReporter');
+    reportProgressForce.mockClear();
+    expect((await post(validBody())).status).toBe(202);
+    await settle();
+    expect(reportProgressForce).not.toHaveBeenCalled();
+  });
 });
+
 
 describe('POST /v13/generate-cover-image (probe-anchor cover)', () => {
   const { generateFrontCoverImage } = require('../services/coverGenerator');
