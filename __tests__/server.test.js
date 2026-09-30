@@ -555,30 +555,36 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     global.fetch
       .mockResolvedValueOnce({ ok: false, status: 500 })
       .mockResolvedValueOnce({ ok: true });
-    const res = await post(validBody());
-    expect(res.status).toBe(202);
-    // First attempt → 500 → one 2s backoff → second attempt succeeds.
-    await new Promise(r => setTimeout(r, 2400));
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-    const retryPayload = JSON.parse(global.fetch.mock.calls[1][1].body);
-    expect(retryPayload.dispatchId).toBe('art_d_test');
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      const res = await post(validBody());
+      expect(res.status).toBe(202);
+      // First attempt → 500 → one 5s backoff → second attempt succeeds.
+      await jest.advanceTimersByTimeAsync(5000);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      const retryPayload = JSON.parse(global.fetch.mock.calls[1][1].body);
+      expect(retryPayload.dispatchId).toBe('art_d_test');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  test('three consecutive non-2xx answers exhaust the retries and log the permanent loss', async () => {
+  test('seven consecutive non-2xx answers exhaust the retries and log the permanent loss', async () => {
     // The permanent-loss path: every attempt is rejected, delivery gives up
-    // after the bounded retries, and the loud LOST line is the only trace —
-    // fake timers drain the 2s+4s backoffs without real waiting.
+    // after the bounded retries (7 tries, 5 s × n backoff ≈ 1¾ minutes —
+    // long enough to ride out an app restart, 2026-09-30), and the loud
+    // LOST line is the only trace — fake timers drain the backoffs.
     global.fetch.mockResolvedValue({ ok: false, status: 500 });
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     jest.useFakeTimers();
     try {
       const res = await post(validBody());
       expect(res.status).toBe(202);
-      await jest.advanceTimersByTimeAsync(2000); // attempt 1 fails → first backoff
-      await jest.advanceTimersByTimeAsync(4000); // attempt 2 fails → second backoff
-      await jest.advanceTimersByTimeAsync(0);    // attempt 3 fails → give up
-      expect(global.fetch).toHaveBeenCalledTimes(3);
-      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('LOST after 3 attempts'));
+      for (let n = 1; n <= 6; n++) await jest.advanceTimersByTimeAsync(n * 5000); // attempt n fails → backoff n
+      await jest.advanceTimersByTimeAsync(0); // attempt 7 fails → give up
+      expect(global.fetch).toHaveBeenCalledTimes(7);
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('LOST after 7 attempts'));
     } finally {
       jest.useRealTimers();
       errSpy.mockRestore();
