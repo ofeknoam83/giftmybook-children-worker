@@ -745,7 +745,18 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
     const started = Date.now();
     let payload;
     try {
-      const art = await renderStorySpreads({
+      // The app's DISPLAY-ONLY pre-purchase preview (2026-09-30): one
+      // text-free render anchored on the cover, off the book's render cache
+      // — the paid book renders every spread through the full path.
+      const preview = body.preview === true;
+      const art = preview ? await require('./services/catalogEngine/illustrator/previewSpread').renderPreviewSpread({
+        bookId, story: story.response, bookDef, profile, approvedCoverUrl, childPhotoUrl,
+        characterDescription: body.characterDescription || null,
+        spread: [...spreads].sort((a, b) => a - b)[0],
+        costTracker,
+        onProgress: (fraction, message) => { probeContext.touchActivity(); relayProgress(fraction, message); },
+        log: (level, msg) => console.log(`[previewSpread:${bookId}] ${msg}`),
+      }) : await renderStorySpreads({
         bookId,
         story: story.response,
         bookDef,
@@ -830,9 +841,10 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         bookBible: art.bookBible || null,
         unresolved: art.unresolved || [],
         aspect: art.aspect,
+        ...(preview ? { preview: true, timings: art.timings || null } : {}),
         costs: costTracker.getSummary(),
       };
-      console.log(`[v13] render-spreads for ${bookId}: ${renders.length} ok, ${failures.length} failed, tuning=${art.tuningTag} in ${Date.now() - started}ms`);
+      console.log(`[v13] render-spreads${preview ? ' (preview)' : ''} for ${bookId}: ${renders.length} ok, ${failures.length} failed, tuning=${art.tuningTag} in ${Date.now() - started}ms`);
     } catch (err) {
       console.error(`[v13] render-spreads failed for ${bookId}:`, err);
       payload = {

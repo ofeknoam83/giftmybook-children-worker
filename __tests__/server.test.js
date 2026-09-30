@@ -647,6 +647,22 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     expect(progressPosts()).toHaveLength(1);
   });
 
+  test('preview: true takes the fast display-only path, never the full-book renderer', async () => {
+    const previewMod = require('../services/catalogEngine/illustrator/previewSpread');
+    const spy = jest.spyOn(previewMod, 'renderPreviewSpread').mockResolvedValue({
+      results: [{ spread: 1, buffer: true, url: 'https://x/p1.png', storageKey: 'children-jobs/probe-book-1/preview-spread/spread-1-a.png', size: null, advisories: [] }],
+      aspect: 'wide', tuningTag: 'none', outfitLockUsed: 'none', typographyAnchorUsed: 'none', advisories: [], timings: { renderMs: 41000, attempts: 1 },
+    });
+    try {
+      expect((await post({ ...validBody(), spreads: [1], preview: true })).status).toBe(202);
+      await settle();
+      expect(renderStorySpreads).not.toHaveBeenCalled();
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ bookId: 'probe-book-1', spread: 1 }));
+      const payload = JSON.parse(global.fetch.mock.calls.find(([url]) => url === validBody().callbackUrl)[1].body);
+      expect(payload).toMatchObject({ success: true, preview: true, dispatchId: 'art_d_test', timings: { renderMs: 41000 }, renders: [{ spread: 1, url: 'https://x/p1.png' }] });
+    } finally { spy.mockRestore(); }
+  });
+
   test('no progressCallbackUrl, no progress posts', async () => {
     const { reportProgressForce } = require('../services/progressReporter');
     reportProgressForce.mockClear();
