@@ -8,421 +8,660 @@
 @font-face { font-family: "Playfair"; src: url("../fonts/PlayfairDisplay-Italic.ttf"); font-style: italic; font-weight: 400 900; }
 
 :root {
-  --ink: #2A1C12; --ink-soft: #5b4a3d; --paper: #FBF6EC; --line: #e6dccb;
-  --terra: #C8553D; --teal: #2F6F73; --mustard: #D99A2B; --sage: #7d9a78;
-  --tint-terra: #f8e7e1; --tint-teal: #e2efef; --tint-mustard: #fbf0d8;
+  --ink: #2A1C12; --soft: #6a5848; --mute: #a39382; --paper: #FAF5EA; --line: #e7dccb;
+  --terra: #C2502F; --teal: #1F6266; --gold: #D49A2A; --sage: #6f8f6a;
+  --t-terra: #f9e6df; --t-teal: #dfeeee; --t-gold: #fbf0d6; --t-sage: #e8f0e5;
 }
-@page { size: A4; margin: 20mm 18mm 20mm 18mm;
-  @bottom-left { content: "Character & object consistency across spreads"; font: 7.5pt "Inter", sans-serif; color: #9a8b7c; }
-  @bottom-right { content: counter(page); font: 600 8pt "Inter", sans-serif; color: #9a8b7c; }
+@page { size: A4; margin: 19mm 16mm 19mm 16mm;
+  @top-left { content: "GiftMyBook · Technical report"; font: 600 6.8pt "Inter", sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #b3a595; }
+  @top-right { content: "Character & object consistency"; font: 6.8pt "Inter", sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #b3a595; }
+  @bottom-right { content: counter(page, decimal-leading-zero); font: 700 10pt "Playfair", serif; color: #C2502F; }
 }
-@page :first { margin: 0; @bottom-left { content: none; } @bottom-right { content: none; } }
+@page :first { margin: 0; @top-left { content: none; } @top-right { content: none; } @bottom-right { content: none; } }
 
 * { box-sizing: border-box; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body { margin: 0; font: 9.6pt/1.52 "Inter", "Liberation Sans", sans-serif; color: var(--ink); }
-p { margin: 0 0 7pt; orphans: 3; widows: 3; }
-code { font: 8.3pt "DejaVu Sans Mono", monospace; background: #f4eee2; padding: 0.5pt 3pt; border-radius: 3px; color: #4a3423; white-space: nowrap; }
+body { margin: 0; font: 9.3pt/1.55 "Inter", "Liberation Sans", sans-serif; color: var(--ink); }
+p { margin: 0 0 6.5pt; orphans: 3; widows: 3; }
 strong { font-weight: 650; }
+code { font: 7.9pt "DejaVu Sans Mono", monospace; background: #f3ecdf; padding: .4pt 3pt; border-radius: 3px; color: #53381f; }
+ul { margin: 0 0 6pt; padding-left: 4.2mm; } li { margin-bottom: 2.6pt; } li::marker { color: var(--terra); }
 
-/* cover */
-.cover { height: 297mm; width: 210mm; background: var(--ink); color: var(--paper); padding: 30mm 22mm 22mm; position: relative; page-break-after: always; overflow: hidden; }
-.cover .kicker { font: 600 8.5pt "Inter"; letter-spacing: 0.22em; text-transform: uppercase; color: var(--mustard); }
-.cover h1 { font: 700 40pt/1.08 "Playfair", serif; margin: 14mm 0 8mm; letter-spacing: -0.01em; }
-.cover h1 em { color: var(--mustard); font-weight: 500; }
-.cover .sub { font: 400 12.5pt/1.5 "Inter"; max-width: 135mm; color: #e9decb; }
-.cover .meta { position: absolute; left: 22mm; right: 22mm; bottom: 22mm; display: flex; justify-content: space-between; border-top: 0.6pt solid #6b5747; padding-top: 5mm; font: 8.5pt/1.5 "Inter"; color: #c9b9a4; }
-.cover .meta b { display: block; color: var(--paper); font-weight: 600; }
-.cover svg { position: absolute; left: 22mm; right: 22mm; bottom: 58mm; width: 166mm; }
+/* ---------- cover ---------- */
+.cover { height: 297mm; width: 210mm; background: var(--ink); color: var(--paper); position: relative; page-break-after: always; overflow: hidden; }
+.cover .band { position: absolute; left: 0; top: 0; bottom: 0; width: 14mm; background: var(--terra); }
+.cover .band span { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%) rotate(-90deg); white-space: nowrap; font: 600 7.5pt "Inter"; letter-spacing: .32em; text-transform: uppercase; color: #fbe9e2; }
+.cover .in { position: absolute; left: 32mm; right: 20mm; top: 30mm; bottom: 20mm; }
+.cover .kicker { font: 600 8pt "Inter"; letter-spacing: .26em; text-transform: uppercase; color: var(--gold); }
+.cover h1 { font: 800 54pt/1.0 "Playfair", serif; margin: 15mm 0 0; letter-spacing: -.015em; }
+.cover h1 em { font-weight: 500; color: var(--gold); }
+.cover .sub { font: 400 12.2pt/1.55 "Inter"; max-width: 128mm; color: #e6d9c4; margin-top: 9mm; }
+.cover .art { position: absolute; left: 0; right: 0; bottom: 44mm; }
+.cover .meta { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; border-top: .6pt solid #6b5747; padding-top: 5mm; font: 8.2pt/1.5 "Inter"; color: #c4b39d; }
+.cover .meta b { display: block; color: var(--paper); font-weight: 600; font-size: 7pt; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 1mm; }
 
-h2 { font: 700 19pt/1.2 "Playfair", serif; margin: 0 0 3mm; break-after: avoid; break-inside: avoid; }
-h2 .n { display: block; font: 600 8pt "Inter"; letter-spacing: 0.2em; text-transform: uppercase; color: var(--terra); margin-bottom: 1.5mm; }
-h3 { font: 650 10.8pt/1.3 "Inter"; margin: 5mm 0 1.8mm; color: var(--ink); page-break-after: avoid; }
-section { margin-bottom: 9mm; }
-.break { page-break-before: always; }
-.lede { font: 400 11.5pt/1.5 "Playfair", serif; color: var(--ink-soft); margin-bottom: 5mm; }
+/* ---------- chapter scaffold ---------- */
+.ch { page-break-before: always; position: relative; padding-left: 40mm; }
+.ch-head { margin-left: -40mm; display: grid; grid-template-columns: 34mm 1fr; column-gap: 6mm; align-items: end; border-bottom: 1.4pt solid var(--ink); padding-bottom: 4mm; margin-bottom: 6.5mm; }
+.ch-head .num { font: 800 50pt/.82 "Playfair", serif; color: var(--terra); letter-spacing: -.03em; }
+.ch-head .k { font: 600 7.2pt "Inter"; letter-spacing: .22em; text-transform: uppercase; color: var(--soft); margin-bottom: 1.6mm; }
+.ch-head h2 { font: 700 21pt/1.12 "Playfair", serif; margin: 0; }
+.lede { font: 400 12pt/1.48 "Playfair", serif; color: var(--soft); margin-bottom: 5mm; }
+h3 { font: 700 10.6pt/1.3 "Inter"; margin: 6mm 0 1.8mm; break-after: avoid; }
+.rail { break-inside: avoid; position: absolute; left: 0; width: 34mm; font-size: 7.1pt; line-height: 1.45; color: var(--soft); border-top: .8pt solid var(--terra); padding-top: 1.4mm; margin-top: 6.6mm; }
+.rail b { display: block; font: 650 6.4pt "Inter"; letter-spacing: .16em; text-transform: uppercase; color: var(--terra); margin-bottom: .8mm; }
+.rail code { font-size: 6.5pt; background: none; padding: 0; color: var(--soft); word-break: break-all; }
+.rail.t { border-color: var(--teal); } .rail.t b { color: var(--teal); }
+.wide { margin-left: -40mm !important; }
+table.wide { width: calc(100% + 40mm); }
 
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin: 5mm 0; }
-.stat { border-top: 2.2pt solid var(--terra); background: var(--paper); padding: 3mm 3mm 2.5mm; break-inside: avoid; }
-.stat b { display: block; font: 700 19pt/1.1 "Playfair", serif; }
-.stat span { font-size: 7.8pt; line-height: 1.35; color: var(--ink-soft); display: block; margin-top: 1mm; }
-.stat:nth-child(2) { border-color: var(--teal); } .stat:nth-child(3) { border-color: var(--mustard); } .stat:nth-child(4) { border-color: var(--sage); }
+/* ---------- components ---------- */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin: 5mm 0 5.5mm; }
+.stat { background: var(--paper); padding: 3.4mm 3.4mm 3mm; border-top: 2.4pt solid var(--terra); break-inside: avoid; }
+.stat b { display: block; font: 800 24pt/1 "Playfair", serif; }
+.stat span { display: block; margin-top: 1.4mm; font-size: 7.5pt; line-height: 1.38; color: var(--soft); }
+.stat:nth-child(2) { border-color: var(--teal); } .stat:nth-child(3) { border-color: var(--gold); } .stat:nth-child(4) { border-color: var(--sage); }
 
-.callout { background: var(--paper); border-left: 2.6pt solid var(--terra); padding: 3.5mm 4.5mm; margin: 4mm 0; break-inside: avoid; }
-.callout.teal { border-color: var(--teal); background: var(--tint-teal); }
-.callout.mustard { border-color: var(--mustard); background: var(--tint-mustard); }
-.callout p:last-child { margin: 0; }
-.callout .t { font: 650 7.6pt "Inter"; letter-spacing: 0.16em; text-transform: uppercase; color: var(--terra); margin-bottom: 1.2mm; }
-.callout.teal .t { color: var(--teal); } .callout.mustard .t { color: #9c6a10; }
+.note { background: var(--paper); border-left: 2.6pt solid var(--terra); padding: 3.4mm 4.4mm; margin: 4mm 0; break-inside: avoid; }
+.note.t { border-color: var(--teal); background: var(--t-teal); } .note.g { border-color: var(--gold); background: var(--t-gold); }
+.note p:last-child { margin: 0; }
+.note .h { font: 650 7pt "Inter"; letter-spacing: .18em; text-transform: uppercase; color: var(--terra); margin-bottom: 1.2mm; }
+.note.t .h { color: var(--teal); } .note.g .h { color: #8f6109; }
 
-table { width: 100%; border-collapse: collapse; font-size: 8.5pt; line-height: 1.42; margin: 3mm 0 5mm; }
-th { text-align: left; font: 650 7.4pt "Inter"; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 1.2pt solid var(--ink); padding: 1.8mm 2mm 1.8mm 0; }
-td { vertical-align: top; padding: 2mm 2.5mm 2mm 0; border-bottom: 0.5pt solid var(--line); }
+.src { background: var(--ink); color: #eadfcc; border-radius: 4px; padding: 3.4mm 4.2mm 3.6mm; margin: 3mm 0 4.5mm; break-inside: avoid; font: 7.7pt/1.6 "DejaVu Sans Mono", monospace; }
+.src .f { display: flex; justify-content: space-between; font: 650 6.4pt "Inter"; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); margin-bottom: 2mm; border-bottom: .5pt solid #5d4a3b; padding-bottom: 1.6mm; }
+.src .f span:last-child { color: #a8957f; letter-spacing: .04em; text-transform: none; font-weight: 500; }
+.src i { color: var(--gold); font-style: normal; } .src u { color: #8fc9c4; text-decoration: none; } .src p { margin: 0 0 3pt; } .src p:last-child { margin: 0; }
+
+table { width: 100%; border-collapse: collapse; font-size: 8.2pt; line-height: 1.42; margin: 2.5mm 0 5mm; }
+th { text-align: left; font: 650 6.8pt "Inter"; letter-spacing: .12em; text-transform: uppercase; color: var(--soft); border-bottom: 1.1pt solid var(--ink); padding: 1.6mm 2.2mm 1.6mm 0; }
+td { vertical-align: top; padding: 1.9mm 2.6mm 1.9mm 0; border-bottom: .5pt solid var(--line); }
 tr { break-inside: avoid; } tr:first-child { break-after: avoid; }
 td:first-child { font-weight: 600; }
-.pill { display: inline-block; font: 650 6.8pt "Inter"; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.6pt 4.5pt; border-radius: 20px; white-space: nowrap; }
-.pill.b { background: var(--tint-terra); color: #9d3a25; } .pill.a { background: var(--tint-mustard); color: #8a5d0c; } .pill.g { background: var(--tint-teal); color: #1f5356; }
+td.c, th.c { text-align: center; padding-right: 0; }
+.pill { display: inline-block; font: 650 6.3pt "Inter"; letter-spacing: .1em; text-transform: uppercase; padding: .7pt 5pt; border-radius: 20px; white-space: nowrap; }
+.pill.b { background: var(--t-terra); color: #96351d; } .pill.a { background: var(--t-gold); color: #835809; } .pill.g { background: var(--t-teal); color: #18494c; } .pill.s { background: var(--t-sage); color: #3f5c3b; }
 
-figure { margin: 4mm 0 5mm; break-inside: avoid; }
-figcaption { font-size: 7.8pt; color: var(--ink-soft); margin-top: 1.5mm; }
-figcaption b { color: var(--ink); }
+figure { margin: 4mm 0 5.5mm; break-inside: avoid; }
+figcaption { font-size: 7.4pt; color: var(--soft); margin-top: 1.8mm; border-top: .5pt solid var(--line); padding-top: 1.4mm; }
+figcaption b { color: var(--ink); font-weight: 650; letter-spacing: .04em; }
 svg text { font-family: "Inter", sans-serif; }
 
-.two { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
-.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 3.5mm; margin: 3mm 0 5mm; }
-.card { border: 0.6pt solid var(--line); border-radius: 4px; padding: 3.5mm 4mm; break-inside: avoid; background: #fff; }
-.card h4 { margin: 0 0 1.2mm; font: 650 9.6pt "Inter"; }
-.card .tag { font: 600 7pt "Inter"; letter-spacing: 0.14em; text-transform: uppercase; color: var(--teal); display: block; margin-bottom: 1mm; }
-.card p { font-size: 8.6pt; line-height: 1.45; margin: 0; }
-ul { margin: 0 0 6pt; padding-left: 4.5mm; } li { margin-bottom: 2.5pt; }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 3.2mm; margin: 3mm 0 5mm; }
+.cards.three { grid-template-columns: repeat(3, 1fr); }
+.card { border: .6pt solid var(--line); border-top: 2pt solid var(--teal); padding: 3.2mm 3.6mm 3mm; break-inside: avoid; background: #fff; }
+.card .tag { font: 650 6.4pt "Inter"; letter-spacing: .16em; text-transform: uppercase; color: var(--teal); display: block; margin-bottom: 1mm; }
+.card h4 { margin: 0 0 1.2mm; font: 700 9.2pt/1.3 "Inter"; }
+.card p { font-size: 8.2pt; line-height: 1.46; margin: 0; }
+.card.r { border-top-color: var(--terra); } .card.r .tag { color: var(--terra); }
+.card.y { border-top-color: var(--gold); } .card.y .tag { color: #8f6109; }
 
-.tl { border-left: 1.4pt solid var(--line); margin: 3mm 0 0 2mm; padding-left: 6mm; }
-.tl div { position: relative; margin-bottom: 3.2mm; break-inside: avoid; font-size: 8.8pt; line-height: 1.45; }
-.tl div::before { content: ""; position: absolute; left: -7.6mm; top: 1.4mm; width: 2.6mm; height: 2.6mm; border-radius: 50%; background: var(--terra); border: 1.2pt solid #fff; }
-.tl b.v { font: 700 8.2pt "DejaVu Sans Mono", monospace; color: var(--terra); margin-right: 2mm; }
-.tl .k::before { background: var(--teal); width: 3.4mm; height: 3.4mm; left: -8mm; }
+.steps { counter-reset: s; margin: 3mm 0 5mm; }
+.steps > div { counter-increment: s; position: relative; padding: 0 0 3.2mm 9.5mm; break-inside: avoid; font-size: 8.8pt; }
+.steps > div::before { content: counter(s); position: absolute; left: 0; top: -.4mm; width: 6mm; height: 6mm; border-radius: 50%; background: var(--ink); color: var(--paper); font: 700 8pt/6mm "Playfair", serif; text-align: center; }
+.steps > div::after { content: ""; position: absolute; left: 3mm; top: 6.2mm; bottom: .4mm; width: .6pt; background: var(--line); }
+.steps > div:last-child::after { display: none; }
+.steps b.t { display: block; font-weight: 700; font-size: 9.2pt; margin-bottom: .6mm; }
+
+.tl { border-left: 1.2pt solid var(--line); margin: 3mm 0 0 1.6mm; padding-left: 6mm; }
+.tl div { position: relative; margin-bottom: 2.8mm; break-inside: avoid; font-size: 8.5pt; line-height: 1.45; }
+.tl div::before { content: ""; position: absolute; left: -7.5mm; top: 1.3mm; width: 2.6mm; height: 2.6mm; border-radius: 50%; background: var(--terra); border: 1.2pt solid #fff; }
+.tl b.v { display: inline-block; min-width: 11.5mm; font: 700 7.8pt "DejaVu Sans Mono", monospace; color: var(--terra); }
+.tl .k::before { background: var(--teal); width: 3.6mm; height: 3.6mm; left: -8mm; top: .9mm; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+
+.toc { margin: 4mm 0 0; display: grid; grid-template-columns: 1fr 1fr; column-gap: 8mm; }
+.toc div.i { display: grid; grid-template-columns: 9mm 1fr; padding: 2.2mm 0; border-bottom: .5pt solid var(--line); font-size: 8.8pt; break-inside: avoid; }
+.toc b { font: 800 11pt/1.2 "Playfair", serif; color: var(--terra); }
+.toc span { color: var(--soft); display: block; font-size: 7.6pt; }
 </style>
 </head>
 <body>
 
+<!-- ===================== COVER ===================== -->
 <div class="cover">
-  <div class="kicker">GiftMyBook · Children's Worker · Technical Report</div>
-  <h1>Twelve pictures,<br><em>one</em> child.</h1>
-  <div class="sub">How we solved character consistency and object consistency across the spreads of an AI-illustrated children's book: the Book Bible, the reference pack, structured verification, and the selection gate.</div>
-  <svg viewBox="0 0 660 150" aria-hidden="true">
-    <g fill="none" stroke="#6b5747" stroke-width="1">
-      <rect x="0" y="20" width="96" height="60" rx="3"/><rect x="113" y="20" width="96" height="60" rx="3"/><rect x="226" y="20" width="96" height="60" rx="3"/><rect x="339" y="20" width="96" height="60" rx="3"/><rect x="452" y="20" width="96" height="60" rx="3"/><rect x="565" y="20" width="95" height="60" rx="3"/>
-    </g>
-    <g fill="#D99A2B"><circle cx="30" cy="48" r="7"/><circle cx="170" cy="52" r="7"/><circle cx="262" cy="44" r="7"/><circle cx="398" cy="54" r="7"/><circle cx="486" cy="46" r="7"/><circle cx="622" cy="50" r="7"/></g>
-    <g fill="#C8553D"><rect x="24" y="57" width="12" height="15" rx="2"/><rect x="164" y="61" width="12" height="15" rx="2"/><rect x="256" y="53" width="12" height="15" rx="2"/><rect x="392" y="63" width="12" height="15" rx="2"/><rect x="480" y="55" width="12" height="15" rx="2"/><rect x="616" y="59" width="12" height="15" rx="2"/></g>
-    <g fill="#2F6F73"><rect x="62" y="62" width="10" height="10" rx="5"/><rect x="132" y="64" width="10" height="10" rx="5"/><rect x="290" y="60" width="10" height="10" rx="5"/><rect x="360" y="64" width="10" height="10" rx="5"/><rect x="516" y="62" width="10" height="10" rx="5"/><rect x="586" y="64" width="10" height="10" rx="5"/></g>
-    <path d="M30 100 H622" stroke="#D99A2B" stroke-width="1" stroke-dasharray="2 4"/>
-    <text x="0" y="128" fill="#c9b9a4" font-size="10" letter-spacing="1.5">SAME FACE · SAME OUTFIT · SAME COMPANION · SAME OBJECTS — ON EVERY SPREAD</text>
-  </svg>
-  <div class="meta">
-    <div><b>Scope</b>Catalog Engine V1.3 · slim illustrator</div>
-    <div><b>Engine state</b>STYLE_VERSION ce-22 · QA_VERSION qa-17</div>
-    <div><b>Date</b>November 2026</div>
+  <div class="band"><span>Technical report · Catalog Engine V1.3</span></div>
+  <div class="in">
+    <div class="kicker">GiftMyBook · Children's worker</div>
+    <h1>Twelve<br>pictures,<br><em>one</em> child.</h1>
+    <div class="sub">How the illustrator keeps the same child, the same outfit, the same companion and the same objects across every spread of an AI-illustrated children's book. Verified against the source code.</div>
+
+    <svg class="art" viewBox="0 0 600 190" width="100%" aria-hidden="true">
+      <defs>
+        <g id="kid"><circle cx="0" cy="-17" r="8.5" fill="#D49A2A"/><path d="M-9 -8 h18 a3 3 0 0 1 3 3 v19 h-24 v-19 a3 3 0 0 1 3 -3z" fill="#C2502F"/><rect x="-9" y="14" width="7.5" height="13" fill="#1F6266"/><rect x="1.5" y="14" width="7.5" height="13" fill="#1F6266"/></g>
+        <g id="toy"><circle cx="0" cy="0" r="5.5" fill="#8fc9c4"/><circle cx="-4" cy="-5" r="2.3" fill="#8fc9c4"/><circle cx="4" cy="-5" r="2.3" fill="#8fc9c4"/></g>
+      </defs>
+      <g fill="none" stroke="#6b5747">
+        <rect x="0" y="0" width="140" height="86" rx="3"/><rect x="153" y="0" width="140" height="86" rx="3"/><rect x="306" y="0" width="140" height="86" rx="3"/><rect x="459" y="0" width="141" height="86" rx="3"/>
+        <rect x="0" y="99" width="140" height="86" rx="3"/><rect x="153" y="99" width="140" height="86" rx="3"/><rect x="306" y="99" width="140" height="86" rx="3"/><rect x="459" y="99" width="141" height="86" rx="3"/>
+        <path d="M70 0v86M223 0v86M376 0v86M529.5 0v86M70 99v86M223 99v86M376 99v86M529.5 99v86" stroke-dasharray="1.5 3.5" stroke="#4d3c2f"/>
+      </g>
+      <use href="#kid" x="36" y="50"/><use href="#toy" x="58" y="68"/>
+      <use href="#kid" x="250" y="46"/><use href="#toy" x="272" y="70"/>
+      <use href="#kid" x="350" y="52"/><use href="#toy" x="332" y="72"/>
+      <use href="#kid" x="560" y="48"/><use href="#toy" x="540" y="70"/>
+      <use href="#kid" x="104" y="150"/><use href="#toy" x="84" y="168"/>
+      <use href="#kid" x="190" y="146"/><use href="#toy" x="210" y="168"/>
+      <use href="#kid" x="410" y="151"/><use href="#toy" x="428" y="170"/>
+      <use href="#kid" x="494" y="147"/><use href="#toy" x="514" y="168"/>
+    </svg>
+
+    <div class="meta">
+      <div><b>Scope</b>Character, outfit, companion and object consistency in the slim illustrator</div>
+      <div><b>Engine state</b>STYLE_VERSION ce-22<br>QA_VERSION qa-17 · so-planner-7</div>
+      <div><b>Basis</b>Source audit of the illustrator, November 2026</div>
+    </div>
   </div>
 </div>
 
-<section>
-  <h2><span class="n">01 · Summary</span>The problem, and the answer in one page</h2>
-  <p class="lede">A picture book is twelve illustrations of the same child in the same clothes, with the same friend and the same teddy bear. An image model draws each of those twelve pictures with no memory of the other eleven.</p>
-  <p>Every spread in our books is a <strong>stateless render</strong>: one independent call to an image model. Left to prose prompts, the model reinvented the child's trousers, shoes and hair, the species of the comfort toy, and the face of the farmer on every page. Each picture looked fine alone; the set did not read as one book.</p>
-  <p>We solved it by changing <em>what</em> the fixed inputs of a render are and <em>how</em> a render is accepted:</p>
+<!-- ===================== 01 ===================== -->
+<div class="ch" style="page-break-before:auto">
+  <div class="ch-head"><div class="num">01</div><div><div class="k">Summary</div><h2>The problem and the answer</h2></div></div>
+
+  <p class="lede">A picture book is twelve illustrations of the same child in the same clothes, with the same friend and the same teddy bear. An image model draws each of them with no memory of the other eleven.</p>
+
+  <p>Every spread is a <strong>stateless render</strong>: one independent call to an image model. Held to prose alone, the model reinvented the trousers, the shoes, the species of the comfort toy and the face of the farmer on every page. Each picture was fine alone; the set did not read as one book.</p>
+  <p>The fix changed <em>what</em> a render is held to and <em>how</em> a render is accepted:</p>
   <ul>
-    <li><strong>Every identity becomes pixels plus a spec, built once per book.</strong> A character model sheet, an outfit spec read off that sheet, a reference sheet per object and per companion, all collected in a hashed manifest, the <strong>Book Bible</strong>.</li>
-    <li><strong>Every render receives the same reference pack</strong> in a fixed order with fixed labels, and a prompt that states each identity exactly once in structured blocks.</li>
-    <li><strong>Every render is verified against those references</strong>, garment by garment and object by object, by a structured judge with the sheets attached beside the picture, plus deterministic pixel metrics.</li>
-    <li><strong>Candidates are scored and selected</strong>; defects that break the set trigger a bounded repair loop steered only by pinned data.</li>
-    <li><strong>The finished set is checked as a set</strong>: crops of the child, the companion and the objects from all spreads are tiled beside their sheets, and outliers are re-rendered.</li>
+    <li><strong>Each identity is an image plus a spec, built once per book</strong> and collected in a hashed manifest, the Book Bible: a character model sheet, an outfit spec read off that sheet, a sheet per personal object, a sheet per companion, and a plan for every plot object.</li>
+    <li><strong>Every render gets the same labelled reference pack</strong> and prompt blocks rendered from that manifest.</li>
+    <li><strong>Every render is judged with the sheets attached beside it</strong>, garment by garment and object by object, into fixed defect strings.</li>
+    <li><strong>Candidates are ranked by tier, then score</strong>; blocking defects drive a bounded repair loop.</li>
+    <li><strong>The finished set is judged as a set</strong>: crops from all spreads are tiled beside each sheet and outliers re-rendered.</li>
   </ul>
-  <div class="stats">
-    <div class="stat"><b>0</b><span>spread-to-spread chaining. Consistency comes only from fixed inputs.</span></div>
-    <div class="stat"><b>5</b><span>reference classes in every render's pack: sheet, cover, props, companion, world.</span></div>
-    <div class="stat"><b>3</b><span>set-level contact gates: child, companion, objects, on top of the world gate.</span></div>
-    <div class="stat"><b>3</b><span>automatic candidates a spread may buy per run, across every gate (default).</span></div>
-  </div>
-  <div class="callout">
-    <div class="t">The governing rule</div>
-    <p>A stateless render can only be held to fixed inputs, and an invariant that no check enforces is an aspiration. Everything below is that sentence applied to the child, the outfit, the companion and the objects.</p>
-  </div>
-</section>
 
-<section>
-  <h2><span class="n">02 · Diagnosis</span>Why twelve stateless renders drift</h2>
-  <p>Before the Book Bible (engine version <code>ce-9</code>), the pipeline's doctrine was already right, but three things were wrong with how it was applied to characters and objects:</p>
-  <div class="cards">
-    <div class="card"><span class="tag">Cause 1</span><h4>The fixed inputs were words</h4><p>Clothing rode as one sentence of garment prose; a comfort toy as a quoted noun ("teddy bear"); a companion as "Bea, a farmer". An image model weights images over prose, so every unpictured detail was per-spread freedom.</p></div>
-    <div class="card"><span class="tag">Cause 2</span><h4>The identity anchor was the wrong kind of image</h4><p>The approved cover is a scene composition with a title, usually cropping the legs and feet. The garments most prone to drift (hem length, shoes) had no pixels behind them at all.</p></div>
-    <div class="card"><span class="tag">Cause 3</span><h4>Checks were lenient single-image booleans</h4><p>QA asked one picture a yes/no question against text ("flag only a clear break"). Nothing compared pixels to pixels. Props and companions had no check at all.</p></div>
-    <div class="card"><span class="tag">Cause 4</span><h4>Repair was a blind re-roll</h4><p>One render, a small repair budget, then ship with an advisory. The cache marker replayed the drifted picture forever.</p></div>
+  <div class="stats wide">
+    <div class="stat"><b>0</b><span>renders that receive another spread's picture as an identity reference</span></div>
+    <div class="stat"><b>5</b><span>identity reference classes in every pack: sheet, cover, objects, companion, world</span></div>
+    <div class="stat"><b>4</b><span>set-level checks: world gate, child / object / companion contact sheets, critical-object set</span></div>
+    <div class="stat"><b>3</b><span>automatic candidates one spread may buy per run, across all gates (default)</span></div>
   </div>
-  <h3>What each trait was held to, before and after</h3>
-  <table>
-    <tr><th style="width:17%">Trait</th><th style="width:27%">Before</th><th style="width:36%">Now: fixed input</th><th>Now: check</th></tr>
-    <tr><td>Face, hair, skin</td><td>The cover only; no likeness check</td><td>Character model sheet (front, three-quarter, back, head insets) elected once per cover</td><td>Identity vs sheet per spread; contact-sheet gate across the set</td></tr>
-    <tr><td>Clothing</td><td>One prose sentence, repeated six times; cropped garments guessed</td><td>Per-slot outfit spec derived <em>from the sheet</em>, every slot seen, with a hex colour per garment</td><td>Slot-by-slot verdict; garment-region colour ΔE vs the spec</td></tr>
-    <tr><td>Personal object</td><td>A quoted noun; nothing pinned, nothing checked</td><td>Prop sheet (two angles) plus a structured spec per object</td><td>Presence, look, duplication per prop; prop contact gate</td></tr>
-    <tr><td>Story object</td><td>Whatever the beat text implied</td><td>Story-object plan: one fixed design, instances, per-spread occurrence and state</td><td>Look, required presence, count, <code>state_match</code>; critical-family contact check</td></tr>
-    <tr><td>Companion</td><td>A noun on 18% of beats; a new creature or person each spread</td><td>Companion sheet plus spec; presence decided by one signal over beat and manuscript</td><td><code>look_match</code>, duplication; companion contact gate</td></tr>
+
+  <div class="note">
+    <div class="h">The governing rule</div>
+    <p>A stateless render can only be held to fixed inputs, and an invariant that no check enforces is an aspiration. The rest of this report is that sentence applied to the child, the outfit, the companion and the objects.</p>
+  </div>
+
+  <div class="toc wide">
+    <div class="i"><b>02</b><div>Why stateless renders drift</div></div>
+    <div class="i"><b>06</b><div>Verification</div></div>
+    <div class="i"><b>03</b><div>The Book Bible</div></div>
+    <div class="i"><b>07</b><div>Selection, set gates, ship policy</div></div>
+    <div class="i"><b>04</b><div>Objects</div></div>
+    <div class="i"><b>08</b><div>Secondary characters and history</div></div>
+    <div class="i"><b>05</b><div>Rendering</div></div>
+    <div class="i"><b>09</b><div>Lessons and audit findings</div></div>
+  </div>
+</div>
+
+<!-- ===================== 02 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">02</div><div><div class="k">Diagnosis</div><h2>Why twelve stateless renders drift</h2></div></div>
+
+  <p>Before the Book Bible (<code>ce-9</code>), the doctrine was already right: fixed inputs, no chaining. What was wrong was how it applied to characters and objects.</p>
+
+  <div class="cards wide">
+    <div class="card r"><span class="tag">Cause 1</span><h4>The fixed inputs were words</h4><p>Clothing rode as one sentence of garment prose; a comfort toy as a quoted noun; a companion as "Bea, a farmer". An image model weights pictures over prose, so every unpictured detail was per-spread freedom.</p></div>
+    <div class="card r"><span class="tag">Cause 2</span><h4>The anchor was the wrong kind of image</h4><p>The approved cover is a scene with a title, and it usually crops legs and feet. The garments most prone to drift, hem lengths and shoes, had no pixels behind them.</p></div>
+    <div class="card r"><span class="tag">Cause 3</span><h4>Checks were lenient single-image booleans</h4><p>QA asked one picture a yes/no question against text. Nothing compared pixels to pixels. Props and companions were not checked at all.</p></div>
+    <div class="card r"><span class="tag">Cause 4</span><h4>Repair was a blind re-roll</h4><p>One render, a small repair budget, then ship. The cache marker replayed the drifted picture on every later run.</p></div>
+  </div>
+
+  <h3>What each trait is held to now</h3>
+  <table class="wide">
+    <tr><th style="width:15%">Trait</th><th style="width:24%">Before ce-9</th><th style="width:33%">Fixed input now</th><th>Check now</th></tr>
+    <tr><td>Face, hair, skin</td><td>The cover only; no likeness check</td><td>Character model sheet, elected once per cover</td><td><code>same_child</code>, hair, skin against the sheet; child contact sheet across the set</td></tr>
+    <tr><td>Clothing</td><td>One prose sentence; cropped garments guessed</td><td>Outfit spec derived from the sheet, every required slot seen, hex colours per slot</td><td>Verdict per slot; garment-band colour distance feeds the score</td></tr>
+    <tr><td>Personal object</td><td>A quoted noun</td><td>Prop sheet (front and three-quarter) plus a structured spec</td><td>Presence, look, duplication, rendered-as-text; prop contact sheet</td></tr>
+    <tr><td>Plot object</td><td>Whatever the beat implied</td><td>Story-object plan: fixed design, instances, per-spread occurrence, state and visibility</td><td>Look, presence, <code>state_match</code>; a critical-object set check that fails closed</td></tr>
+    <tr><td>Companion</td><td>A noun, on the beats that named it</td><td>Companion sheet plus spec; one presence signal over beat and manuscript</td><td>Present, <code>look_match</code>, duplicated; companion contact sheet</td></tr>
   </table>
-  <div class="callout teal">
-    <div class="t">Why not chain the previous spread?</div>
-    <p>Feeding each render the previous spread as a reference looks like the obvious fix. We deleted it: errors compound page by page (photocopy drift), compositions converge, and a single bad page poisons everything after it. Every reference in this design is fixed before the first spread renders and is identical for all twelve.</p>
+
+  <div class="note t">
+    <div class="h">Why not chain the previous spread?</div>
+    <p>Feeding each render the previous spread looks like the obvious fix. It was deleted: errors compound page by page, compositions converge, and one bad page poisons the rest. Every identity reference is fixed before the first spread renders and is the same for all twelve. Other spreads' pixels reach only the <em>judge</em>, in the set gates.</p>
   </div>
-</section>
+</div>
 
-<section class="break">
-  <h2><span class="n">03 · The Book Bible</span>Identity as pixels plus a spec, built once</h2>
-  <p>Before any spread renders, <code>buildBookBible</code> assembles every fixed input for the book. Each component is an <strong>image</strong> the model can copy and a <strong>schema-validated spec</strong> a judge can verify against. Components are elected once (create-if-absent in storage, single winner), so concurrent instances and later retries converge on the same asset.</p>
+<!-- ===================== 03 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">03</div><div><div class="k">The fixed inputs</div><h2>The Book Bible: identity as pixels plus a spec</h2></div></div>
 
-  <figure>
-    <svg viewBox="0 0 660 262" width="100%">
+  <p><code>buildBookBible</code> runs before any spread renders. The order matters, because later components derive from earlier ones.</p>
+
+  <figure class="wide">
+    <svg viewBox="0 0 680 232" width="100%">
       <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2A1C12"/></marker></defs>
-      <!-- inputs -->
-      <g font-size="9.5" fill="#2A1C12">
-        <rect x="0" y="28" width="122" height="38" rx="4" fill="#FBF6EC" stroke="#e6dccb"/><text x="61" y="44" text-anchor="middle" font-weight="650">Approved cover</text><text x="61" y="57" text-anchor="middle" fill="#5b4a3d" font-size="8">the identity source</text>
-        <rect x="0" y="80" width="122" height="38" rx="4" fill="#FBF6EC" stroke="#e6dccb"/><text x="61" y="96" text-anchor="middle" font-weight="650">Validated story</text><text x="61" y="109" text-anchor="middle" fill="#5b4a3d" font-size="8">12 spreads + evidence</text>
-        <rect x="0" y="132" width="122" height="38" rx="4" fill="#FBF6EC" stroke="#e6dccb"/><text x="61" y="148" text-anchor="middle" font-weight="650">Catalog theme</text><text x="61" y="161" text-anchor="middle" fill="#5b4a3d" font-size="8">beats, companion, world</text>
-        <rect x="0" y="184" width="122" height="38" rx="4" fill="#fff" stroke="#e6dccb" stroke-dasharray="3 3"/><text x="61" y="200" text-anchor="middle" font-weight="650">Child photo</text><text x="61" y="213" text-anchor="middle" fill="#5b4a3d" font-size="8">QA-only, advisory</text>
+      <g font-size="8.8">
+        <rect x="0" y="62" width="104" height="76" rx="4" fill="#FAF5EA" stroke="#e7dccb"/>
+        <text x="52" y="84" text-anchor="middle" font-weight="700" fill="#2A1C12">Approved cover</text>
+        <text x="52" y="98" text-anchor="middle" font-size="7.4" fill="#6a5848">the identity anchor</text>
+        <path d="M14 108H90" stroke="#e7dccb"/>
+        <text x="52" y="122" text-anchor="middle" font-size="7.4" fill="#6a5848">+ story, beats, theme</text>
+
+        <rect x="128" y="52" width="118" height="96" rx="4" fill="#2A1C12"/>
+        <text x="140" y="70" font-size="6.6" font-weight="650" fill="#D49A2A" letter-spacing="1.3">STEP 1 · ALONE</text>
+        <text x="140" y="88" font-weight="700" fill="#FAF5EA">Character model sheet</text>
+        <text x="140" y="102" font-size="7.4" fill="#c4b39d">candidates, judged,</text>
+        <text x="140" y="113" font-size="7.4" fill="#c4b39d">one elected per cover</text>
+        <text x="140" y="134" font-size="7" fill="#8fc9c4">characterSheet.js</text>
+
+        <rect x="270" y="52" width="118" height="96" rx="4" fill="#2A1C12"/>
+        <text x="282" y="70" font-size="6.6" font-weight="650" fill="#D49A2A" letter-spacing="1.3">STEP 2</text>
+        <text x="282" y="88" font-weight="700" fill="#FAF5EA">Story-object plan</text>
+        <text x="282" y="102" font-size="7.4" fill="#c4b39d">then scene-presence</text>
+        <text x="282" y="113" font-size="7.4" fill="#c4b39d">audit per occurrence</text>
+        <text x="282" y="134" font-size="7" fill="#8fc9c4">storyObjects.js</text>
+
+        <rect x="412" y="8" width="152" height="216" rx="4" fill="none" stroke="#2A1C12" stroke-dasharray="3 3"/>
+        <text x="424" y="24" font-size="6.6" font-weight="650" fill="#C2502F" letter-spacing="1.3">STEP 3 · CONCURRENT</text>
+        <rect x="422" y="32" width="132" height="40" rx="3" fill="#f9e6df" stroke="#C2502F"/><text x="432" y="48" font-weight="700" fill="#2A1C12">Outfit spec</text><text x="432" y="61" font-size="7.2" fill="#6a5848">read off the sheet</text>
+        <rect x="422" y="78" width="132" height="52" rx="3" fill="#dfeeee" stroke="#1F6266"/><text x="432" y="94" font-weight="700" fill="#2A1C12">Sheets</text><text x="432" y="107" font-size="7.2" fill="#6a5848">personal props, companion,</text><text x="432" y="118" font-size="7.2" fill="#6a5848">story-object references</text>
+        <rect x="422" y="136" width="132" height="38" rx="3" fill="#fbf0d6" stroke="#D49A2A"/><text x="432" y="152" font-weight="700" fill="#2A1C12">World plate</text><text x="432" y="165" font-size="7.2" fill="#6a5848">environment reference</text>
+        <rect x="422" y="180" width="132" height="36" rx="3" fill="#e8f0e5" stroke="#6f8f6a"/><text x="432" y="196" font-weight="700" fill="#2A1C12">Emotion plan</text><text x="432" y="208" font-size="7.2" fill="#6a5848">per-spread expression</text>
+
+        <rect x="588" y="52" width="92" height="96" rx="4" fill="#C2502F"/>
+        <text x="634" y="74" text-anchor="middle" font-weight="700" fill="#fff">Manifest</text>
+        <text x="634" y="88" text-anchor="middle" font-size="7.4" fill="#fbe9e2">bible.json</text>
+        <path d="M600 98H668" stroke="#e59079"/>
+        <text x="634" y="114" text-anchor="middle" font-weight="700" fill="#fff">bibleHash</text>
+        <text x="634" y="128" text-anchor="middle" font-size="7.2" fill="#fbe9e2">in every render key</text>
       </g>
-      <g stroke="#2A1C12" stroke-width="1" marker-end="url(#ar)" fill="none"><path d="M124 47H168"/><path d="M124 99H168"/><path d="M124 151H168"/></g>
-      <!-- bible -->
-      <rect x="170" y="8" width="318" height="246" rx="6" fill="#2A1C12"/>
-      <text x="186" y="29" fill="#D99A2B" font-size="8" font-weight="650" letter-spacing="1.6">BOOK BIBLE · BUILT ONCE PER BOOK</text>
-      <g font-size="9.3">
-        <g><rect x="184" y="40" width="142" height="44" rx="4" fill="#FBF6EC"/><text x="194" y="57" font-weight="650" fill="#2A1C12">Character model sheet</text><text x="194" y="71" font-size="7.8" fill="#5b4a3d">3 body views + 2 head insets</text></g>
-        <g><rect x="334" y="40" width="142" height="44" rx="4" fill="#FBF6EC"/><text x="344" y="57" font-weight="650" fill="#2A1C12">Outfit spec v3</text><text x="344" y="71" font-size="7.8" fill="#5b4a3d">per slot, hex colour, from sheet</text></g>
-        <g><rect x="184" y="92" width="142" height="44" rx="4" fill="#FBF6EC"/><text x="194" y="109" font-weight="650" fill="#2A1C12">Prop sheets + specs</text><text x="194" y="123" font-size="7.8" fill="#5b4a3d">one per personal object</text></g>
-        <g><rect x="334" y="92" width="142" height="44" rx="4" fill="#FBF6EC"/><text x="344" y="109" font-weight="650" fill="#2A1C12">Story-object plan</text><text x="344" y="123" font-size="7.8" fill="#5b4a3d">design, instances, occurrences</text></g>
-        <g><rect x="184" y="144" width="142" height="44" rx="4" fill="#FBF6EC"/><text x="194" y="161" font-weight="650" fill="#2A1C12">Companion sheet + spec</text><text x="194" y="175" font-size="7.8" fill="#5b4a3d">creature or person</text></g>
-        <g><rect x="334" y="144" width="142" height="44" rx="4" fill="#FBF6EC"/><text x="344" y="161" font-weight="650" fill="#2A1C12">World plate + law card</text><text x="344" y="175" font-size="7.8" fill="#5b4a3d">environment reference</text></g>
-      </g>
-      <rect x="184" y="198" width="292" height="42" rx="4" fill="none" stroke="#D99A2B"/>
-      <text x="194" y="215" fill="#FBF6EC" font-size="9.3" font-weight="650">Manifest · bible.json → bibleHash</text>
-      <text x="194" y="229" fill="#c9b9a4" font-size="7.8">every input hashed; folded into each render's cache key (-b{hash})</text>
-      <!-- out -->
-      <path d="M490 131H530" stroke="#2A1C12" marker-end="url(#ar)"/>
-      <rect x="532" y="60" width="128" height="142" rx="6" fill="#f8e7e1" stroke="#C8553D"/>
-      <text x="596" y="82" text-anchor="middle" font-size="9.5" font-weight="650" fill="#2A1C12">12 stateless renders</text>
-      <g fill="#fff" stroke="#C8553D" stroke-width="0.7"><rect x="546" y="94" width="30" height="18"/><rect x="581" y="94" width="30" height="18"/><rect x="616" y="94" width="30" height="18"/><rect x="546" y="117" width="30" height="18"/><rect x="581" y="117" width="30" height="18"/><rect x="616" y="117" width="30" height="18"/><rect x="546" y="140" width="30" height="18"/><rect x="581" y="140" width="30" height="18"/><rect x="616" y="140" width="30" height="18"/><rect x="546" y="163" width="30" height="18"/><rect x="581" y="163" width="30" height="18"/><rect x="616" y="163" width="30" height="18"/></g>
-      <text x="596" y="195" text-anchor="middle" font-size="7.6" fill="#9d3a25">same pack on every one</text>
+      <g stroke="#2A1C12" fill="none" marker-end="url(#ar)"><path d="M105 100H126"/><path d="M247 100H268"/><path d="M389 100H410"/><path d="M565 100H586"/></g>
     </svg>
-    <figcaption><b>Figure 1.</b> The Book Bible is the only source of identity. Spreads never see each other; they all see the same bible.</figcaption>
+    <figcaption><b>FIG. 1</b> &nbsp;Build order. The outfit spec needs the elected sheet; reference sheets need the object plan. The four step-3 families build in parallel.</figcaption>
   </figure>
 
+  <div class="rail"><b>Source</b><code>bible/characterSheet.js</code></div>
   <h3>The character model sheet</h3>
-  <p>One 16:9 sheet drawn from the approved cover alone: the child full-body front, three-quarter and back in the complete outfit, feet visible, two head insets, a flat grey background, no annotation text. It exists because a cover is a scene, and a scene crops, poses and lights. The sheet shows every garment from every side.</p>
+  <p>One 16:9 image, drawn from the anchor alone and stored once per cover under <code>catalog-assets/character-sheets/</code>. A cover is a scene: it crops, poses and lights. The sheet shows every garment from three sides.</p>
+  <div class="src">
+    <div class="f"><span>Sheet prompt · layout rules</span><span>characterSheet.js</span></div>
+    <p>three FULL-BODY figures of the SAME child standing side by side in one row — <i>LEFT: front view, MIDDLE: three-quarter view, RIGHT: back view</i> — standing relaxed with arms at the sides, head to toe entirely inside the frame, <i>feet and shoes fully visible on every figure.</i></p>
+    <p>two small head-and-shoulders insets in the top corner — one happy, one curious …</p>
+    <p>a flat light-grey studio background … NO scene, NO environment, NO props, NO other people …</p>
+  </div>
+  <table>
+    <tr><th style="width:18%">Call</th><th>Images attached</th></tr>
+    <tr><td>Render</td><td>The anchor as "REFERENCE 1 — APPROVED CHARACTER". On a repair, the best earlier candidate as "REFERENCE 2 — REPAIR SOURCE" with its defects. The child's photo is never attached.</td></tr>
+    <tr><td>Judge</td><td>The sheet, the anchor, and the raw photo when one exists. If the provider blocks the check with the photo attached, it is asked once more without it.</td></tr>
+  </table>
+
+  <h3>Acceptance: zero defects, then highest likeness</h3>
+  <p>A candidate passes only when every row below holds. A malformed verdict counts as no verdict, and an unverified sheet is never elected.</p>
+  <table>
+    <tr><th style="width:42%">Verdict field</th><th>Required</th></tr>
+    <tr><td><code>figure_count</code></td><td>exactly 3</td></tr>
+    <tr><td><code>one_child</code> · <code>feet_visible</code> · <code>anatomy_ok</code></td><td>true</td></tr>
+    <tr><td><code>outfit_consistent_across_views</code></td><td>true</td></tr>
+    <tr><td><code>cover_identity_matches</code></td><td>true</td></tr>
+    <tr><td><code>cover_outfit_matches</code></td><td>true, with <code>outfit_findings[]</code> empty. Each finding names a slot, an attribute, what the cover shows and what the sheet shows.</td></tr>
+    <tr><td><code>likeness</code> (to the cover)</td><td>at least 0.8</td></tr>
+    <tr><td><code>sheet_text</code></td><td>false. Lettering on a garment is clothing: it is copied from the cover and judged as an outfit finding, not as text.</td></tr>
+    <tr><td><code>photo_likeness</code></td><td>advisory only. Below 0.5 the elected sheet carries a "review the cover" note; it never rejects a candidate.</td></tr>
+  </table>
+
+  <div class="steps">
+    <div><b class="t">First round, in parallel</b>Two candidates render and are judged concurrently. If any pass, the one with the highest cover likeness is elected.</div>
+    <div><b class="t">Sequential repair</b>The remaining slots (budget 3) render one at a time from the best failing candidate, fewest defects first, with its defect list fed back. The first to pass is elected.</div>
+    <div><b class="t">Election</b>Create-if-absent, keyed by the anchor's URL path. A process that loses the race adopts the winner. A process that finds another instance mid-render waits on its claim and adopts the result.</div>
+    <div><b class="t">Safety ladder inside each slot</b><code>original</code>, then <code>sanitized</code> (the template with no caller text), then <code>generic-safe</code>. Only a provider block moves down a rung.</div>
+  </div>
+
+  <div class="note g">
+    <div class="h">When no sheet can be elected</div>
+    <p>A judge rejection, an exhausted budget or a render failure <strong>pauses</strong> the book as <code>visual_recovery_pending</code> with saved evidence, so it can resume. <code>identity_kit_failed</code> is raised only when the anchor itself is missing. If the provider refuses to draw on every rung, the book renders on the cover alone with a loud advisory. An explicit regeneration opens a fresh attempt folder and budget; a plain resume replays saved outcomes.</p>
+  </div>
+
+  <div class="rail t"><b>Source</b><code>outfitLock.js</code></div>
+  <h3>The outfit spec</h3>
+  <p>One vision read of the elected sheet returns five slots. <code>top</code>, <code>bottom</code> and <code>footwear</code> are required; <code>outerwear</code> may be null; <code>accessories</code> is a list of up to six.</p>
+  <div class="src">
+    <div class="f"><span>Slot shape</span><span>outfitLock.js</span></div>
+    <p>{ <i>desc</i>: "free text, up to 160 characters, length words mandatory",</p>
+    <p>&nbsp;&nbsp;<i>visibility</i>: "seen" | "inferred", &nbsp;<i>colourHex</i>: ["#rrggbb", … up to 3] }</p>
+  </div>
+  <p>Colour, cut, pattern and length all live in <code>desc</code>. On the sheet every required slot must be <code>seen</code>; an <code>inferred</code> slot is a derivation failure, and the spec falls back to a cover-derived one with an advisory. The slots are rendered into one sentence ("Top: … Bottom: … Footwear: …", 10 to 700 characters). That sentence is what is pinned, hashed, sent to the renderer and given to the judge. The hex values feed the colour metric. The spec is stored by the sheet's content hash under <code>catalog-assets/outfit-locks/v3/</code>.</p>
+
+  <div class="rail t"><b>Source</b><code>bible/propSheet.js</code><br><code>shared/illustration/ companionKind.js</code></div>
+  <h3>Personal-object and companion sheets</h3>
+  <table>
+    <tr><th style="width:16%"></th><th style="width:42%">Personal object</th><th>Companion</th></tr>
+    <tr><td>Built for</td><td>Each distinct <code>visual_required</code> evidence value, after normalisation</td><td>A companion with both a name and a type</td></tr>
+    <tr><td>Sheet</td><td>Front and three-quarter view, plain light-grey background, no people, no text</td><td>Creature: the same layout. Person: a "SECONDARY CHARACTER MODEL SHEET", one fictional person, full body, two views</td></tr>
+    <tr><td>Content check</td><td><code>readable_text</code>, <code>people_present</code>, <code>subject_count</code>, <code>single_subject_type</code></td><td>Person: <code>figure_count</code>, <code>same_person_all_views</code>, <code>full_body</code>, <code>child_present</code></td></tr>
+    <tr><td>Spec</td><td>Kind, colours, hex, material, size relative to the child, marks; one sentence of up to 300 characters</td><td>Person: apparent age, build, skin tone, hair, face notes, outfit, hex, marks; up to 420 characters</td></tr>
+    <tr><td>On failure</td><td colspan="2">Fails open. After a corrective retry and a single-view portrait, the item rides as a quoted noun with a <code>propSheet</code> advisory. Nothing here stops a book.</td></tr>
+  </table>
+  <p>Person versus creature is decided from the companion's type phrase by one shared word list (farmer, builder, ranger, teacher, wizard and so on). A type the list misses is treated as a creature.</p>
+
+  <h3>The manifest and its hash</h3>
+  <p><code>bibleHash</code> covers the style version, the anchor, the sheet hash, the outfit hash, every prop's image and spec hash, the companion's, the world plate, the emotion plan and the story-object plan hash. It is folded into every render key, so a change to any of these re-keys the book, and no change replays it for free.</p>
+</div>
+
+<!-- ===================== 04 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">04</div><div><div class="k">Objects</div><h2>Three kinds of object, three policies</h2></div></div>
+
+  <p>"Object consistency" is three different problems. Treating them as one caused drift in some cases and over-correction in others.</p>
+  <table class="wide">
+    <tr><th style="width:15%">Kind</th><th style="width:22%">Example</th><th>Policy</th></tr>
+    <tr><td>Personal object</td><td>The child's comfort toy, from the profile</td><td>A prop sheet and spec. Required on its declared evidence spread (missing is blocking). On every <em>later</em> spread it is carried as a small, subdued continuity prop (not visible is advisory). Only <code>object_presence</code> evidence carries; food, place and interest stay on their declared spreads.</td></tr>
+    <tr><td>Plot object</td><td>A route marker, a key, a map</td><td>A story-object plan with one fixed design per family, instances, and a per-spread schedule of state and visibility. Plot objects are not held to the "small and decorative" rule.</td></tr>
+    <tr><td>Anything else</td><td>Invented toys, gadgets</td><td>The personal-object set is closed. The judge reports <code>undeclared_object</code> as an advisory.</td></tr>
+  </table>
+
+  <div class="src wide">
+    <div class="f"><span>What the renderer is told · PROPS block</span><span>illustrationGenerator.js</span></div>
+    <p><u>Carried:</u> Carried by the child in this scene too — small, held or tucked under an arm, visually subdued (…), decorative and comforting only, never a tool, a clue, or part of the plot.</p>
+    <p><u>Closed set:</u> These are the ONLY personal objects in this book — do NOT give the child other toys, gadgets, or handheld items. Story objects appear only as specified for THIS scene.</p>
+    <p><u>Single plot object:</u> Exactly one instance in this scene; never duplicate it.</p>
+    <p><u>Group:</u> A group of matching objects is intentional; each shares this one design. Preserve the individual roles stated in the scene.</p>
+    <p><u>Not in this picture:</u> <i>ABSENT FROM THIS PICTURE</i> (…). Its mention or importance is not a request to draw it. Do not insert the family from its reference sheet.</p>
+  </div>
+
+  <div class="rail"><b>Source</b><code>storyObjects.js</code><br><code>storyObjectRepair.js</code></div>
+  <h3>The story-object plan</h3>
+  <p>One text-model call reads the manuscript, the beats, the theme and any authored definitions, and returns up to six object families. The child's personal objects are passed in so the planner excludes them. The plan is elected create-if-absent under <code>catalog-assets/story-objects/so-1/</code>, keyed by a hash of its inputs.</p>
+  <div class="src">
+    <div class="f"><span>Plan shape (so-1)</span><span>storyObjects.js</span></div>
+    <p><i>object</i> { id, name, aliases[≤12], critical, <i>design</i> { shape, material, colors, scale, features },</p>
+    <p>&nbsp;&nbsp;instances[1–12] { id, description }, reference?, <i>occurrences</i>[≤12] }</p>
+    <p><i>occurrence</i> { spread, instanceIds[], multiplicity: "single" | "group", state, evidence, required }</p>
+  </div>
   <ul>
-    <li><strong>Best-of-N election.</strong> Up to three candidates. Each must pass layout and anatomy checks, <code>cover_identity_matches</code>, <code>cover_outfit_matches</code>, and a cover likeness of at least 0.8. The highest cover likeness wins.</li>
-    <li><strong>The cover is the definition.</strong> The parent approved the cover, so the cover defines face, hair, skin tone, proportions, style and outfit. The raw photo is QA-only: its likeness score is reported and raises a review advisory when low, but it never redesigns the kit.</li>
-    <li><strong>Required by default.</strong> A book that cannot build a sheet fails <code>identity_kit_failed</code> instead of silently rendering on the cover alone. A sheet the judge could not verify is never elected, because an elected sheet is pinned for good.</li>
-    <li><strong>Garment lettering is clothing.</strong> A patch, badge or logo on the cover outfit is reproduced exactly and judged under the outfit checks, never as stray text. Otherwise a faithful sheet of an astronaut suit is rejected for its own mission badge.</li>
+    <li><strong>Grounded evidence.</strong> The manuscript and beats are cut into numbered passages. The planner cites passage ids; the worker resolves them to exact substrings. A spread whose text names an object but has no occurrence is an omission.</li>
+    <li><strong>Authored designs are fixed.</strong> Changing a catalog definition's name, alias, design or criticality is rejected. Today the catalog authors one object: the <code>route_marker</code> of <code>safari_6_7_watering_hole_map</code>. Every other plot object is extracted from the manuscript.</li>
+    <li><strong>Identity is separate from visibility.</strong> A moved, damaged or repaired instance keeps its id; only its state changes.</li>
+    <li><strong>Field-scoped completion.</strong> Two whole-plan attempts. Once identities validate, only defective occurrence fields are completed, in batches of eight with two attempts each. A plan with a reported contradiction is never repaired, and a partial plan is never elected.</li>
   </ul>
 
-  <h3>The outfit spec</h3>
-  <p>A structured spec per slot (top, bottom, footwear, outerwear, accessories), each with colour, cut, the <em>length words</em> where drift lives, patterns and graphics, and a <code>colourHex</code>. Since <code>ce-9</code> it derives from the sheet, where every slot is visible. A slot that would have to be guessed is a derivation failure. The same spec drives the prompt and the check, so two spreads that each pass also match each other.</p>
+  <div class="cards wide">
+    <div class="card"><span class="tag">Reference contract · referenceContract.js</span><h4>What kind of picture is this object's reference?</h4><p>Each object carries a typed contract: <code>kind</code> is single, group, assembly or scene; <code>subject</code> is object, creature or landmark. It decides how the sheet is drawn (one object, one coherent group, one assembly with its parts, one context view), how it is judged, and whether set-level tiles are cropped to the object or show the whole spread.</p></div>
+    <div class="card"><span class="tag">Scene presence · scenePresence.js</span><h4>Is the object actually in this picture?</h4><p>A noun mention proves a referent, not that it belongs in the frame. One audit call marks every occurrence <code>visible</code>, <code>absent</code>, <code>off_screen</code> or <code>optional</code>, citing a manuscript passage. Absent objects leave the reference pack, get the "ABSENT FROM THIS PICTURE" line, and are judged as expected-absent. A family that is never visible gets no sheet.</p></div>
+  </div>
 
-  <h3>Prop and companion sheets</h3>
-  <p>One plate per distinct object (two angles, flat background, no text) plus a vision-read structured spec rendered to one inert sentence. The theme companion gets a sheet the same way, cached per theme. Profile strings are data, never instructions: object values are normalised, capped, and quoted.</p>
-</section>
+  <h3>Reference sheets for plot objects, and how they heal</h3>
+  <p>A reference sheet is itself an AI image and can fail its own check (<code>design_matches</code>, <code>representation_matches</code>, plus text and unrelated people). Unlike a personal prop, a plot-object reference does not simply fail open. With <code>CATALOG_REFERENCE_AUTOHEAL</code> on (the default) it heals in a fixed order:</p>
+  <figure class="wide">
+    <svg viewBox="0 0 680 78" width="100%">
+      <g font-size="8.8" fill="#2A1C12">
+        <rect x="0" y="8" width="124" height="60" rx="4" fill="#FAF5EA" stroke="#e7dccb"/><text x="62" y="30" text-anchor="middle" font-weight="700">Three candidates</text><text x="62" y="43" text-anchor="middle" font-size="7.3" fill="#6a5848">two-view, corrective</text><text x="62" y="54" text-anchor="middle" font-size="7.3" fill="#6a5848">retry, single portrait</text>
+        <rect x="139" y="8" width="124" height="60" rx="4" fill="#dfeeee" stroke="#1F6266"/><text x="201" y="30" text-anchor="middle" font-weight="700">Second opinion</text><text x="201" y="43" text-anchor="middle" font-size="7.3" fill="#6a5848">a rejection stands only</text><text x="201" y="54" text-anchor="middle" font-size="7.3" fill="#6a5848">if two judges agree</text>
+        <rect x="278" y="8" width="124" height="60" rx="4" fill="#fbf0d6" stroke="#D49A2A"/><text x="340" y="30" text-anchor="middle" font-weight="700">One re-plan</text><text x="340" y="43" text-anchor="middle" font-size="7.3" fill="#6a5848">rewrite the design or</text><text x="340" y="54" text-anchor="middle" font-size="7.3" fill="#6a5848">downgrade to "single"</text>
+        <rect x="417" y="8" width="124" height="60" rx="4" fill="#f9e6df" stroke="#C2502F"/><text x="479" y="30" text-anchor="middle" font-weight="700">Degrade</text><text x="479" y="43" text-anchor="middle" font-size="7.3" fill="#6a5848">described object:</text><text x="479" y="54" text-anchor="middle" font-size="7.3" fill="#6a5848">design text, no sheet</text>
+        <rect x="556" y="8" width="124" height="60" rx="4" fill="#2A1C12"/><text x="618" y="30" text-anchor="middle" font-weight="700" fill="#FAF5EA">Book renders</text><text x="618" y="43" text-anchor="middle" font-size="7.3" fill="#c4b39d">advisory on record;</text><text x="618" y="54" text-anchor="middle" font-size="7.3" fill="#c4b39d">artwork keys unchanged</text>
+      </g>
+      <g stroke="#2A1C12" marker-end="url(#ar)"><path d="M125 38H137"/><path d="M264 38H276"/><path d="M403 38H415"/><path d="M542 38H554"/></g>
+    </svg>
+    <figcaption><b>FIG. 2</b> &nbsp;Reference auto-heal. A degraded critical object keeps presence, duplication, rendered-as-text and state blocking; only its look becomes advisory, and the set check skips it.</figcaption>
+  </figure>
+  <p>A re-plan may not rewrite a catalog-authored design. Re-plans are applied to copies; the original objects keep the render identities, so artwork already paid for is not re-keyed. An elected sheet is re-verified every time it is loaded.</p>
+</div>
 
-<section>
-  <h2><span class="n">04 · Rendering</span>The reference pack and the structured prompt</h2>
+<!-- ===================== 05 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">05</div><div><div class="k">Rendering</div><h2>The reference pack and the prompt</h2></div></div>
+
+  <div class="rail"><b>Source</b><code>bible/index.js</code> buildReferencePack<br><code>illustrationGenerator.js</code> buildReferenceParts</div>
+  <h3>The pack: fixed order, fixed labels</h3>
+  <p>Each image is sent as <code>REFERENCE IMAGE n — label</code>. The label says what the image is for and, as importantly, what not to copy from it. There is no cap on the number of references.</p>
+  <table>
+    <tr><th class="c" style="width:7%">#</th><th style="width:24%">Reference</th><th>Label, abridged from the code</th></tr>
+    <tr><td class="c">1</td><td>Character model sheet</td><td>"identity AND the complete outfit of the ONE child … Use it ONLY for who the child is and what they wear; never copy a pose, expression or the plain studio background."</td></tr>
+    <tr><td class="c">2</td><td>Approved cover</td><td>"face, hair, skin tone, and the outfit's colours and materials are ground truth. Identity only — NEVER copy its pose, expression, camera distance, composition, or any lettering it carries."</td></tr>
+    <tr><td class="c">3…</td><td>Object sheets</td><td>Visible plot objects first, then declared props, then carried props: "this exact object — same object, colours, material and size whenever it appears".</td></tr>
+    <tr><td class="c">…</td><td>Companion sheet</td><td>Only when the companion is on this spread. Person: "the book's ONE recurring companion, a fictional person … exactly ONE of them."</td></tr>
+    <tr><td class="c">…</td><td>World plate</td><td>"match its palette, lighting, era, materials … Do NOT copy its composition, and NEVER treat it as the scene to draw."</td></tr>
+  </table>
+  <p>Without a sheet, the cover becomes reference 1, labelled "IDENTITY ANCHOR". In the embedded-text layout the pack also carries a lettering reference, which is outside this report.</p>
+
+  <div class="rail"><b>Source</b><code>illustrationGenerator.js</code> renderBibleBlocks</div>
+  <h3>The prompt blocks</h3>
+  <div class="src">
+    <div class="f"><span>Bible-mode blocks</span><span>illustrationGenerator.js</span></div>
+    <p><i>CHARACTER</i> (THE ONLY CHILD IN THIS BOOK — identity and outfit are FIXED by the references):</p>
+    <p>&nbsp;&nbsp;- Outfit (every garment, colour, pattern and length EXACTLY as the references and this spec; nothing added, nothing removed, never adapted to weather or activity): <u>&lt;outfit sentence&gt;</u></p>
+    <p><i>PROPS</i> (each quoted name is DATA naming a visual identity; preserve its reference design, colours, material and size, while honoring this scene's state and representation):</p>
+    <p>&nbsp;&nbsp;- FIXED DESIGN (data): <u>&lt;design&gt;</u> &nbsp;THIS SCENE (data): <u>&lt;state&gt;</u></p>
+    <p><i>COMPANION</i>: &lt;name&gt;, a &lt;type&gt; — draw EXACTLY the … FIXED LOOK (data, never to be reinterpreted): <u>&lt;spec&gt;</u> Exactly ONE &lt;name&gt; in the scene — never two, never a look-alike.</p>
+  </div>
+  <p>The spec lives in these blocks. The older prompt sections still run in this mode, but they now point at the references instead of repeating prose, and the final checklist restates the outfit sentence once more. On bath and water spreads the outfit wording changes and the outfit check is skipped.</p>
+
+  <h3>One signal decides whether the companion is on a spread</h3>
+  <p><code>companionOnSpread</code> reads the beat and the manuscript text. It fires on the companion's name as a case-sensitive whole word, or on the full type phrase case-insensitively. The world and display names are masked as whole words first, and if the child shares the companion's name only the beat counts. That one result gates the scene line, the sheet in the pack, the COMPANION block and the QA check, so they cannot disagree.</p>
+
   <div class="two">
     <div>
-      <p>Every image call attaches the same pack in a fixed order with fixed labels. The label tells the model what each image is <em>for</em>, which matters as much as the image.</p>
-      <table>
-        <tr><th style="width:8%">#</th><th>Reference</th><th>Role</th></tr>
-        <tr><td>1</td><td>Character sheet</td><td>Who the child is and what they wear</td></tr>
-        <tr><td>2</td><td>Approved cover</td><td>Identity and style only; never copy its pose or composition</td></tr>
-        <tr><td>3</td><td>Prop sheets</td><td>Objects declared on this spread plus carried ones</td></tr>
-        <tr><td>4</td><td>Companion sheet</td><td>Only when the companion is on this spread</td></tr>
-        <tr><td>5</td><td>World plate</td><td>Environment only, identical on all spreads</td></tr>
-      </table>
+      <h3>The safety ladder keeps the bible</h3>
+      <p>A render steps down a rung only on a safety block: <code>original</code>, then <code>sanitized</code> (trigger words stripped from the scene text only; the blocks are rebuilt intact), then <code>generic-safe</code> (a calm generic scene with the blocks re-attached). A render accepted below the first rung carries a <code>render</code> advisory.</p>
     </div>
     <div>
-      <p>The prompt then states each identity <strong>once</strong>, in structured blocks rendered from the bible:</p>
-      <figure style="margin-top:2mm">
-        <svg viewBox="0 0 300 176" width="100%">
-          <rect width="300" height="176" rx="5" fill="#2A1C12"/>
-          <g font-size="8.6" font-family="DejaVu Sans Mono, monospace">
-            <text x="14" y="24" fill="#D99A2B">CHARACTER</text><text x="92" y="24" fill="#e9decb">sheet = Reference 1; outfit by slot</text>
-            <text x="14" y="46" fill="#D99A2B">PROPS</text><text x="92" y="46" fill="#e9decb">closed set; each cites its sheet</text>
-            <text x="14" y="68" fill="#D99A2B">COMPANION</text><text x="92" y="68" fill="#e9decb">FIXED LOOK spec; exactly ONE</text>
-            <text x="14" y="90" fill="#D99A2B">EMOTION</text><text x="92" y="90" fill="#e9decb">planned emotion × intensity</text>
-            <text x="14" y="112" fill="#D99A2B">ACTION</text><text x="92" y="112" fill="#e9decb">the catalog beat is the scene</text>
-            <text x="14" y="134" fill="#D99A2B">COMPOSITION</text><text x="92" y="134" fill="#e9decb">shot plan; FACE + BODY lines</text>
-            <text x="14" y="156" fill="#D99A2B">WORLD</text><text x="92" y="156" fill="#e9decb">the theme's law card</text>
-          </g>
-        </svg>
-      </figure>
+      <h3>Variety is pinned separately</h3>
+      <p>A strong identity reference pulls every spread toward its pose. A deterministic shot plan, seeded by the story fingerprint, assigns each spread a shot type and staging, so "who" and "how" are pinned by different mechanisms.</p>
     </div>
   </div>
-  <h3>Design decisions that mattered</h3>
-  <ul>
-    <li><strong>Say it once.</strong> The old prompt repeated the outfit sentence six times. Repetition did not add weight; it added conflicting phrasings. One block that cites a picture is stronger.</li>
-    <li><strong>Variety is pinned too.</strong> A deterministic shot plan assigns each spread a shot type, staging and placement, seeded by the story fingerprint. Without it, a strong identity reference pulls every spread toward the reference's pose. Consistency of <em>who</em> and variety of <em>how</em> are pinned by separate mechanisms so they do not fight.</li>
-    <li><strong>The pack survives the safety ladder.</strong> When a prompt is blocked, the sanitized rung strips trigger words from the scene only; pinned blocks stay intact, and the generic-safe rung re-attaches the bible blocks. Before this, a fallback render shipped silently with no outfit and no props. Any render accepted below the first rung now carries an advisory.</li>
-    <li><strong>The cache key is the contract.</strong> The bible hash folds into every render key. Change the cover, a sheet, a spec or an object plan and the affected renders re-key; change nothing and the book replays for free. Locked and lock-less, planned and plan-less renders can never replay each other.</li>
-  </ul>
-</section>
 
-<section>
-  <h2><span class="n">05 · Verification</span>Pixels checked against pixels</h2>
-  <p>The per-spread judge (<code>checkSpreadRenderV2</code>) receives the render <strong>with the sheets attached beside it</strong> and returns a schema-shaped verdict, not a boolean. It reports identity against the sheet, the outfit garment by garment (<code>match | mismatch | not_visible</code>), each object against its sheet (presence, look, duplicated, rendered as text), the companion, the beat's action, the planned emotion, anatomy, and bounding boxes for the child, companion and props.</p>
-  <p>Each finding maps to a <strong>fixed defect string</strong> classified as blocking or advisory. Only fixed strings and pinned data ever reach a repair prompt; free-form judge prose never does.</p>
+  <div class="rail t"><b>Key path</b><code>children-jobs/{bookId}/ ce-renders/ {STYLE_VERSION}/ {storyHash}/ spread-N.{aspect}.png</code></div>
+  <h3>The cache key is the contract</h3>
+  <p><code>storyHash</code> starts from the book id and spread texts, then folds in the catalog tag and <code>-b{bibleHash}</code>. Any change to a sheet, a spec or the object plan therefore re-keys all twelve spreads. In recovery mode the fold is a <strong>per-spread</strong> dependency digest instead (<code>-d…</code>): a change to a plot-object reference then re-keys only the spreads that object appears on.</p>
+</div>
+
+<!-- ===================== 06 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">06</div><div><div class="k">Verification</div><h2>Pixels checked against pixels</h2></div></div>
+
+  <div class="rail"><b>Source</b><code>spreadQa.js</code> checkSpreadRenderV2, classifyDefects</div>
+  <h3>What the judge sees and returns</h3>
+  <p>One vision call per candidate. The render is image 1, followed by the character sheet, each object sheet and the companion sheet. The answer is a schema, not a boolean.</p>
   <table>
-    <tr><th style="width:15%">Class</th><th style="width:43%">Character</th><th>Objects and companion</th></tr>
-    <tr><td><span class="pill b">Blocking</span></td><td>Child missing or duplicated; identity, hair or skin differs from the sheet; any visible outfit slot mismatched; extra limbs; body truncated; impossible limb pose; style break</td><td>Declared object missing or wrong look; companion wrong look or duplicated; critical story object wrong presence, count or state</td></tr>
-    <tr><td><span class="pill a">Advisory</span></td><td>Action or emotion reads differently; hands or face artefacts; face hidden; shot type off</td><td>Carried comfort object not visible; undeclared personal object in the scene</td></tr>
-  </table>
-  <p>Strict fields fail open on a malformed verdict rather than passing silently, and a render cached without a QA marker, or under an older <code>QA_VERSION</code>, is re-checked instead of trusted.</p>
-  <h3>Deterministic metrics beside the judge</h3>
-  <p>From the judged bounding boxes, <code>metrics.js</code> computes signals that do not depend on a model's opinion: crop and safe-zone rules, and the colour difference (ΔE) between each garment region and the spec's <code>colourHex</code>. An optional embedding-based identity score flags set outliers. These shade candidate selection.</p>
-</section>
-
-<section>
-  <h2><span class="n">06 · Selection and repair</span>Accepting a render</h2>
-  <figure>
-    <svg viewBox="0 0 660 190" width="100%">
-      <g font-size="9.2" fill="#2A1C12">
-        <rect x="0" y="34" width="112" height="52" rx="5" fill="#FBF6EC" stroke="#e6dccb"/><text x="56" y="56" text-anchor="middle" font-weight="650">Render N</text><text x="56" y="70" text-anchor="middle" font-size="8" fill="#5b4a3d">candidates, own bytes</text>
-        <rect x="136" y="34" width="112" height="52" rx="5" fill="#e2efef" stroke="#2F6F73"/><text x="192" y="56" text-anchor="middle" font-weight="650">Judge + metrics</text><text x="192" y="70" text-anchor="middle" font-size="8" fill="#5b4a3d">vs sheets and specs</text>
-        <rect x="272" y="34" width="112" height="52" rx="5" fill="#fbf0d8" stroke="#D99A2B"/><text x="328" y="56" text-anchor="middle" font-weight="650">Score + select</text><text x="328" y="70" text-anchor="middle" font-size="8" fill="#5b4a3d">blocking sinks below 0</text>
-        <path d="M430 16 L486 60 L430 104 L374 60z" fill="#fff" stroke="#2A1C12" transform="translate(30 0)"/><text x="460" y="57" text-anchor="middle" font-weight="650">Blocking</text><text x="460" y="69" text-anchor="middle" font-size="8" fill="#5b4a3d">defects left?</text>
-        <rect x="548" y="34" width="112" height="52" rx="5" fill="#2A1C12"/><text x="604" y="56" text-anchor="middle" font-weight="650" fill="#FBF6EC">Promote best</text><text x="604" y="70" text-anchor="middle" font-size="8" fill="#c9b9a4">to the canonical key</text>
-        <rect x="272" y="132" width="232" height="46" rx="5" fill="#f8e7e1" stroke="#C8553D"/><text x="388" y="151" text-anchor="middle" font-weight="650">Repair note from pinned data</text><text x="388" y="165" text-anchor="middle" font-size="8" fill="#5b4a3d">slot / prop / companion / anatomy; budget permitting</text>
-      </g>
-      <g stroke="#2A1C12" fill="none" marker-end="url(#ar)"><path d="M114 60H134"/><path d="M250 60H270"/><path d="M386 60H402"/><path d="M518 60H546"/><path d="M460 106V130"/><path d="M270 155H56V88"/></g>
-      <text x="530" y="52" font-size="8" fill="#2F6F73" font-weight="650" text-anchor="middle">no</text>
-      <text x="472" y="122" font-size="8" fill="#C8553D" font-weight="650">yes</text>
-    </svg>
-    <figcaption><b>Figure 2.</b> The per-spread acceptance loop. Every automatic candidate, from any gate, draws on one per-spread budget.</figcaption>
-  </figure>
-  <ul>
-    <li><strong>Scoring.</strong> A blocking defect sinks a candidate below zero. Advisories and metrics shade the rest. An unchecked candidate ranks below any checked one.</li>
-    <li><strong>Every candidate keeps its own bytes.</strong> A rejected repair never overwrites better pixels, and a failure payload lists exactly what was scored.</li>
-    <li><strong>A repair is adopted only when it scores higher.</strong> An unchecked repair (checker outage mid-loop) never replaces a render whose defects are known. A set-gate re-render with <em>more</em> blocking defects than the flagged render is discarded and the original bytes restored.</li>
-    <li><strong>One budget.</strong> Base candidates, repairs, set-gate re-renders and lettering recovery all spend from <code>CATALOG_RENDER_BUDGET_PER_SPREAD</code> (default 3). Cost is bounded per spread, whatever combination of gates fires.</li>
-  </ul>
-  <div class="callout mustard">
-    <div class="t">Ship policy</div>
-    <p>The book finishes. When the budget is spent, a spread ships its best candidate with every finding on record in the callback, and the page is named for proofing. The one thing no policy can carry is a missing image, which gets bounded fresh render rounds. A strict mode (<code>CATALOG_SHIP_ON_EXHAUSTION=0</code>) turns every blocking residual back into a hard stop with scored candidates attached, and an admin can promote a candidate by hand.</p>
-  </div>
-</section>
-
-<section>
-  <h2><span class="n">07 · Set gates</span>Judging the book as a book</h2>
-  <p>Twelve spreads that each pass against the sheet can still disagree with each other inside the tolerance. So after the per-spread loop, the run is judged as a set.</p>
-  <div class="cards">
-    <div class="card"><span class="tag">World gate</span><h4>One multi-image check across the run</h4><p>A closed vocabulary of set breaks: palette, era, materials, magic behaviour, plus <code>character_rendering</code> (the child reads as a different age, proportions, outfit or hair) and <code>composition_duplicate</code>.</p></div>
-    <div class="card"><span class="tag">Contact-sheet gate · child</span><h4>Crops tiled beside the model sheet</h4><p>At thumbnail scale, garments are invisible. The gate crops the child from every spread using the judged bounding box and tiles the crops next to the sheet in one image, so hem lengths and shoes are legible.</p></div>
-    <div class="card"><span class="tag">Contact-sheet gate · objects</span><h4>Per-prop crops beside each prop sheet</h4><p>Flags <code>prop_rendering</code>. A repair cites the prop sheet's index in the re-render's own pack. Critical story-object families get a final contact check on the selected artwork.</p></div>
-    <div class="card"><span class="tag">Contact-sheet gate · companion</span><h4>Every spread that expected the companion</h4><p>Flags <code>companion_rendering</code>. This is the set-level view that two individually passing spreads never get.</p></div>
-  </div>
-  <p>Flagged <strong>fresh</strong> spreads get one corrective re-render through the full per-spread path, under a per-gate cap. Replayed cached renders are comparison references only and are never re-rendered by a gate, because their bytes may already be approved elsewhere. Gate findings ship as advisories, and each gate's verdict rides the completion callback.</p>
-</section>
-
-<section class="break">
-  <h2><span class="n">08 · Objects</span>Three kinds of object, three policies</h2>
-  <p>"Object consistency" turned out to be three different problems. Treating them as one caused both drift and over-correction.</p>
-  <table>
-    <tr><th style="width:17%">Kind</th><th style="width:25%">Example</th><th>Policy</th></tr>
-    <tr><td>Personal object</td><td>The child's comfort toy, from the profile</td><td>A prop sheet and spec. Introduced on its declared evidence spread (missing there is blocking), then <strong>carried through</strong> every later spread as a small, visually subdued continuity prop (not visible later is advisory). Food, place and interest details stay pinned to their declared spreads only.</td></tr>
-    <tr><td>Story object</td><td>A route marker, a key, a map, a vehicle</td><td>A <strong>story-object plan</strong>: one fixed design per family, explicit instances, and a per-spread occurrence schedule with physical state. Plot objects do not inherit the "small and decorative" rule.</td></tr>
-    <tr><td>Everything else</td><td>Invented toys, gadgets, trinkets</td><td>The personal-object set is <strong>closed</strong>. The prompt forbids objects beyond the declared set and the beat's own needs; the judge reports <code>undeclared_object</code>.</td></tr>
+    <tr><th style="width:18%">Subject</th><th>Fields</th></tr>
+    <tr><td>Identity</td><td><code>same_child</code>, <code>hair_match</code>, <code>skin_tone_match</code>, <code>age_reads_as_child</code>. Hair, skin and age are judged only when <code>same_child</code> holds.</td></tr>
+    <tr><td>Outfit</td><td><code>top</code>, <code>bottom</code>, <code>footwear</code>, <code>outerwear</code>, <code>accessories</code>, each <code>match | mismatch | not_visible</code></td></tr>
+    <tr><td>Each object</td><td><code>presence</code>, <code>look</code>, <code>duplicated</code>, <code>as_text</code> and a bounding box; plot objects add <code>state_match</code> (state, roles, count, orientation, spatial clues)</td></tr>
+    <tr><td>Companion</td><td><code>present</code>, <code>look_match</code>, <code>duplicated</code> and a bounding box</td></tr>
+    <tr><td>Body</td><td><code>extra_limbs</code>, <code>body_truncated</code>, <code>limb_pose_impossible</code>, <code>hand_defects</code>, <code>face_artifacts</code>, <code>child_bbox</code></td></tr>
+    <tr><td>Scene</td><td><code>child_absent</code>, <code>multiple_children</code>, <code>undeclared_object</code>, <code>face_fully_hidden</code>, action and emotion fields</td></tr>
   </table>
 
-  <h3>The story-object plan</h3>
-  <p><code>storyObjects.js</code> reads the final manuscript, the catalog beats, the theme and any authored definitions together, and resolves object families, aliases, instances, per-spread state and story-criticality.</p>
-  <ul>
-    <li><strong>Grounded evidence.</strong> The planner selects evidence by numbered source passage; the worker resolves those ids to exact substrings of the manuscript or beat. This removes model transcription errors, and an explicit mention cannot silently lose its occurrence.</li>
-    <li><strong>A fixed design.</strong> Shape, material, colours, scale, features. Authored catalog definitions cannot be omitted or rewritten. The first one: a knee-high wooden post with one orange stripe, shared by every route marker in a safari book. The displaced third marker keeps its instance id.</li>
-    <li><strong>Identity is separate from visibility.</strong> Groups are intentional. A moved, damaged or repaired instance keeps its identity; only its state changes. The judge verifies <code>state_match</code> including stated clues and spatial relationships.</li>
-    <li><strong>Field-scoped completion.</strong> Once identities validate, the plan is frozen and only defective fields are completed, under a bounded budget. A partial plan is never elected.</li>
-    <li><strong>Elected and hashed.</strong> The plan is elected create-if-absent by input hash, and its hash enters the bible and every spread's QA record. A changed plan cannot reuse older approval.</li>
-  </ul>
+  <h3>The defect ledger</h3>
+  <p>Every finding becomes a fixed string. A string is blocking if it starts with one of the prefixes in <code>BLOCKING_PREFIXES</code>; everything else is advisory.</p>
+  <table class="wide">
+    <tr><th style="width:12%">Class</th><th style="width:44%">Defect string</th><th>Condition</th></tr>
+    <tr><td><span class="pill b">Blocking</span></td><td>child hero missing · duplicated child hero</td><td></td></tr>
+    <tr><td><span class="pill b">Blocking</span></td><td>identity break · hair differs · skin tone differs</td><td>Against the character model sheet</td></tr>
+    <tr><td><span class="pill b">Blocking</span></td><td>outfit break: &lt;slot&gt; differs from the locked outfit spec</td><td>Any visible slot. An outerwear or accessories mismatch needs a second, independent check to confirm it.</td></tr>
+    <tr><td><span class="pill b">Blocking</span></td><td>prop missing · prop differs from its reference sheet · prop duplicated · prop rendered as text</td><td>"missing" only for a required prop; "differs" only when a sheet exists</td></tr>
+    <tr><td><span class="pill b">Blocking</span></td><td>prop state mismatch</td><td>A plot object whose state is wrong, or one expected absent that is drawn</td></tr>
+    <tr><td><span class="pill b">Blocking</span></td><td>companion missing · companion differs · companion duplicated</td><td>When the presence signal expected the companion</td></tr>
+    <tr><td><span class="pill b">Blocking</span></td><td>anatomy defect: extra or missing limbs · body incomplete · impossible limb pose</td><td></td></tr>
+    <tr><td><span class="pill a">Advisory</span></td><td>age or proportions differ from the character model sheet</td><td>Not in the blocking list</td></tr>
+    <tr><td><span class="pill a">Advisory</span></td><td>carried prop not visible · undeclared personal object in the scene</td><td></td></tr>
+    <tr><td><span class="pill a">Advisory</span></td><td>described story object look differs</td><td>A degraded object, which has no sheet</td></tr>
+    <tr><td><span class="pill a">Advisory</span></td><td>action break · emotion mismatch · face hidden · hands or fingers · face artifacts</td><td></td></tr>
+    <tr><td><span class="pill a">Advisory</span></td><td>Needs visual review: outfit break … (not confirmed by a second check)</td><td>The unconfirmed optional-garment case</td></tr>
+  </table>
 
-  <h3>References that heal themselves</h3>
-  <p>A reference sheet is itself an AI image and can fail its own check. Because every root on that path is content-fingerprinted, a regeneration used to replay the saved rejection forever. The path now heals in a fixed order:</p>
-  <figure>
-    <svg viewBox="0 0 660 74" width="100%">
+  <div class="note t">
+    <div class="h">When the judge cannot answer</div>
+    <p>A missing or malformed required field does not produce a defect and does not pass silently. After one retry on the same image, the candidate is marked <em>unchecked</em>: it ranks below every checked candidate, no QA marker is written for it, and the render is re-checked on the next run.</p>
+  </div>
+
+  <div class="rail t"><b>Source</b><code>metrics.js</code></div>
+  <h3>Measured signals</h3>
+  <p>Two measurements run beside the judge. Neither raises a defect; both only move a candidate's score.</p>
+  <ul>
+    <li><strong>Garment colour.</strong> The child's bounding box is cropped and split into three height bands: 15–50% for the top, 50–85% for the bottom, 85–100% for footwear. Each band's dominant colours are compared with the slot's spec hex values. A slot fails when the closest pair is further apart than ΔE 28.</li>
+    <li><strong>Identity embedding</strong> (opt-in, <code>CATALOG_IDENTITY_METRICS=1</code>). Cosine similarity between the child crop and the sheet. With six or more spreads, a spread more than two standard deviations from the set is reported to the contact gate as a <code>character_rendering</code> outlier.</li>
+  </ul>
+</div>
+
+<!-- ===================== 07 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">07</div><div><div class="k">Acceptance</div><h2>Selection, repair, set gates and ship policy</h2></div></div>
+
+  <div class="rail"><b>Source</b><code>select.js</code><br><code>illustrator/index.js</code></div>
+  <h3>Ranking: tier first, then score</h3>
+  <div class="two">
+    <div>
+      <table style="margin-top:0">
+        <tr><th class="c" style="width:18%">Tier</th><th>Candidate</th></tr>
+        <tr><td class="c">0</td><td>Checked, no blocking defect</td></tr>
+        <tr><td class="c">1</td><td>Checked, has a blocking defect</td></tr>
+        <tr><td class="c">2</td><td>Unchecked</td></tr>
+      </table>
+      <p>The tier is compared before the score, so a blocking candidate can never outrank a clean one, whatever bonuses it earns. Ties go to the earlier candidate.</p>
+    </div>
+    <div>
+      <table style="margin-top:0">
+        <tr><th>Score term</th><th class="c" style="width:38%">Weight</th></tr>
+        <tr><td>Base</td><td class="c">+100</td></tr>
+        <tr><td>Each blocking defect</td><td class="c">−120</td></tr>
+        <tr><td>Each advisory</td><td class="c">−10</td></tr>
+        <tr><td>Each failed colour slot</td><td class="c">−15</td></tr>
+        <tr><td>Identity score s</td><td class="c">+40 × (s − 0.5)</td></tr>
+        <tr><td>Unchecked candidate</td><td class="c">fixed 40</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <figure class="wide">
+    <svg viewBox="0 0 680 168" width="100%">
       <g font-size="8.8" fill="#2A1C12">
-        <rect x="0" y="10" width="120" height="50" rx="5" fill="#FBF6EC" stroke="#e6dccb"/><text x="60" y="31" text-anchor="middle" font-weight="650">Candidate ladder</text><text x="60" y="45" text-anchor="middle" font-size="7.8" fill="#5b4a3d">3 durable candidates</text>
-        <rect x="135" y="10" width="120" height="50" rx="5" fill="#e2efef" stroke="#2F6F73"/><text x="195" y="31" text-anchor="middle" font-weight="650">Second opinion</text><text x="195" y="45" text-anchor="middle" font-size="7.8" fill="#5b4a3d">two rejections = defect</text>
-        <rect x="270" y="10" width="120" height="50" rx="5" fill="#fbf0d8" stroke="#D99A2B"/><text x="330" y="31" text-anchor="middle" font-weight="650">One re-plan</text><text x="330" y="45" text-anchor="middle" font-size="7.8" fill="#5b4a3d">closed design vocabulary</text>
-        <rect x="405" y="10" width="120" height="50" rx="5" fill="#f8e7e1" stroke="#C8553D"/><text x="465" y="31" text-anchor="middle" font-weight="650">Degrade</text><text x="465" y="45" text-anchor="middle" font-size="7.8" fill="#5b4a3d">described object, no sheet</text>
-        <rect x="540" y="10" width="120" height="50" rx="5" fill="#2A1C12"/><text x="600" y="31" text-anchor="middle" font-weight="650" fill="#FBF6EC">Book renders</text><text x="600" y="45" text-anchor="middle" font-size="7.8" fill="#c9b9a4">advisory on record</text>
+        <rect x="0" y="22" width="112" height="56" rx="4" fill="#FAF5EA" stroke="#e7dccb"/><text x="56" y="45" text-anchor="middle" font-weight="700">Render candidates</text><text x="56" y="59" text-anchor="middle" font-size="7.3" fill="#6a5848">each keeps its own bytes</text>
+        <rect x="136" y="22" width="112" height="56" rx="4" fill="#dfeeee" stroke="#1F6266"/><text x="192" y="45" text-anchor="middle" font-weight="700">Judge + measure</text><text x="192" y="59" text-anchor="middle" font-size="7.3" fill="#6a5848">against sheets and specs</text>
+        <rect x="272" y="22" width="112" height="56" rx="4" fill="#fbf0d6" stroke="#D49A2A"/><text x="328" y="45" text-anchor="middle" font-weight="700">Rank</text><text x="328" y="59" text-anchor="middle" font-size="7.3" fill="#6a5848">tier, then score</text>
+        <path d="M470 8L528 50L470 92L412 50z" fill="#fff" stroke="#2A1C12"/><text x="470" y="47" text-anchor="middle" font-weight="700">Blocking</text><text x="470" y="59" text-anchor="middle" font-size="7.3" fill="#6a5848">defect left?</text>
+        <rect x="556" y="22" width="124" height="56" rx="4" fill="#2A1C12"/><text x="618" y="45" text-anchor="middle" font-weight="700" fill="#FAF5EA">Promote the best</text><text x="618" y="59" text-anchor="middle" font-size="7.3" fill="#c4b39d">copy to the canonical key</text>
+        <rect x="272" y="116" width="256" height="46" rx="4" fill="#f9e6df" stroke="#C2502F"/><text x="400" y="135" text-anchor="middle" font-weight="700">Repair pass</text><text x="400" y="149" text-anchor="middle" font-size="7.3" fill="#6a5848">fixed note per defect + pinned spec; while budget remains</text>
       </g>
-      <g stroke="#2A1C12" marker-end="url(#ar)"><path d="M121 35H133"/><path d="M256 35H268"/><path d="M391 35H403"/><path d="M526 35H538"/></g>
+      <g stroke="#2A1C12" fill="none" marker-end="url(#ar)"><path d="M113 50H134"/><path d="M249 50H270"/><path d="M385 50H410"/><path d="M529 50H554"/><path d="M470 93V114"/><path d="M270 139H56V80"/></g>
+      <text x="541" y="43" font-size="7.6" fill="#1F6266" font-weight="700" text-anchor="middle">no</text>
+      <text x="482" y="108" font-size="7.6" fill="#C2502F" font-weight="700">yes</text>
     </svg>
-    <figcaption><b>Figure 3.</b> Reference auto-heal. A degraded critical object keeps presence, count and state blocking; only its look becomes advisory.</figcaption>
+    <figcaption><b>FIG. 3</b> &nbsp;The per-spread loop. Defaults: one base candidate, one repair pass, three renders in total per spread.</figcaption>
   </figure>
-  <p>An explicit regeneration opens fresh candidate slots under a retry namespace, while a plain resume replays saved work. The same rule applies to the character sheet: if the image provider refuses to draw it on every rung of the prompt ladder, the book renders on the approved cover alone with a loud advisory rather than pausing on a review that could only replay the same refusal.</p>
-</section>
 
-<section>
-  <h2><span class="n">09 · Secondary characters</span>The companion is a Bible identity</h2>
-  <p>A farm book shipped with Farmer Bea as a different woman on two spreads. The investigation found two causes, both general, and the fix (<code>ce-19</code>) treats every named recurring companion exactly like the child.</p>
-  <div class="cards">
-    <div class="card"><span class="tag">Cause</span><h4>Person companions had no pixels</h4><p>Human companions were excluded from the companion sheet because the renderer forbade inventing adult faces. Two themes (38 books) rendered their guide as a bare noun: no sheet, no spec, no look check, no set gate.</p></div>
-    <div class="card"><span class="tag">Cause</span><h4>The presence signal never fired</h4><p>World-name masks were raw substring splits. The farm theme's display name "Farm" is a substring of "Farmer", so "Farmer Bea" became "er Bea" before the name was looked for. No companion line, no block, no check, on any spread.</p></div>
-  </div>
-  <h3>What changed</h3>
   <ul>
-    <li><strong>One presence signal.</strong> <code>companionOnSpread</code> reads the beat <em>and</em> the manuscript text: the companion's name as a case-sensitive whole word ("Patch" the parrot never fires on "a patch of mud"), or the full type phrase. That one signal gates the scene line, the sheet in the pack, the COMPANION block and the QA check. Masks are whole-word.</li>
-    <li><strong>One kind decision.</strong> A shared module decides person versus creature for the sheet builder, the renderer, the judge and the contact gate. Previously two regexes disagreed.</li>
-    <li><strong>A secondary character sheet.</strong> A person companion gets a model sheet (one fictional person, full-body, two views) and a character spec: apparent age and build from a closed vocabulary, skin tone, hair, face notes, outfit by garment, dominant hex colours.</li>
-    <li><strong>The spec rides the prompt.</strong> The companion's spec sentence is stated as FIXED LOOK with an "exactly ONE" rule. Before, it was derived, hashed and never used.</li>
-    <li><strong>Checked like the child.</strong> <code>look_match</code> by face, age, hair, skin, build and outfit; a duplication check; and the companion contact-sheet gate across the set.</li>
+    <li><strong>Own bytes.</strong> Candidates are stored as <code>.cK.png</code> and repairs as <code>.rPcK.png</code>; the winner is copied to the canonical key. A rejected repair never overwrites better pixels.</li>
+    <li><strong>Adoption.</strong> A repair replaces the current best when it ranks equal or higher. A repair that clears the blocking defect is kept even with a lower score. A repair the checker could not verify is never adopted and ends the loop.</li>
+    <li><strong>One budget.</strong> Base candidates, repairs and set-gate re-renders all draw on <code>CATALOG_RENDER_BUDGET_PER_SPREAD</code> (default 3).</li>
+    <li><strong>Repair notes are templates.</strong> Each defect maps to a fixed note filled only with pinned data: the outfit sentence, a prop name, a reference index.</li>
   </ul>
-  <div class="callout teal">
-    <div class="t">The general lesson</div>
-    <p>A blanket safety rule ("no invented human faces in the background") had silently contradicted a product requirement on 38 books. The fix was to make the exception explicit and bounded: one named fictional person, pinned by a sheet, allowed by the COMPANION block.</p>
+  <div class="src wide">
+    <div class="f"><span>Repair notes</span><span>spreadQa.js · repairNoteV2</span></div>
+    <p><i>OUTFIT REPAIR</i> (&lt;slots&gt;): the child MUST wear EXACTLY the outfit of REFERENCE n and this spec — every garment, colour, pattern and length, nothing added, nothing removed: "&lt;outfit sentence&gt;". Fix ONLY the clothing; keep the scene otherwise identical.</p>
+    <p><i>COMPANION REPAIR</i>: "&lt;name&gt;" must appear in this scene exactly once, drawn EXACTLY as REFERENCE n … Exactly ONE of them — remove every second instance or look-alike figure.</p>
   </div>
-</section>
 
-<section class="break">
-  <h2><span class="n">10 · Evolution</span>How we got here</h2>
-  <p>The solution was reached in steps. The early steps each fixed a symptom with more prompt text; the turning point was <code>ce-9</code>, which replaced words with pixels and booleans with structured verdicts.</p>
+  <div class="rail"><b>Source</b><code>contactSheet.js</code><br><code>spreadQa.js</code> checkWorldConsistency<br><code>index.js</code> verifyCriticalObjectSet</div>
+  <h3>Set gates: the book judged as a book</h3>
+  <p>Twelve spreads that each pass against the sheet can still disagree with each other inside the tolerance. After the per-spread phase the run is judged as a set, in this order:</p>
+  <div class="steps">
+    <div><b class="t">World gate</b>One call over up to twelve spreads at 1024 px, with a closed vocabulary of set breaks, including <code>character_rendering</code> (the child reads as a different age, proportions, outfit or hair). Up to three re-renders.</div>
+    <div><b class="t">Contact-sheet gate</b>At thumbnail scale a shoe is invisible. So the child is cropped from every spread by its judged box and the crops are tiled beside the model sheet: 384 px tiles, four columns, the reference tile first. The same is done per object sheet, and for the companion over the spreads that expected it. Embedding outliers join here. All of it shares one budget of three re-renders, with one finding per spread.</div>
+    <div><b class="t">Critical-object set check</b>For each critical, non-degraded plot object visible on two or more spreads, a contact sheet beside its reference. This check fails closed: an unverified result is recorded as "Critical object set unverified", a failed one as "Critical object changes across spreads". It may re-render cached spreads, into an isolated namespace, and it re-verifies the set afterwards.</div>
+  </div>
+  <p>The world and contact gates re-render only spreads rendered fresh in this run; replayed renders are comparison references. A gate re-render that comes back worse (more blocking defects, or a lost verdict) is discarded and the original bytes are restored. Repair prompts are built from the closed defect names and cite the sheet's index in the re-render's own pack.</p>
+
+  <h3>Ship policy and the QA marker</h3>
+  <div class="cards wide">
+    <div class="card y"><span class="tag">Default · the book finishes</span><h4>Ship the best candidate, findings on record</h4><p>When the budget is spent, a spread ships its best candidate. Blocking residuals, including critical-object failures, ride the callback as advisories with a book-level <code>shipPolicy</code> note. A spread with no image at all gets up to three fresh render rounds, then fails <code>render_failed</code>.</p></div>
+    <div class="card y"><span class="tag">CATALOG_SHIP_ON_EXHAUSTION=0</span><h4>Stop and attach the candidates</h4><p>Any blocking residual fails the run <code>consistency_unresolved</code> with every scored candidate attached. An admin can promote one with <code>/v13/pick-candidate</code>.</p></div>
+  </div>
+  <p>Beside each render a <code>.qa.json</code> marker records the byte hash, <code>QA_VERSION</code>, the object-plan and scene-presence hashes, the verdict with its bounding boxes, and whether the render shipped unresolved. A cached render is re-checked, not trusted, when the bytes changed, the QA version moved, either object hash differs, or a critical-object failure is on record.</p>
+</div>
+
+<!-- ===================== 08 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">08</div><div><div class="k">Case study and history</div><h2>Secondary characters, and how we got here</h2></div></div>
+
+  <h3 style="margin-top:0">Farmer Bea was two different women</h3>
+  <p>A farm book shipped with its human guide drawn as a different person on two spreads. Both causes were general, and the fix (<code>ce-19</code>) treats every named recurring companion like the child.</p>
+  <div class="cards wide">
+    <div class="card r"><span class="tag">Cause</span><h4>Person companions had no pixels</h4><p>Human companions were excluded from the companion sheet because the renderer forbade inventing adult faces. The two human-guide themes (38 books) rendered their guide as a bare noun: no sheet, no spec, no look check, no set gate.</p></div>
+    <div class="card r"><span class="tag">Cause</span><h4>The presence signal never fired</h4><p>World-name masks were raw substring splits. The farm theme's display name "Farm" is a substring of "Farmer", so "Farmer Bea" became "er Bea" before the name was looked for. No companion line, block or check on any spread.</p></div>
+    <div class="card"><span class="tag">Fix</span><h4>A sheet, a spec, and an explicit exception</h4><p>A person companion gets a secondary-character sheet and a character spec. The COMPANION block states the spec as FIXED LOOK and explicitly allows this one fictional person against the no-other-humans rule.</p></div>
+    <div class="card"><span class="tag">Fix</span><h4>One signal, checked like the child</h4><p>Whole-word masks; one shared person-or-creature decision; <code>look_match</code> by face, age, hair, skin, build and outfit; a duplication check; and a companion contact sheet across the set.</p></div>
+  </div>
+
+  <h3>Evolution</h3>
+  <p>The early versions each fixed a symptom with more prompt text. The turning point was <code>ce-9</code>, which replaced words with pixels and booleans with structured verdicts.</p>
   <div class="tl">
-    <div><b class="v">pre</b>Previous-spread chaining deleted as the source of photocopy drift. Consistency must come from fixed inputs.</div>
-    <div><b class="v">ce-5</b>World-law card on every prompt, a fixed per-theme world plate, and the first set-level gate.</div>
+    <div><b class="v">pre</b>Previous-spread chaining deleted as the source of photocopy drift.</div>
+    <div><b class="v">ce-5</b>World-law card on every prompt, a fixed world plate, and the first set-level gate.</div>
     <div><b class="v">ce-6</b>Carry-through props: the comfort object persists after its evidence spread.</div>
-    <div><b class="v">ce-7</b>Outfit lock: a per-anchor clothing spec read from the cover, pinned on every render.</div>
-    <div><b class="v">ce-8</b>Structured per-slot outfit spec, outfit QA against it, and the deterministic shot plan for variety.</div>
-    <div class="k"><b class="v">ce-9</b><strong>The Book Bible and the selection gate.</strong> Character sheet, sheet-derived outfit spec, prop and companion sheets, reference pack, structured judge with sheets attached, candidate scoring, contact-sheet gate.</div>
-    <div><b class="v">ce-10</b>Closed personal-object set, subdued carried props, garment patterns in the outfit check, face visibility.</div>
-    <div><b class="v">ce-11</b>Companion presence pinned by beat and manuscript, so mid-book appearances get the sheet and the check.</div>
-    <div><b class="v">ce-19</b>Secondary characters as Bible identities: person companion sheets, specs and the companion contact gate.</div>
-    <div><b class="v">ce-20</b>The whole body: truncated bodies and impossible limb poses become blocking, beyond limb counting.</div>
-    <div><b class="v">so-1</b>Story-object plan: fixed designs, instances, per-spread occurrence and state for plot objects.</div>
-    <div><b class="v">heal</b>Self-healing references; garment lettering judged as clothing; refusal fallback for the sheet.</div>
-    <div><b class="v">ce-22</b>The approved cover defines the identity; the photo becomes an advisory signal only.</div>
+    <div><b class="v">ce-7</b>Outfit lock: a clothing spec read from the cover and pinned on every render.</div>
+    <div><b class="v">ce-8</b>Structured per-slot outfit spec with outfit QA; the deterministic shot plan.</div>
+    <div class="k"><b class="v">ce-9</b><strong>The Book Bible and the selection gate.</strong> Character sheet, sheet-derived outfit spec, prop and companion sheets, reference pack, structured judge with sheets attached, candidate ranking, contact-sheet gate.</div>
+    <div><b class="v">ce-10</b>Closed personal-object set, subdued carried props, garment patterns in the outfit check.</div>
+    <div><b class="v">ce-11</b>Companion presence read from beat and manuscript.</div>
+    <div><b class="v">ce-19</b>Person companions get sheets, specs and the companion contact sheet.</div>
+    <div><b class="v">ce-20</b>Truncated bodies and impossible limb poses become blocking.</div>
+    <div><b class="v">so-1</b>Story-object plan, then reference contracts, scene presence and auto-heal.</div>
+    <div><b class="v">ce-22</b>The sheet is drawn from the cover alone; the photo becomes an advisory signal for the judge only.</div>
   </div>
-</section>
+</div>
 
-<section>
-  <h2><span class="n">11 · Lessons</span>What generalises</h2>
-  <div class="cards">
-    <div class="card"><h4>1. Pin pixels, not adjectives</h4><p>If an identity matters, give the model a picture of it and a judge a spec of it. An unspecified garment or an unpictured toy is per-spread freedom.</p></div>
-    <div class="card"><h4>2. One spec for prompt and check</h4><p>When the same pinned spec drives the render and the gate, they cannot disagree, and spreads that each pass also match each other.</p></div>
-    <div class="card"><h4>3. A gate can only reject</h4><p>Rejection without a better input just burns budget. Every gate here is paired with a fixed input that makes the right result likely on the first render.</p></div>
-    <div class="card"><h4>4. Compare at the scale of the defect</h4><p>A shoe is invisible in a twelve-image thumbnail grid. Crop the subject and tile the crops beside the reference.</p></div>
-    <div class="card"><h4>5. Repairs speak a closed vocabulary</h4><p>Only fixed defect strings and pinned data reach a repair prompt. Judge prose in a prompt is an injection path and a drift source.</p></div>
-    <div class="card"><h4>6. Never adopt worse, never trust unchecked</h4><p>Candidates keep their own bytes, repairs must score higher, and a render without a current QA marker is re-checked.</p></div>
-    <div class="card"><h4>7. Fixed references need their own recovery</h4><p>A pinned asset that fails its check will replay that failure forever unless there is an ordered path: second opinion, re-plan, degrade, advise.</p></div>
-    <div class="card"><h4>8. Version what changes pixels</h4><p>Every input is hashed into the cache key, so approved art replays byte-for-byte and only what a change actually touches re-renders.</p></div>
+<!-- ===================== 09 ===================== -->
+<div class="ch">
+  <div class="ch-head"><div class="num">09</div><div><div class="k">Takeaways</div><h2>Lessons, and what the audit found</h2></div></div>
+
+  <div class="cards three wide">
+    <div class="card"><h4>1. Pin pixels, not adjectives</h4><p>If an identity matters, give the model a picture of it and the judge a spec of it.</p></div>
+    <div class="card"><h4>2. One spec for prompt and check</h4><p>When the same sentence drives the render and the gate, spreads that each pass also match each other.</p></div>
+    <div class="card"><h4>3. A gate can only reject</h4><p>Every gate here is paired with a fixed input that makes the right result likely on the first render.</p></div>
+    <div class="card"><h4>4. Compare at the scale of the defect</h4><p>Crop the subject and tile the crops beside the reference.</p></div>
+    <div class="card"><h4>5. Mention is not presence</h4><p>A noun in the text does not mean the object is in the frame. Decide visibility explicitly, per spread.</p></div>
+    <div class="card"><h4>6. Repairs speak in templates</h4><p>Fixed defect strings and pinned data only; a repair is never adopted unverified.</p></div>
+    <div class="card"><h4>7. References need recovery too</h4><p>A pinned asset that fails its check replays that failure unless there is an ordered path out.</p></div>
+    <div class="card"><h4>8. Rank by tier before score</h4><p>Bonuses must never lift a blocking candidate over a clean one.</p></div>
+    <div class="card"><h4>9. Hash what changes pixels</h4><p>Approved art replays byte for byte; only what a change touches re-renders.</p></div>
   </div>
 
-  <h3>Operational reference</h3>
-  <table>
-    <tr><th style="width:36%">Module</th><th>Responsibility</th></tr>
-    <tr><td><code>illustrator/bible/index.js</code></td><td>Builds the Book Bible and its manifest</td></tr>
-    <tr><td><code>bible/characterSheet.js</code></td><td>Character model sheet: candidates, judge, election</td></tr>
-    <tr><td><code>outfitLock.js</code></td><td>Per-slot outfit spec derived from the sheet</td></tr>
-    <tr><td><code>bible/propSheet.js</code></td><td>Prop and companion sheets and specs; auto-heal</td></tr>
-    <tr><td><code>storyObjects.js</code>, <code>storyObjectRepair.js</code></td><td>Story-object plan, grounding, field-scoped completion</td></tr>
+  <h3>Findings from reading the code</h3>
+  <p>This report was first drafted from the project notes and then checked against the source. The check corrected the draft in several places and surfaced the items below. None of them was changed as part of this work.</p>
+  <table class="wide">
+    <tr><th style="width:13%">Type</th><th style="width:33%">Finding</th><th>Detail</th></tr>
+    <tr><td><span class="pill b">Possible bug</span></td><td>Durable candidate slots do not key on the reference pack</td><td><code>illustrator/index.js</code> passes <code>renderOpts.referenceImages</code> into the slot identity, but the field is named <code>referencePack</code>, so the value is undefined. The nearby comment says the pack is keyed. Only the root path separates different dependencies. Recovery mode only.</td></tr>
+    <tr><td><span class="pill a">Behaviour</span></td><td>Age and proportion drift is advisory</td><td>"age or proportions differ from the character model sheet" is not in <code>BLOCKING_PREFIXES</code>, and it is judged only when <code>same_child</code> already holds.</td></tr>
+    <tr><td><span class="pill a">Behaviour</span></td><td>The colour and embedding metrics never block</td><td>They shift the score. With one candidate per spread (the default) there is often nothing for a score to choose between.</td></tr>
+    <tr><td><span class="pill a">Behaviour</span></td><td>Two spellings of one personal object could attach its sheet twice</td><td>The pack's duplicate check uses the raw string, not the normalised value. The pack has no size cap.</td></tr>
+    <tr><td><span class="pill g">Dead code</span></td><td><code>bible/faceCrop.js</code> is unused</td><td>Only its own test imports it. Its header still describes the ce-21 design that ce-22 replaced.</td></tr>
+    <tr><td><span class="pill g">Dead flag</span></td><td><code>CATALOG_SHEET_PHOTO_LIKENESS_MIN</code></td><td>Still documented in <code>flags.js</code>; no code reads it.</td></tr>
+    <tr><td><span class="pill s">Stale text</span></td><td>Comments and docs that disagree with the code</td><td><code>contactSheet.js</code> names <code>CATALOG_WORLD_QA</code> as its switch; the code reads <code>CATALOG_CONTACT_QA</code>. <code>select.js</code> says a blocking defect makes the score negative; a full identity bonus brings one defect to exactly 0 (the tier still protects the ordering). <code>docs/STORY_OBJECT_CONTINUITY.md</code> says critical-object residuals always stop the book, and lists the planner as <code>so-planner-5</code>; under the default they ship with an advisory, and the planner is at 7.</td></tr>
+  </table>
+
+  <h3>Module map</h3>
+  <table class="wide">
+    <tr><th style="width:44%">Module</th><th>Responsibility</th></tr>
+    <tr><td><code>illustrator/bible/index.js</code></td><td>Builds the Book Bible, the reference pack and the prompt bible</td></tr>
+    <tr><td><code>bible/characterSheet.js</code> · <code>outfitLock.js</code></td><td>Character model sheet election; outfit spec</td></tr>
+    <tr><td><code>bible/propSheet.js</code> · <code>referenceContract.js</code></td><td>Object and companion sheets, specs, contracts, auto-heal</td></tr>
+    <tr><td><code>storyObjects.js</code> · <code>storyObjectRepair.js</code> · <code>scenePresence.js</code></td><td>Story-object plan, field-scoped completion, visibility audit</td></tr>
     <tr><td><code>scenes.js</code></td><td>Scene prompt, <code>companionOnSpread</code>, continuity props</td></tr>
-    <tr><td><code>spreadQa.js</code>, <code>metrics.js</code>, <code>select.js</code></td><td>Structured verdict, deterministic signals, scoring</td></tr>
-    <tr><td><code>contactSheet.js</code></td><td>Child, prop and companion contact-sheet gates</td></tr>
+    <tr><td><code>spreadQa.js</code> · <code>metrics.js</code> · <code>select.js</code></td><td>Structured verdict, measured signals, ranking</td></tr>
+    <tr><td><code>contactSheet.js</code> · <code>index.js</code></td><td>Set gates, repair loop, budgets, ship policy, markers</td></tr>
   </table>
-  <table>
-    <tr><th style="width:36%">Switch (default)</th><th>Effect when changed</th></tr>
-    <tr><td><code>CATALOG_CHARACTER_SHEET</code> (on)</td><td><code>0</code>: renders anchor on the cover alone</td></tr>
-    <tr><td><code>CATALOG_SHEET_REQUIRED</code> (on)</td><td><code>0</code>: a failed sheet degrades to an advisory</td></tr>
-    <tr><td><code>CATALOG_PROP_SHEETS</code> (on)</td><td><code>0</code>: objects ride as described objects</td></tr>
-    <tr><td><code>CATALOG_HUMAN_COMPANION_SHEET</code> (on)</td><td><code>0</code>: person companions ride as nouns</td></tr>
-    <tr><td><code>CATALOG_PROP_CONTINUITY</code> (on)</td><td><code>0</code>: no carried comfort object</td></tr>
-    <tr><td><code>CATALOG_CONTACT_QA</code> (on)</td><td><code>0</code>: skip the contact-sheet gates</td></tr>
-    <tr><td><code>CATALOG_REFERENCE_AUTOHEAL</code> (on)</td><td><code>0</code>: reference failures pause the book</td></tr>
-    <tr><td><code>CATALOG_SHIP_ON_EXHAUSTION</code> (on)</td><td><code>0</code>: blocking residuals stop the run</td></tr>
-    <tr><td><code>CATALOG_RENDER_BUDGET_PER_SPREAD</code> (3)</td><td>Automatic candidates per spread across all gates</td></tr>
+
+  <h3>Switches</h3>
+  <table class="wide">
+    <tr><th style="width:44%">Switch</th><th style="width:11%">Default</th><th>Effect when changed</th></tr>
+    <tr><td><code>CATALOG_CHARACTER_SHEET</code></td><td>on</td><td>Off: renders anchor on the cover alone</td></tr>
+    <tr><td><code>CATALOG_SHEET_REQUIRED</code></td><td>on</td><td>Off: a book with no sheet continues with an advisory</td></tr>
+    <tr><td><code>CATALOG_SHEET_CANDIDATES</code> / <code>_FIRST_ROUND</code></td><td>3 / 2</td><td>Sheet budget; how many render in parallel first</td></tr>
+    <tr><td><code>CATALOG_PROP_SHEETS</code></td><td>on</td><td>Off: no object or companion sheets</td></tr>
+    <tr><td><code>CATALOG_HUMAN_COMPANION_SHEET</code></td><td>on</td><td>Off: person companions ride as nouns</td></tr>
+    <tr><td><code>CATALOG_PROP_CONTINUITY</code></td><td>on</td><td>Off: the comfort object is not carried</td></tr>
+    <tr><td><code>CATALOG_REFERENCE_AUTOHEAL</code></td><td>on</td><td>Off: a failed plot-object reference pauses the book</td></tr>
+    <tr><td><code>CATALOG_CONTACT_QA</code> / <code>CATALOG_WORLD_QA</code></td><td>on</td><td>Off: skip that set gate</td></tr>
+    <tr><td><code>CATALOG_RENDER_CANDIDATES</code></td><td>1</td><td>Base candidates per spread (1–3)</td></tr>
+    <tr><td><code>CATALOG_SPREAD_QA_MAX_REPAIRS</code></td><td>1</td><td>Repair passes per spread (0–4)</td></tr>
+    <tr><td><code>CATALOG_RENDER_BUDGET_PER_SPREAD</code></td><td>3</td><td>All automatic candidates per spread</td></tr>
+    <tr><td><code>CATALOG_SHIP_ON_EXHAUSTION</code></td><td>on</td><td>Off: blocking residuals stop the run</td></tr>
+    <tr><td><code>CATALOG_IDENTITY_METRICS</code></td><td>off</td><td>On: embedding identity score and set outliers</td></tr>
   </table>
-</section>
+</div>
 
 </body>
 </html>
