@@ -189,7 +189,7 @@ tr:nth-child(2), tr:nth-child(3) { break-after: avoid; }
   <h3>Reading paths</h3>
   <table class="wide">
     <tr><th style="width:22%">If you are</th><th style="width:30%">Read</th><th>You will leave with</th></tr>
-    <tr><td>Deciding whether to adopt this</td><td>02, 03, 09</td><td>The idea, what we need to know about you, and what it costs to build</td></tr>
+    <tr><td>Deciding whether to adopt this</td><td>02, 03, 09</td><td>The idea, how it bends to your situation, and what it costs to build</td></tr>
     <tr><td>Designing the system</td><td>03, 04, 05, 07</td><td>A component diagram, the contracts between components, and the acceptance algorithm</td></tr>
     <tr><td>Writing prompts and judges</td><td>06, 07, 10</td><td>Prompt patterns, the defect ledger, and the mistakes to avoid</td></tr>
     <tr><td>Running the project</td><td>09, 11</td><td>A phased plan with exit criteria, and the handoff process we propose</td></tr>
@@ -231,27 +231,27 @@ tr:nth-child(2), tr:nth-child(3) { break-after: avoid; }
 
 <!-- ===================== 03 ===================== -->
 <div class="ch pb">
-  <div class="ch-head"><div class="num">03</div><div><div class="k">Discovery</div><h2>What we need to know about you first</h2></div></div>
+  <div class="ch-head"><div class="num">03</div><div><div class="k">Design choices</div><h2>How the design depends on your situation</h2></div></div>
 
-  <p>The method bends in predictable ways depending on your product and your model. Answering these before the first working session will save both teams a week. A blank column is left for your notes.</p>
+  <p>The method bends in predictable ways depending on the product and the models behind it. We do not know yours, so this chapter lists the factors that matter and what each one changes. Nothing here needs to be sent back to us.</p>
 
-  <table class="wide q">
-    <tr><th style="width:4%">#</th><th style="width:36%">Question</th><th style="width:34%">Why it changes the design</th><th>Your answer</th></tr>
-    <tr><td>1</td><td>What is a "set" in your product, and how many images are in one?</td><td>Sets the cost of the set-level check and whether one contact sheet is enough</td><td class="ans"></td></tr>
-    <tr><td>2</td><td>Who or what must stay the same? One subject, several, objects, a setting?</td><td>Each one needs its own reference and its own checks</td><td class="ans"></td></tr>
-    <tr><td>3</td><td>Where does the subject's identity come from: a photo of a real person, a design you own, a text description?</td><td>Decides what the "ground truth" is and which privacy and safety limits apply</td><td class="ans"></td></tr>
-    <tr><td>4</td><td>Does a person approve anything before the set is generated?</td><td>An approved image is the best possible identity anchor</td><td class="ans"></td></tr>
-    <tr><td>5</td><td>Can your image model take several reference images in one call? How many?</td><td>The reference pack depends on it. See the fallback table below</td><td class="ans"></td></tr>
-    <tr><td>6</td><td>Can you fine-tune or train an adapter per subject?</td><td>Can replace the model sheet for identity, but not the checks</td><td class="ans"></td></tr>
-    <tr><td>7</td><td>Do you have a vision model that returns structured output reliably?</td><td>The whole verification layer runs on it</td><td class="ans"></td></tr>
-    <tr><td>8</td><td>Is the output printed, shown on screen, or animated?</td><td>Print makes defects permanent and justifies stricter gates</td><td class="ans"></td></tr>
-    <tr><td>9</td><td>What is the acceptable time and cost per set?</td><td>Sets candidate counts, repair budgets and which gates you can afford</td><td class="ans"></td></tr>
-    <tr><td>10</td><td>What happens today when a set is inconsistent? Who notices?</td><td>Tells us whether to stop and ask a human or ship with a flag</td><td class="ans"></td></tr>
-    <tr><td>11</td><td>Does the text or script behind each image name the objects and characters in it?</td><td>Needed to plan which object appears where</td><td class="ans"></td></tr>
-    <tr><td>12</td><td>Do you already store generated images with stable keys you can reuse?</td><td>Caching and resume depend on content-addressed keys</td><td class="ans"></td></tr>
+  <table class="wide">
+    <tr><th style="width:38%">Factor</th><th>What it changes</th></tr>
+    <tr><td>What a "set" is, and how many images are in one</td><td>The cost of the set-level check, and whether one contact sheet is enough</td></tr>
+    <tr><td>What must stay the same: one subject, several, objects, a setting</td><td>Each one needs its own reference and its own checks</td></tr>
+    <tr><td>Where the subject's identity comes from: a real person's photo, an owned design, a text description</td><td>What counts as ground truth, and which privacy and safety limits apply</td></tr>
+    <tr><td>Whether a person approves anything before the set is generated</td><td>An approved image is the best possible identity anchor</td></tr>
+    <tr><td>How many reference images the image model accepts per call</td><td>The shape of the reference pack; see the table below</td></tr>
+    <tr><td>Whether per-subject fine-tuning or adapters are available</td><td>Can replace the model sheet for identity, but not the checks</td></tr>
+    <tr><td>Whether a vision model returns structured output reliably</td><td>The whole verification layer runs on it</td></tr>
+    <tr><td>Whether the output is printed, shown on screen, or animated</td><td>Print makes defects permanent and justifies stricter gates</td></tr>
+    <tr><td>The acceptable time and cost per set</td><td>Candidate counts, repair budgets, and which gates are affordable</td></tr>
+    <tr><td>What happens today when a set is inconsistent</td><td>Whether to stop for a person or ship with a flag</td></tr>
+    <tr><td>Whether the script behind each image names its objects and characters</td><td>Needed to plan which object appears where</td></tr>
+    <tr><td>Whether generated images are stored under stable, reusable keys</td><td>Caching and resume depend on content-addressed keys</td></tr>
   </table>
 
-  <h3>How the answers change the design</h3>
+  <h3>Common situations and what to do</h3>
   <table class="wide">
     <tr><th style="width:30%">If</th><th>Then</th></tr>
     <tr><td>The model takes only one reference image</td><td>Composite the kit into a single reference board (subject sheet plus the objects for this item), and lean harder on the structured text spec and on verification.</td></tr>
@@ -640,7 +640,7 @@ promote(best)                                <u># copy to the canonical key; wri
 
   <h3>Sessions</h3>
   <div class="steps">
-    <div><b class="t">Kickoff · 60 minutes</b>You walk us through your product and your answers to chapter 03. We agree which parts of the method apply and what "consistent" means for you. <br><strong>Output:</strong> a one-page scope and the list of identities to pin.</div>
+    <div><b class="t">Kickoff · 60 minutes</b>We walk through the playbook and you describe your product. Together we agree which parts of the method apply and what "consistent" means for you. <br><strong>Output:</strong> a one-page scope and the list of identities to pin.</div>
     <div><b class="t">Design review · 90 minutes</b>You present your mapping of the eight components onto your stack. We review the contracts and the defect ledger you drafted. <br><strong>Output:</strong> an agreed architecture and a blocking / advisory list.</div>
     <div><b class="t">Pilot review · 90 minutes, after Phases 0 to 2</b>We look at your baseline numbers, your model sheets and your judge agreement together. <br><strong>Output:</strong> thresholds for your data and a go / no-go on Phases 3 to 5.</div>
     <div><b class="t">Close-out · 60 minutes, after Phase 4</b>Before-and-after numbers, open problems, and anything you learned that we should fold back into this playbook. <br><strong>Output:</strong> a short written summary both teams sign off.</div>
@@ -679,14 +679,14 @@ promote(best)                                <u># copy to the canonical key; wri
 
 <!-- ===================== A ===================== -->
 <div class="ch pb">
-  <div class="ch-head"><div class="num">A</div><div><div class="k">Appendix</div><h2>Readiness checklist</h2></div></div>
+  <div class="ch-head"><div class="num">A</div><div><div class="k">Appendix</div><h2>What a complete implementation has</h2></div></div>
 
-  <p>Tick these off as you go. A set-generation system that can answer yes to all of them has the whole method in place.</p>
+  <p>A one-page summary of the method as properties of the finished system. A set-generation pipeline with all of these has the whole method in place.</p>
 
   <div class="two wide">
     <div>
       <h3 style="margin-top:0">Fixed inputs</h3>
-      <ul class="chk">
+      <ul>
         <li>Every identity that must persist has a purpose-made reference image</li>
         <li>Each reference has a structured spec read off that reference</li>
         <li>References are built before any item and never rebuilt mid-set</li>
@@ -698,7 +698,7 @@ promote(best)                                <u># copy to the canonical key; wri
         <li>Presence of each object in each item is decided explicitly</li>
       </ul>
       <h3>Verification</h3>
-      <ul class="chk">
+      <ul>
         <li>The judge sees the references beside the image</li>
         <li>The verdict is a validated schema</li>
         <li>Every finding maps to a fixed string, classed blocking or advisory</li>
@@ -708,7 +708,7 @@ promote(best)                                <u># copy to the canonical key; wri
     </div>
     <div>
       <h3 style="margin-top:0">Acceptance</h3>
-      <ul class="chk">
+      <ul>
         <li>Candidates are ranked by tier before score</li>
         <li>Every candidate keeps its own stored bytes</li>
         <li>Repair prompts come from templates and kit data only</li>
@@ -719,7 +719,7 @@ promote(best)                                <u># copy to the canonical key; wri
         <li>The policy when budget runs out is written down</li>
       </ul>
       <h3>Operations</h3>
-      <ul class="chk">
+      <ul>
         <li>Storage keys hash every input that changes pixels</li>
         <li>A marker beside each image records what was checked, by which judge version</li>
         <li>A stale marker causes a re-check</li>
