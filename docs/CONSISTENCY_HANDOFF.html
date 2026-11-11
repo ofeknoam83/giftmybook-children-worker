@@ -176,9 +176,9 @@ tr:nth-child(2), tr:nth-child(3) { break-after: avoid; }
 <div class="ch" style="page-break-before:auto">
   <div class="ch-head"><div class="num">01</div><div><div class="k">Start here</div><h2>What this document is, and how to use it</h2></div></div>
 
-  <p class="lede">We spent about twenty engine revisions learning how to make an image model draw the same child, in the same clothes, with the same toy, twelve times in a row. This playbook hands you the method.</p>
+  <p class="lede">We spent about twenty engine revisions learning how to make an image model draw the same child, in the same clothes, with the same toy, twelve times in a row. This document shares what we learned, in the hope that it saves you some of that time.</p>
 
-  <p>It does not hand you our code. We do not know your stack, your image model or your product, so everything here is written as roles, contracts and patterns you can implement in any language against any model that meets a short list of capabilities (chapter 04).</p>
+  <p>It is a standalone reference. It does not include our code, and it asks nothing of you. We do not know your stack, your image model or your product, so everything here is written as roles, contracts and patterns you can implement in any language against any model that meets a short list of capabilities (chapter 04).</p>
 
   <div class="cards wide three">
     <div class="card"><span class="tag">Transfers as is</span><h4>The method</h4><p>The five moves, the component roles, the data contracts, the prompt patterns, the blocking / advisory split, the acceptance algorithm and the pitfalls.</p></div>
@@ -192,7 +192,7 @@ tr:nth-child(2), tr:nth-child(3) { break-after: avoid; }
     <tr><td>Deciding whether to adopt this</td><td>02, 03, 09</td><td>The idea, how it bends to your situation, and what it costs to build</td></tr>
     <tr><td>Designing the system</td><td>03, 04, 05, 07</td><td>A component diagram, the contracts between components, and the acceptance algorithm</td></tr>
     <tr><td>Writing prompts and judges</td><td>06, 07, 10</td><td>Prompt patterns, the defect ledger, and the mistakes to avoid</td></tr>
-    <tr><td>Running the project</td><td>09, 11</td><td>A phased plan with exit criteria, and the handoff process we propose</td></tr>
+    <tr><td>Running the project</td><td>09, 10</td><td>A phased plan with exit criteria, and the mistakes to plan around</td></tr>
   </table>
 
   <div class="note">
@@ -521,7 +521,7 @@ promote(best)                                <u># copy to the canonical key; wri
 <div class="ch">
   <div class="ch-head"><div class="num">08</div><div><div class="k">Adapting it</div><h2>How the method bends to different products</h2></div></div>
 
-  <p>We have run this on one product. The table is our reasoning about others, not field experience; treat it as a set of hypotheses to test in your pilot.</p>
+  <p>We have run this on one product. The table is our reasoning about others, not field experience; treat it as a set of hypotheses to test on your own data.</p>
   <table class="wide">
     <tr><th style="width:18%">Product</th><th style="width:27%">The set</th><th style="width:28%">What changes</th><th>Watch for</th></tr>
     <tr><td>Storybooks, comics</td><td>Pages or panels of one story</td><td>Closest to ours. Comics add several characters per panel and speech balloons.</td><td>Duplicated characters; which character is which</td></tr>
@@ -587,6 +587,15 @@ promote(best)                                <u># copy to the canonical key; wri
     <tr><td>Set gate</td><td>up to a few re-renders</td><td>about 2 + K</td></tr>
   </table>
   <p>The kit is paid once per set and reused on every retry. In steady state, the verification layer roughly doubles the number of model calls and adds well under one extra generation per item.</p>
+
+  <h3>If it is not working</h3>
+  <table class="wide">
+    <tr><th style="width:34%">Risk</th><th>What to do</th></tr>
+    <tr><td>Your image model follows references weakly</td><td>Find out first with a ten-image test: one model sheet, ten scenes. If it fails, the problem is the model, not the method.</td></tr>
+    <tr><td>Your vision model is an unreliable judge</td><td>Phase 2 measures this directly. Unreliable fields become advisory; reliable ones gate.</td></tr>
+    <tr><td>Cost per set is too high</td><td>Drop to one candidate and one repair, keep the kit and the set gate. Most of the gain is in the fixed inputs.</td></tr>
+    <tr><td>Our thresholds do not fit your style</td><td>Expected. Chapter 07 lists how to recalibrate each one.</td></tr>
+  </table>
 </div>
 
 <!-- ===================== 10 ===================== -->
@@ -612,69 +621,6 @@ promote(best)                                <u># copy to the canonical key; wri
     <div class="h">The pattern behind the list</div>
     <p>Almost every item is the same mistake in a different place: an invariant that was stated but not pinned, or pinned but not checked, or checked but with no path to recovery. When something drifts, ask which of the three is missing.</p>
   </div>
-</div>
-
-<!-- ===================== 11 ===================== -->
-<div class="ch pb">
-  <div class="ch-head"><div class="num">11</div><div><div class="k">The handoff</div><h2>How we propose to work together</h2></div></div>
-
-  <p>This chapter is a proposal. Dates, people and scope are for both teams to agree.</p>
-
-  <h3>What we hand over</h3>
-  <table class="wide">
-    <tr><th style="width:26%">Deliverable</th><th style="width:44%">Contents</th><th>Form</th></tr>
-    <tr><td>This playbook</td><td>Method, contracts, patterns, algorithm, pitfalls</td><td>PDF</td></tr>
-    <tr><td>Prompt pack</td><td>The full text of our sheet, label, block, judge and repair prompts, with the subject generalised</td><td>Text files</td></tr>
-    <tr><td>Schema pack</td><td>The five records as JSON Schema, with example instances</td><td>JSON</td></tr>
-    <tr><td>Defect ledger</td><td>Every defect string, its class, its repair template</td><td>Spreadsheet</td></tr>
-    <tr><td>Evaluation kit</td><td>The review rubric and scoring sheet for the Phase 0 baseline</td><td>Spreadsheet</td></tr>
-    <tr><td>Working sessions</td><td>Four sessions, below</td><td>Calls</td></tr>
-  </table>
-
-  <h3>What we do not hand over</h3>
-  <ul>
-    <li><strong>Customer data.</strong> No photos, names, books or generated images of real customers. Examples will be synthetic or made for the purpose.</li>
-    <li><strong>Credentials and infrastructure.</strong> No keys, buckets or access to our systems.</li>
-    <li><strong>Source code</strong>, unless both companies agree otherwise in writing. The playbook is designed to stand without it.</li>
-  </ul>
-
-  <h3>Sessions</h3>
-  <div class="steps">
-    <div><b class="t">Kickoff · 60 minutes</b>We walk through the playbook and you describe your product. Together we agree which parts of the method apply and what "consistent" means for you. <br><strong>Output:</strong> a one-page scope and the list of identities to pin.</div>
-    <div><b class="t">Design review · 90 minutes</b>You present your mapping of the eight components onto your stack. We review the contracts and the defect ledger you drafted. <br><strong>Output:</strong> an agreed architecture and a blocking / advisory list.</div>
-    <div><b class="t">Pilot review · 90 minutes, after Phases 0 to 2</b>We look at your baseline numbers, your model sheets and your judge agreement together. <br><strong>Output:</strong> thresholds for your data and a go / no-go on Phases 3 to 5.</div>
-    <div><b class="t">Close-out · 60 minutes, after Phase 4</b>Before-and-after numbers, open problems, and anything you learned that we should fold back into this playbook. <br><strong>Output:</strong> a short written summary both teams sign off.</div>
-  </div>
-
-  <div class="two">
-    <div>
-      <h3>Who we need from you</h3>
-      <ul>
-        <li>A product owner who can say what blocks</li>
-        <li>An engineer who owns the generation pipeline</li>
-        <li>Someone who writes and tests prompts</li>
-        <li>Two reviewers for the baseline</li>
-      </ul>
-    </div>
-    <div>
-      <h3>Success, stated up front</h3>
-      <ul>
-        <li>A measured baseline exists before any change</li>
-        <li>Set consistency rate improves on the same sets</li>
-        <li>Renders per accepted image is within your ceiling</li>
-        <li>Your team can add a new identity type unaided</li>
-      </ul>
-    </div>
-  </div>
-
-  <h3>Risks to agree on early</h3>
-  <table class="wide">
-    <tr><th style="width:34%">Risk</th><th>How we would handle it</th></tr>
-    <tr><td>Your image model follows references weakly</td><td>Find out in week one with a ten-image test: one model sheet, ten scenes. If it fails, the conversation is about the model, not the method.</td></tr>
-    <tr><td>Your vision model is an unreliable judge</td><td>Phase 2 measures this directly. Unreliable fields become advisory; reliable ones gate.</td></tr>
-    <tr><td>Cost per set is too high</td><td>Drop to one candidate and one repair, keep the kit and the set gate. Most of the gain is in the fixed inputs.</td></tr>
-    <tr><td>Our thresholds do not fit your style</td><td>Expected. Chapter 07 lists how to recalibrate each one.</td></tr>
-  </table>
 </div>
 
 <!-- ===================== A ===================== -->
